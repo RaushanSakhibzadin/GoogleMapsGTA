@@ -74,6 +74,9 @@
     background:linear-gradient(90deg,var(--cyan),var(--pink),var(--gold));box-shadow:0 0 18px rgba(255,79,216,.75)}
   #loadMsg{margin-top:14px;font-size:13.5px;color:var(--cyan);letter-spacing:.06em;min-height:20px}
   #loadSub{margin-top:6px;font-size:12px;color:rgba(255,255,255,.5);min-height:18px;padding:0 14px}
+  /* the way out when a map server is having a bad day */
+  #skip{display:none;margin-top:24px;font-size:13px;padding:11px 18px}
+  #skip.on{display:inline-block}
 
   /* ---------- HUD ---------- */
   #hud{position:fixed;inset:0;z-index:30;pointer-events:none;display:none}
@@ -249,6 +252,7 @@
   <div id="bar"><div id="barIn"></div></div>
   <div id="loadMsg">Waking the satellites…</div>
   <div id="loadSub"></div>
+  <button id="skip" class="ghost">PLAY OFFLINE CITY</button>
 </div>
 
 <!-- ===================== pause ===================== -->
@@ -426,37 +430,103 @@ function overpassQL(s, w, n, e) {
     `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
     // district names for the GTA-style zone banner
     `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
-    `);out geom;`;
+    `);out geom qt;`;
+}
+
+/* Overpass queues heavy queries instead of refusing them, so a mirror can accept
+   the connection and then simply never answer. Every request therefore carries a
+   hard deadline, and the whole load can be cancelled from the UI. */
+const HEDGE = 7000;      // start the next mirror if the current one is still quiet
+const MIRROR_MS = 22000; // hard timeout on any single request
+const TOTAL_MS = 25000;  // give up on real map data entirely and build a city
+const LOAD = { cancelled: false, controllers: [], timers: [], bytes: 0, t0: 0, cancelP: null, cancel: null };
+
+function loadReset() {
+  loadAbort();
+  LOAD.cancelled = false; LOAD.bytes = 0; LOAD.t0 = Date.now();
+  LOAD.cancelP = new Promise((_, rej) => { LOAD.cancel = () => { LOAD.cancelled = true; rej(new Error('cancelled')); }; });
+  LOAD.cancelP.catch(() => {});   // the race handles it; don't warn if nobody's listening
+}
+function loadAbort() {
+  for (const c of LOAD.controllers) { try { c.abort(); } catch (e) {} }
+  for (const t of LOAD.timers) clearTimeout(t);
+  LOAD.controllers = []; LOAD.timers = [];
+}
+function fetchTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  LOAD.controllers.push(ctrl);
+  const t = setTimeout(() => ctrl.abort(), ms);
+  LOAD.timers.push(t);
+  return fetch(url, Object.assign({ signal: ctrl.signal }, opts))
+    .finally(() => clearTimeout(t));
 }
 
 async function geocode(q) {
   const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q);
-  const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  const r = await fetchTimeout(url, { headers: { 'Accept': 'application/json' } }, 12000);
   if (!r.ok) throw new Error('geocoder ' + r.status);
   const j = await r.json();
   if (!j.length) throw new Error('no such place');
   return { lat: +j[0].lat, lon: +j[0].lon, name: j[0].display_name.split(',').slice(0, 2).join(',') };
 }
 
-async function fetchOSM(lat, lon, onMsg) {
+/* Stream the body so a big city reports real progress instead of a frozen bar. */
+async function readBody(res, onBytes) {
+  if (!res.body || !res.body.getReader) return res.text();
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  const parts = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    got += value.length;
+    parts.push(dec.decode(value, { stream: true }));
+    onBytes(got);
+  }
+  parts.push(dec.decode());
+  return parts.join('');
+}
+
+/* Hedged mirror racing: fire the first straight away, bring in the next one if it
+   goes quiet, and take whichever answers first. Bounded by TOTAL_MS either way. */
+function fetchOSM(lat, lon, onMsg, onBytes) {
   const dLat = RADIUS / 110540, dLon = RADIUS / (111320 * Math.cos(lat * Math.PI / 180));
   const ql = overpassQL(lat - dLat, lon - dLon, lat + dLat, lon + dLon);
-  let lastErr;
-  for (let i = 0; i < OVERPASS.length; i++) {
-    try {
-      onMsg(i === 0 ? 'Surveying the streets…' : 'Mirror ' + (i + 1) + ' — retrying…');
-      const r = await fetch(OVERPASS[i], {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(ql)
-      });
-      if (!r.ok) throw new Error('overpass ' + r.status);
-      const j = await r.json();
-      if (j && j.elements) return j.elements;
-      throw new Error('empty response');
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr || new Error('overpass unreachable');
+  const body = 'data=' + encodeURIComponent(ql);
+  let live = 0;
+
+  const attempt = (url, delay, i) => new Promise((resolve, reject) => {
+    const t = setTimeout(async () => {
+      if (LOAD.cancelled) return reject(new Error('cancelled'));
+      live++;
+      onMsg(live > 1 ? 'Asking ' + live + ' mirrors…' : 'Surveying the streets…');
+      try {
+        const r = await fetchTimeout(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body
+        }, MIRROR_MS);
+        if (!r.ok) throw new Error('overpass ' + r.status);
+        const j = JSON.parse(await readBody(r, onBytes));
+        if (!j || !j.elements) throw new Error('empty response');
+        resolve(j.elements);
+      } catch (e) { reject(e); }
+    }, delay);
+    LOAD.timers.push(t);
+  });
+
+  const tries = OVERPASS.map((u, i) => attempt(u, i * HEDGE, i));
+  const deadline = new Promise((_, rej) => {
+    const t = setTimeout(() => rej(new Error('timed out')), TOTAL_MS);
+    LOAD.timers.push(t);
+  });
+  deadline.catch(() => {});
+
+  return Promise.race([
+    Promise.any(tries).catch(() => { throw new Error('all mirrors failed'); }),
+    deadline,
+    LOAD.cancelP
+  ]).finally(loadAbort);
 }
 
 /* ------------------------------ 3. world ------------------------------ */
@@ -1207,23 +1277,53 @@ function useGeo() {
   );
 }
 
+let subNote = '', skipTimer = 0, tickTimer = 0;
 function showLoad(msg, sub) {
   state = 'loading';
   $('menu').classList.add('hide'); $('load').classList.remove('hide');
   $('loadMsg').textContent = msg || ''; $('loadSub').textContent = sub || '';
+  subNote = sub || '';
+  loadReset();
+  // never leave anyone staring at a bar: offer the way out after a few seconds
+  $('skip').classList.remove('on');
+  clearTimeout(skipTimer);
+  skipTimer = setTimeout(() => $('skip').classList.add('on'), 6000);
+  clearInterval(tickTimer);
+  tickTimer = setInterval(paintProgress, 250);
+}
+function endLoad() {
+  clearTimeout(skipTimer); clearInterval(tickTimer);
+  $('skip').classList.remove('on');
+  loadAbort();
+}
+// bytes are unknown up front, so creep towards 60% asymptotically as they arrive
+function paintProgress() {
+  if (state !== 'loading') return;
+  const secs = Math.floor((Date.now() - LOAD.t0) / 1000);
+  const mb = LOAD.bytes / 1048576;
+  const parts = [];
+  if (mb > .05) parts.push(mb.toFixed(1) + ' MB');
+  else if (subNote) parts.push(subNote);
+  if (secs > 2) parts.push(secs + 's');
+  $('loadSub').textContent = parts.join(' · ');
+  // creep on bytes *and* on time, so a slow server still looks like progress
+  const p = .25 + .35 * (1 - Math.exp(-(mb / 3 + secs / 40)));
+  $('barIn').style.width = (p * 100) + '%';
 }
 function prog(p, msg, sub) {
+  if (p >= .6) clearInterval(tickTimer);   // download's done; stop the byte ticker
   $('barIn').style.width = (p * 100) + '%';
   if (msg != null) $('loadMsg').textContent = msg;
-  if (sub != null) $('loadSub').textContent = sub;
+  if (sub != null) { $('loadSub').textContent = sub; subNote = sub; }
 }
+$('skip').onclick = () => { if (LOAD.cancel) LOAD.cancel(); };
 
 async function startGame(query, lat, lon, label) {
   audioStart();
   showLoad('Locating…', query || label || '');
   prog(.08);
   let name = label || query || 'Somewhere';
-  let procedural = false, data = null;
+  let procedural = false, data = null, why = '';
 
   try {
     if (lat == null) {
@@ -1233,7 +1333,9 @@ async function startGame(query, lat, lon, label) {
     setOrigin(lat, lon);
     $('loadCity').textContent = name;
     prog(.25, 'Surveying the streets…', 'downloading ' + (RADIUS * 2) + 'm of real map data');
-    const els = await fetchOSM(lat, lon, (m) => prog(.35, m));
+    const els = await fetchOSM(lat, lon,
+      m => { $('loadMsg').textContent = m; },
+      b => { LOAD.bytes = b; });
     prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
     data = parseOSM(els);
     if (data.roads.filter(r => r.drive).length < 6) {
@@ -1246,11 +1348,16 @@ async function startGame(query, lat, lon, label) {
     setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
     procedural = true;
     data = proceduralCity();
+    // say which of the three it was, rather than a blanket "unavailable"
+    why = err && /cancel/i.test(err.message) ? 'skipped the download'
+        : err && /timed out/i.test(err.message) ? 'map servers were too slow'
+        : 'map servers unreachable';
     name = 'Neon Grid City (offline)';
   }
+  endLoad();
 
   $('loadCity').textContent = name;
-  prog(.82, 'Wiring the neon…', procedural ? 'map data unavailable — generated a city instead' : '');
+  prog(.82, 'Wiring the neon…', procedural ? why + ' — generated a city instead' : '');
   await new Promise(r => setTimeout(r, 40));
   buildWorld(data, name, procedural);
 
@@ -1924,6 +2031,7 @@ function togglePause() {
 $('resume').onclick = togglePause;
 $('newLoc').onclick = () => {
   state = 'menu';
+  endLoad();
   $('pause').classList.add('hide'); $('hud').classList.remove('on');
   $('touch').classList.remove('on'); $('big').classList.remove('on');
   $('menu').classList.remove('hide'); $('barIn').style.width = '0%';
