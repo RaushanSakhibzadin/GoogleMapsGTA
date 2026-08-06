@@ -25,6 +25,7 @@ is the whole game.
 | **W A S D** / arrow keys | drive, reverse, steer |
 | **Space** | handbrake — hold it into a corner and the back end steps out |
 | **H** | horn |
+| **N** | switch between dusk and daylight |
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
 
@@ -33,6 +34,18 @@ is the whole game.
 - **Real map geometry.** Road centrelines with their OSM classification (a motorway is wider
   and faster than a service road), building footprints with real heights from `height` /
   `building:levels` tags, plus water and parks.
+- **Real building colours.** Every building takes the colour a mapper actually recorded in
+  `building:colour` / `roof:colour` where one exists, then falls back through
+  `building:material` (brick, concrete, glass, stone, metal, wood), then what the building is
+  for — houses get render and brick, offices get concrete and glass, warehouses get metal —
+  and only then to size and height. Roofs use real roof materials (asphalt, gravel, terracotta
+  tile, membrane) rather than the facade colour, since a roof is what you actually see from above.
+- **Street and district names, GTA style.** Turn onto a new road and its name appears by the
+  radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
+  and stays, the way Vice City announces its zones. Deliveries name their destination street too.
+- **Dusk or daylight.** `N` switches the whole scene between the neon sunset and a bright
+  daytime palette — asphalt roads, green parks, blue water, sunlit facades. Buildings store their
+  material colour rather than a finished one, so the swap is instant.
 - **Arcade physics.** Velocity is split into forward and lateral components against the car's
   heading; lateral grip drops hard under the handbrake, which is what makes it drift. Steering
   authority falls off with speed and inverts in reverse.
@@ -60,6 +73,7 @@ is the whole game.
 | Rendering | Canvas 2D. Camera rotates so the car points up; buildings fake 3D by pushing the roof polygon away from screen centre and filling the wall quads |
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
+| Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
 
 Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all

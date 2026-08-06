@@ -102,6 +102,24 @@
     width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
     border:3px solid rgba(255,79,216,.75);box-shadow:0 0 26px rgba(255,79,216,.4),inset 0 0 30px rgba(0,0,0,.65);
     background:#0a0614}
+  /* street name: appears when you turn onto a new road, then fades (GTA V style) */
+  #street{position:absolute;left:14px;top:calc(50% + clamp(120px,21vw,178px)/2 + 10px);
+    max-width:min(38vw,300px);font-family:var(--ui);font-weight:700;font-size:13px;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--cyan);
+    text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
+    opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
+  #street.on{opacity:1;transform:none}
+  /* district name: persistent, flashes on entry (Vice City zone style) */
+  #zone{position:absolute;right:14px;bottom:calc(12px + clamp(46px,10vw,74px));
+    max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
+    color:var(--gold);opacity:0;transition:opacity .5s}
+  #zone.on{opacity:.95}
+  #zone.flash{animation:zoneIn .85s ease-out}
+  @keyframes zoneIn{
+    0%{opacity:0;transform:translateX(26px) scale(1.14)}
+    35%{opacity:1;transform:none}
+    100%{opacity:.95}
+  }
   #speed{position:absolute;right:14px;bottom:12px;text-align:right}
   #spdN{font-family:var(--hud);font-size:clamp(38px,8.5vw,62px);line-height:.9;color:#fff;
     text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 24px rgba(51,230,255,.6)}
@@ -137,6 +155,28 @@
   #tH{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
     padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
 
+  /* ---------- daylight: the HUD has to survive a light background ---------- */
+  body.theme-day #post{
+    background:
+      repeating-linear-gradient(to bottom,rgba(0,0,0,.05) 0 1px,transparent 1px 3px),
+      radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(120,100,70,.22) 100%)}
+  body.theme-day #post::after{background:none}
+  body.theme-day .hudTxt{text-shadow:2px 2px 0 rgba(255,255,255,.8),0 0 18px rgba(255,255,255,.95)}
+  body.theme-day #cash{color:#7d4a00}
+  body.theme-day #stars{color:#9c6000;text-shadow:2px 2px 0 rgba(255,255,255,.85)}
+  body.theme-day #stars .off{color:rgba(0,0,0,.22)}
+  body.theme-day #obj{color:#1b1626}
+  body.theme-day #obj small,body.theme-day #spdU{color:#0a6478;text-shadow:0 0 8px rgba(255,255,255,.95)}
+  body.theme-day #timer{color:#a3186f}
+  body.theme-day #spdN{color:#241f2e}
+  body.theme-day #zone{color:#7d4a00}
+  body.theme-day #street{color:#07596b;text-shadow:0 2px 5px rgba(255,255,255,.95)}
+  body.theme-day #hpLbl{color:rgba(0,0,0,.55)}
+  body.theme-day #hpBar{background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.35)}
+  body.theme-day #mini{border-color:rgba(60,45,85,.6);
+    box-shadow:0 0 18px rgba(0,0,0,.18),inset 0 0 22px rgba(0,0,0,.15)}
+  body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color:#22202a}
+
   .credit{position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:10.5px;
     color:rgba(255,255,255,.42);z-index:61}
   .credit a{color:rgba(51,230,255,.75)}
@@ -152,6 +192,10 @@
     #spdN{font-size:clamp(30px,7.5vw,46px)}
     #obj{max-width:56vw}
     #toast{top:30%}
+    /* left column stacks pads → armor → drift → radar, so the street name goes above it all */
+    #street{top:auto;left:14px;max-width:52vw;
+      bottom:calc(var(--pad) + 140px + clamp(96px,25vw,150px))}
+    #zone{bottom:calc(var(--pad) + 120px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
   }
 </style>
 </head>
@@ -167,6 +211,8 @@
   <div id="stars"></div>
   <canvas id="mini"></canvas>
   <div id="hpWrap"><div id="hpLbl">ARMOR</div><div id="hpBar"><div id="hpIn"></div></div></div>
+  <div id="street"></div>
+  <div id="zone" class="hudTxt"></div>
   <div id="speed"><div id="spdN">0</div><div id="spdU">KM/H</div></div>
   <div id="toast" class="hudTxt"></div>
 </div>
@@ -189,7 +235,7 @@
   </div>
   <div class="presets" id="presets"></div>
   <div class="hint">
-    <b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>Esc</kbd> pause<br>
+    <b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>N</kbd> day/night · <kbd>Esc</kbd> pause<br>
     Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
     ram a cop and find out what five stars feels like.
   </div>
@@ -242,24 +288,107 @@ const decay = (k, dt) => 1 - Math.exp(-k * dt);
 
 const $ = id => document.getElementById(id);
 
-/* ------------------------------ 1. palette ------------------------------ */
-const PAL = {
-  ground:   '#0d0718',
-  water:    '#0b2d4a',
-  waterEdge:'#1d5f86',
-  park:     '#123a2a',
-  parkEdge: '#2a7a52',
-  kerb:     '#2b2140',
-  case:     '#080512',
-  road:     '#2f2848',
-  roadBig:  '#382f54',
-  line:     'rgba(255,227,106,.55)',
-  wall:     ['#2a1a3e', '#301d44', '#241636', '#33204a'],
-  roof:     ['#6d3f7d', '#573a86', '#7f4587', '#42528c', '#7c447f'],
-  neon:     ['#ff4fd8', '#33e6ff', '#ffe36a', '#8a5cff', '#48ff9e'],
-  carBody:  ['#ff4fd8', '#33e6ff', '#ffe36a', '#48ff9e', '#ff7043', '#c9a2ff',
-             '#f5f5f5', '#7de3ff', '#ff5f8d', '#9be15d']
+/* ------------------------------ 1. colour ------------------------------ */
+/* Buildings hold a base *material* colour as [r,g,b]; each theme turns that into
+   the roof and wall strings the renderer draws. That's what makes N instant. */
+const rgb = (r, g, b) => [r, g, b];
+const css = c => 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')';
+const lum = c => .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
+const mul = (c, k) => [clamp(c[0] * k, 0, 255), clamp(c[1] * k, 0, 255), clamp(c[2] * k, 0, 255)];
+const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+const NAMED = {
+  white: [242, 240, 235], black: [42, 42, 44], grey: [150, 150, 148], gray: [150, 150, 148],
+  silver: [186, 188, 190], red: [158, 74, 58], maroon: [110, 52, 46], brown: [124, 90, 66],
+  beige: [222, 208, 180], cream: [235, 224, 198], tan: [206, 182, 146], yellow: [222, 196, 128],
+  orange: [200, 128, 72], green: [104, 124, 92], blue: [104, 128, 156], pink: [226, 186, 186],
+  sandstone: [214, 190, 152], terracotta: [178, 92, 62], concrete: [176, 174, 166]
 };
+// accepts "#abc", "#aabbcc" and the common CSS names mappers actually use
+function parseColour(v) {
+  if (!v) return null;
+  v = String(v).trim().toLowerCase();
+  if (v[0] === '#') {
+    if (v.length === 4) return [parseInt(v[1] + v[1], 16), parseInt(v[2] + v[2], 16), parseInt(v[3] + v[3], 16)];
+    if (v.length === 7) return [parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16)];
+    return null;
+  }
+  return NAMED[v] || null;
+}
+
+/* Real facade and roof materials. */
+const MAT = {
+  concrete:  [rgb(176, 174, 166), rgb(160, 158, 150), rgb(190, 188, 179)],
+  stucco:    [rgb(228, 214, 188), rgb(214, 198, 170), rgb(238, 228, 206)],
+  sand:      [rgb(212, 190, 152), rgb(198, 176, 140), rgb(222, 204, 168)],
+  brick:     [rgb(150, 88, 68), rgb(134, 76, 58), rgb(166, 104, 80)],
+  stone:     [rgb(198, 192, 178), rgb(182, 176, 162), rgb(210, 205, 192)],
+  glass:     [rgb(138, 158, 174), rgb(120, 142, 162), rgb(154, 174, 188)],
+  metal:     [rgb(146, 148, 152), rgb(128, 130, 136), rgb(162, 164, 168)],
+  wood:      [rgb(158, 126, 92), rgb(140, 110, 80), rgb(174, 144, 110)],
+  white:     [rgb(238, 234, 226), rgb(228, 222, 212), rgb(244, 242, 236)],
+  pastel:    [rgb(238, 200, 194), rgb(200, 226, 220), rgb(244, 226, 186), rgb(212, 206, 232)]
+};
+const ROOFMAT = {
+  asphalt:   [rgb(122, 120, 118), rgb(108, 106, 105), rgb(134, 132, 129)],
+  gravel:    [rgb(158, 152, 142), rgb(142, 137, 128)],
+  tile:      [rgb(176, 94, 64), rgb(158, 82, 56), rgb(192, 110, 76)],
+  membrane:  [rgb(206, 204, 198), rgb(190, 188, 182)],
+  metalroof: [rgb(150, 154, 158), rgb(132, 137, 142)],
+  slate:     [rgb(104, 108, 116), rgb(92, 96, 104)]
+};
+
+/* Two complete looks. PAL is the live one; every draw call reads it. */
+const THEMES = {
+  dusk: {
+    ground: '#0d0718', water: '#0b2d4a', waterEdge: '#1d5f86',
+    park: '#123a2a', parkEdge: '#2a7a52', kerb: '#2b2140', case: '#080512',
+    road: '#2f2848', roadBig: '#382f54', line: 'rgba(255,227,106,.55)',
+    mapBg: '#0a0614', mapPark: '#17492f', mapWater: '#103f66',
+    mapRoad: '#655488', mapRoadBig: '#9b81d8',
+    lights: true, showNeon: true,
+    // night: dim hard and pull towards the violet ambient, so brick still reads
+    // warmer than concrete but the neon and street lights carry the colour
+    roofT: c => mixc(mul(c, .30), [54, 36, 78], .46),
+    wallT: c => mixc(mul(c, .17), [38, 26, 58], .50)
+  },
+  day: {
+    ground: '#cfc9bd', water: '#7fb0cc', waterEdge: '#5f93b3',
+    park: '#9dbf86', parkEdge: '#7ba368', kerb: '#c2bcb1', case: '#8d887f',
+    road: '#a6a29b', roadBig: '#b2aea6', line: 'rgba(250,240,190,.85)',
+    mapBg: '#e8e3d8', mapPark: '#b7d0a2', mapWater: '#9cc4dc',
+    mapRoad: '#ffffff', mapRoadBig: '#ffe9a8',
+    lights: false, showNeon: false,
+    // daylight: near-true colour on top, honest shading down the walls
+    roofT: c => mul(c, 1.0),
+    wallT: c => mul(c, .66)
+  }
+};
+
+const PAL = {
+  neon:    ['#ff4fd8', '#33e6ff', '#ffe36a', '#8a5cff', '#48ff9e'],
+  carBody: ['#ff4fd8', '#33e6ff', '#ffe36a', '#48ff9e', '#ff7043', '#c9a2ff',
+            '#f5f5f5', '#7de3ff', '#ff5f8d', '#9be15d']
+};
+let themeName = 'dusk';
+for (const k in THEMES.dusk) if (typeof THEMES.dusk[k] !== 'function') PAL[k] = THEMES.dusk[k];
+
+/* Resolve every building's stored material into this theme's drawn colours.
+   Runs on theme change and at world build — thousands of buildings in a few ms,
+   which is why drawBuilding never has to know a theme exists. */
+function applyTheme(name) {
+  themeName = name;
+  const t = THEMES[name];
+  for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'boolean') PAL[k] = t[k];
+  for (const b of W.buildings || []) {
+    let roof = t.roofT(b.mRoof), wall = t.wallT(b.mWall);
+    // the extrusion only reads as a solid while the roof stays brighter than the wall
+    if (lum(roof) < lum(wall) + 18) wall = mul(wall, (lum(roof) - 18) / Math.max(lum(wall), 1));
+    b.roof = css(roof); b.wall = css(wall);
+  }
+  document.body.classList.toggle('theme-day', name === 'day');
+  if (W.roads && W.roads.length) prerenderMap();   // roads alone are enough to draw a map
+}
 
 /* ------------------------------ 2. geo ------------------------------ */
 // Local equirectangular projection. World units are metres, +x east, +y south.
@@ -295,6 +424,8 @@ function overpassQL(s, w, n, e) {
     `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
     `way["leisure"~"^(park|garden|golf_course)$"](${bb});` +
     `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
+    // district names for the GTA-style zone banner
+    `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
     `);out geom;`;
 }
 
@@ -332,8 +463,10 @@ async function fetchOSM(lat, lon, onMsg) {
 const W = {
   roads: [], buildings: [], water: [], parks: [],
   minX: 0, minY: 0, maxX: 0, maxY: 0,
+  places: [],                            // named districts / neighbourhoods
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   bcell: 90, buckets: new Map(),         // building spatial hash
+  rbuckets: new Map(),                   // road spatial hash (named roads only)
   map: null, mapScale: 1,                // pre-rendered minimap
   procedural: false, name: ''
 };
@@ -353,17 +486,70 @@ function centroid(pts) {
   return { x: x / pts.length, y: y / pts.length };
 }
 
+/* Pick a facade + roof colour for one building, preferring what mappers actually
+   recorded and falling back through material, then use, then size. */
+function buildingColours(t, area, h, seed) {
+  const r = (n) => {                       // deterministic per building, so a
+    const x = Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453;
+    return x - Math.floor(x);              // street doesn't reshuffle on reload
+  };
+  const use = t.building || t['building:part'] || 'yes';
+  const takeFrom = (pal, n) => pal[Math.floor(r(n) * pal.length)];
+
+  // 1. explicit colours
+  let wall = parseColour(t['building:colour'] || t['building:color'] || t.colour);
+  let roof = parseColour(t['roof:colour'] || t['roof:color']);
+
+  // 2. declared materials
+  const wm = (t['building:material'] || t.material || '').toLowerCase();
+  if (!wall && MAT[wm]) wall = takeFrom(MAT[wm], 1);
+  const rm = (t['roof:material'] || '').toLowerCase();
+  const RM = { tile: 'tile', roof_tiles: 'tile', clay: 'tile', slate: 'slate', metal: 'metalroof',
+               copper: 'metalroof', concrete: 'gravel', gravel: 'gravel', tar_paper: 'asphalt',
+               asphalt: 'asphalt', bitumen: 'asphalt' }[rm];
+  if (!roof && RM) roof = takeFrom(ROOFMAT[RM], 2);
+
+  // 3. what the building is for
+  if (!wall) {
+    let pal = MAT.stucco;
+    if (/^(house|detached|semidetached_house|bungalow|terrace)$/.test(use)) pal = r(9) < .35 ? MAT.brick : (r(8) < .5 ? MAT.stucco : MAT.wood);
+    else if (/^(apartments|residential|dormitory)$/.test(use)) pal = r(7) < .3 ? MAT.brick : MAT.stucco;
+    else if (/^(commercial|retail|office|hotel|supermarket)$/.test(use)) pal = h > 40 ? MAT.glass : MAT.concrete;
+    else if (/^(industrial|warehouse|garage|garages|shed|hangar)$/.test(use)) pal = MAT.metal;
+    else if (/^(church|cathedral|civic|school|university|hospital|public|museum)$/.test(use)) pal = MAT.stone;
+    // 4. nothing to go on — size and height are the only hints left
+    else pal = h > 45 ? MAT.glass : (area > 900 ? MAT.concrete : (r(6) < .18 ? MAT.pastel : MAT.stucco));
+    wall = takeFrom(pal, 3);
+  }
+  if (!roof) {
+    const small = area < 260 && h < 14;
+    // pitched tile on houses, flat asphalt/gravel/membrane on everything larger
+    roof = small && r(4) < .6 ? takeFrom(ROOFMAT.tile, 5)
+         : takeFrom(h > 45 ? ROOFMAT.metalroof : (r(5) < .45 ? ROOFMAT.gravel : (r(11) < .5 ? ROOFMAT.asphalt : ROOFMAT.membrane)), 6);
+  }
+  // roofs read brighter than the true material so the top-down view doesn't go to mush
+  return { mWall: wall, mRoof: mul(roof, 1.22) };
+}
+
 function parseOSM(els) {
-  const roads = [], buildings = [], water = [], parks = [];
+  const roads = [], buildings = [], water = [], parks = [], places = [];
   for (const el of els) {
-    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
     const t = el.tags || {};
+
+    // place nodes give us neighbourhood / district names
+    if (el.type === 'node') {
+      if (t.place && t.name) {
+        places.push({ x: projX(el.lon), y: projY(el.lat), name: t.name, kind: t.place });
+      }
+      continue;
+    }
+    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
     const pts = el.geometry.map(g => ({ x: projX(g.lon), y: projY(g.lat) }));
 
     if (t.highway) {
       const cls = ROADW[t.highway] ? t.highway : 'residential';
       roads.push({ pts, cls, w: ROADW[cls], drive: DRIVABLE(cls), bb: bbox(pts),
-                   oneway: t.oneway === 'yes' });
+                   oneway: t.oneway === 'yes', name: t.name || t.ref || '' });
     } else if (t.building || t['building:part']) {
       if (pts.length < 4) continue;
       const a = polyArea(pts);
@@ -374,31 +560,50 @@ function parseOSM(els) {
       if (!h || !isFinite(h)) h = clamp(5 + Math.sqrt(a) * 0.85, 6, 46) * rand(.8, 1.35);
       h = clamp(h, 4, 190);
       const c = centroid(pts);
+      const col = buildingColours(t, a, h, el.id || buildings.length + 1);
+      // neon is now the exception, and only on things that would really carry a sign
+      const signable = /^(commercial|retail|office|hotel|supermarket)$/.test(t.building || '') || a > 700;
       buildings.push({ pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
-                       wall: PAL.wall[buildings.length % PAL.wall.length],
-                       roof: PAL.roof[(buildings.length * 7) % PAL.roof.length],
-                       neon: Math.random() < .30 ? pick(PAL.neon) : null });
+                       mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
+                       neon: (signable && Math.random() < .22) ? pick(PAL.neon) : null });
     } else if (t.natural === 'water' || t.waterway === 'riverbank') {
       water.push({ pts, bb: bbox(pts) });
     } else if (t.leisure || t.landuse) {
       parks.push({ pts, bb: bbox(pts) });
     }
   }
-  return { roads, buildings, water, parks };
+  return { roads, buildings, water, parks, places };
 }
+
+const FAKE_ST = ['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Way',
+  'Palm Parkway', 'Neon Street', 'Marina Road', 'Sunset Strip', 'Coral Avenue',
+  'Bayshore Drive', 'Starfish Lane', 'Chrome Street', 'Lagoon Road'];
+const FAKE_ZONE = ['Downtown', 'Little Habana', 'Beachfront', 'The Docks', 'Vice Point'];
 
 /* A neon grid city, for when the network is down or the map is all ocean. */
 function proceduralCity() {
-  const roads = [], buildings = [], parks = [];
+  const roads = [], buildings = [], parks = [], places = [];
   const N = 6, S = 150;
+  const ord = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
   for (let i = -N; i <= N; i++) {
     const big = i % 3 === 0;
     const cls = big ? 'secondary' : 'residential';
     const j1 = -N * S, j2 = N * S;
-    roads.push({ pts: [{ x: i * S, y: j1 }, { x: i * S, y: j2 }], cls, w: ROADW[cls], drive: true });
-    roads.push({ pts: [{ x: j1, y: i * S }, { x: j2, y: i * S }], cls, w: ROADW[cls], drive: true });
+    // north–south are numbered avenues, east–west carry names, like a real grid city
+    roads.push({ pts: [{ x: i * S, y: j1 }, { x: i * S, y: j2 }], cls, w: ROADW[cls], drive: true,
+                 name: ord(i + N + 1) + ' Avenue' });
+    roads.push({ pts: [{ x: j1, y: i * S }, { x: j2, y: i * S }], cls, w: ROADW[cls], drive: true,
+                 name: FAKE_ST[(i + N) % FAKE_ST.length] });
   }
   for (const r of roads) r.bb = bbox(r.pts);
+
+  // districts at the quadrant centres, so the zone banner works offline too
+  const q = N * S * .55;
+  places.push({ x: 0, y: 0, name: FAKE_ZONE[0], kind: 'suburb' });
+  places.push({ x: -q, y: -q, name: FAKE_ZONE[1], kind: 'neighbourhood' });
+  places.push({ x: q, y: -q, name: FAKE_ZONE[2], kind: 'neighbourhood' });
+  places.push({ x: -q, y: q, name: FAKE_ZONE[3], kind: 'neighbourhood' });
+  places.push({ x: q, y: q, name: FAKE_ZONE[4], kind: 'neighbourhood' });
 
   for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) {
     const bx = i * S + 16, by = j * S + 16, bw = S - 32, bh = S - 32;
@@ -416,16 +621,21 @@ function proceduralCity() {
       const d = Math.hypot(bx, by);
       const h = clamp(rand(8, 40) + Math.max(0, 400 - d) * .12, 6, 130);
       const c = centroid(pts);
+      const area = (x1 - x0) * (y1 - y0);
+      // no tags to go on out here, so let the size/height fallbacks pick the material
+      const col = buildingColours({}, area, h, buildings.length + 1);
       buildings.push({ pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
-        wall: pick(PAL.wall), roof: pick(PAL.roof), neon: Math.random() < .3 ? pick(PAL.neon) : null });
+        mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
+        neon: (area > 700 && Math.random() < .22) ? pick(PAL.neon) : null });
     }
   }
-  return { roads, buildings, water: [], parks };
+  return { roads, buildings, water: [], parks, places };
 }
 
 function buildWorld(data, name, procedural) {
   W.roads = data.roads; W.buildings = data.buildings;
   W.water = data.water; W.parks = data.parks;
+  W.places = data.places || [];
   W.name = name; W.procedural = procedural;
 
   // ---- world bounds
@@ -473,6 +683,22 @@ function buildWorld(data, name, procedural) {
   // ---- roads usable for traffic / mission targets
   W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
 
+  // ---- road spatial hash, so "what street is this?" is a few segment tests
+  W.rbuckets.clear();
+  for (const r of W.roads) {
+    if (!r.name) continue;                 // only named roads can be announced
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      const cx0 = Math.floor(Math.min(a.x, b.x) / W.bcell), cx1 = Math.floor(Math.max(a.x, b.x) / W.bcell);
+      const cy0 = Math.floor(Math.min(a.y, b.y) / W.bcell), cy1 = Math.floor(Math.max(a.y, b.y) / W.bcell);
+      for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+        const k = cx + ',' + cy;
+        let arr = W.rbuckets.get(k); if (!arr) { arr = []; W.rbuckets.set(k, arr); }
+        arr.push({ r, i });
+      }
+    }
+  }
+
   // ---- street lights down the bigger roads, alternating sides (pure decoration)
   W.lights = [];
   for (const r of W.roads) {
@@ -497,7 +723,7 @@ function buildWorld(data, name, procedural) {
     }
   }
 
-  prerenderMap();
+  applyTheme(themeName);   // resolves every building's material and prerenders the map
 }
 
 function markDrivable(x, y, r) {
@@ -533,6 +759,42 @@ function roadPoint(fromX, fromY, minD, maxD) {
   }
   return null;
 }
+/* Which named street is this point on? Bucketed, so it costs a handful of
+   segment tests per frame rather than a scan of the whole map. */
+function streetAt(x, y) {
+  const cx = Math.floor(x / W.bcell), cy = Math.floor(y / W.bcell);
+  let best = null, bd = Infinity;
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const arr = W.rbuckets.get((cx + i) + ',' + (cy + j));
+    if (!arr) continue;
+    for (const { r, i: si } of arr) {
+      const a = r.pts[si], b = r.pts[si + 1];
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const L = ex * ex + ey * ey || 1e-6;
+      let t = ((x - a.x) * ex + (y - a.y) * ey) / L; t = clamp(t, 0, 1);
+      const d = dist(a.x + ex * t, a.y + ey * t, x, y);
+      // must actually be on the carriageway, with a little slack for the kerb
+      if (d < bd && d < r.w / 2 + 4) { bd = d; best = r; }
+    }
+  }
+  return best;
+}
+
+/* Nearest named district. Only a handful exist, so a plain scan is right —
+   but prefer the more specific place type when two are about as close. */
+const PLACE_RANK = { city_block: 5, neighbourhood: 4, quarter: 4, suburb: 3, borough: 3,
+                     hamlet: 2, village: 2, town: 1, city: 0 };
+function zoneAt(x, y) {
+  let best = null, bs = Infinity;
+  for (const p of W.places) {
+    const rank = PLACE_RANK[p.kind] != null ? PLACE_RANK[p.kind] : 2;
+    // discount by specificity, so the city node it sits inside can't shout it down
+    const score = dist(p.x, p.y, x, y) * (1 - rank * .07);
+    if (score < bs) { bs = score; best = p; }
+  }
+  return best;
+}
+
 function nearestRoadPoint(x, y) {
   let best = null, bd = Infinity;
   for (const r of W.driveRoads) {
@@ -553,7 +815,7 @@ function prerenderMap() {
   const c = document.createElement('canvas');
   c.width = Math.max(2, Math.ceil(spanX * s)); c.height = Math.max(2, Math.ceil(spanY * s));
   const g = c.getContext('2d');
-  g.fillStyle = '#0a0614'; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = PAL.mapBg; g.fillRect(0, 0, c.width, c.height);
   g.setTransform(s, 0, 0, s, -W.minX * s, -W.minY * s);
 
   const poly = (f, fill) => {
@@ -561,14 +823,14 @@ function prerenderMap() {
     for (let i = 1; i < f.pts.length; i++) g.lineTo(f.pts[i].x, f.pts[i].y);
     g.closePath(); g.fillStyle = fill; g.fill();
   };
-  for (const f of W.parks) poly(f, '#17492f');
-  for (const f of W.water) poly(f, '#103f66');
+  for (const f of W.parks) poly(f, PAL.mapPark);
+  for (const f of W.water) poly(f, PAL.mapWater);
   g.lineCap = 'round'; g.lineJoin = 'round';
   for (const r of W.roads) {
     g.beginPath(); g.moveTo(r.pts[0].x, r.pts[0].y);
     for (let i = 1; i < r.pts.length; i++) g.lineTo(r.pts[i].x, r.pts[i].y);
     g.lineWidth = Math.max(r.w * .9, 3 / s);
-    g.strokeStyle = r.w >= 11 ? '#9b81d8' : '#655488';
+    g.strokeStyle = r.w >= 11 ? PAL.mapRoadBig : PAL.mapRoad;
     g.stroke();
   }
   W.map = c;
@@ -767,6 +1029,10 @@ addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = 1;
   if (e.key === 'Escape') togglePause();
   if (e.key.toLowerCase() === 'h') SFX.horn();
+  if (e.key.toLowerCase() === 'n' && state === 'play') {
+    applyTheme(themeName === 'dusk' ? 'day' : 'dusk');
+    toast(themeName === 'day' ? 'DAYLIGHT' : 'DUSK', 1100);
+  }
   if (state === 'play') audioStart();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = 0; });
@@ -850,7 +1116,8 @@ const SFX = (() => {
     cash: () => { blip(660, .08); setTimeout(() => blip(990, .09), 70); setTimeout(() => blip(1480, .16), 150); },
     star: () => { blip(300, .22, 'sawtooth', .07); },
     horn: () => { blip(370, .22, 'square', .05); },
-    bust: () => { blip(200, .5, 'sawtooth', .08); }
+    bust: () => { blip(200, .5, 'sawtooth', .08); },
+    blipZone: () => { blip(520, .07, 'sine', .05); setTimeout(() => blip(780, .12, 'sine', .045), 70); }
   };
 })();
 function audioStart() { SFX.start(); }
@@ -858,7 +1125,7 @@ function audioStart() { SFX.start(); }
 /* ------------------------------ 8. canvas ------------------------------ */
 const cv = $('game'), ctx = cv.getContext('2d');
 const mini = $('mini'), mctx = mini.getContext('2d');
-let VW = 0, VH = 0, DPR = 1, zoomK = 1;
+let VW = 0, VH = 0, DPR = 1, zoomK = 1, miniRect = null;
 function resize() {
   DPR = Math.min(devicePixelRatio || 1, 2);
   VW = innerWidth; VH = innerHeight;
@@ -868,6 +1135,7 @@ function resize() {
   cv.style.width = VW + 'px'; cv.style.height = VH + 'px';
   const mr = mini.getBoundingClientRect();
   mini.width = Math.floor(mr.width * DPR); mini.height = Math.floor(mr.height * DPR);
+  miniRect = mr;                       // cached so the edge arrow can dodge the radar
 }
 addEventListener('resize', resize);
 
@@ -1021,7 +1289,8 @@ function newMission() {
   if (!p) { MISSION.state = 'none'; return; }
   MISSION.pick = p; MISSION.drop = null;
   MISSION.state = 'pickup';
-  setObjective('Pick up the package', '');
+  const where = p.road && p.road.name;
+  setObjective(where ? 'Pick up on ' + where : 'Pick up the package');
 }
 function startDelivery() {
   const d = roadPoint(P.car.x, P.car.y, 180, 700) || roadPoint(P.car.x, P.car.y, null);
@@ -1033,7 +1302,9 @@ function startDelivery() {
   MISSION.reward = Math.round(120 + dd * 1.6 + MISSION.done * 45);
   SFX.pickup();
   toast('PACKAGE SECURED\n$' + MISSION.reward + ' ON DELIVERY', 1800);
-  setObjective('Deliver the package', '');
+  // the drop point already knows which way it sits on, so name it
+  const where = d.road && d.road.name;
+  setObjective(where ? 'Deliver to ' + where : 'Deliver the package');
 }
 function completeDelivery() {
   P.cash += MISSION.reward; P.score += MISSION.reward;
@@ -1047,7 +1318,7 @@ function completeDelivery() {
 function failDelivery() {
   MISSION.state = 'none';
   toast('TOO SLOW.\nPACKAGE LOST', 1800);
-  setObjective('Free roam', '');
+  setObjective('Free roam');
   setTimeout(newMission, 1600);
 }
 function setObjective(t) { $('objT').textContent = t; }
@@ -1097,6 +1368,42 @@ function bigMsg(t, col, sub) {
 let toastT = 0;
 function toast(t, ms) {
   $('toast').textContent = t; $('toast').classList.add('show'); toastT = (ms || 1600) / 1000;
+}
+
+/* ---- street & district announcements, GTA style ---- */
+const NAV = { street: '', zone: '', cand: '', candT: 0, showT: 0, lastX: 0, lastY: 0, tick: 0 };
+function updateNav(dt) {
+  const c = P.car;
+  if (NAV.showT > 0) { NAV.showT -= dt; if (NAV.showT <= 0) $('street').classList.remove('on'); }
+  // a signpost doesn't need 60 Hz — look it up ten times a second
+  NAV.tick -= dt;
+  if (NAV.tick > 0) return;
+  dt += .1 - NAV.tick;          // the interval actually elapsed, for the debounce
+  NAV.tick = .1;
+
+  // street: needs to hold briefly and needs real movement, or junctions strobe
+  const r = streetAt(c.x, c.y);
+  const nm = r ? r.name : '';
+  if (nm !== NAV.cand) { NAV.cand = nm; NAV.candT = 0; }
+  else NAV.candT += dt;
+  if (nm && nm !== NAV.street && NAV.candT > .35 &&
+      dist(c.x, c.y, NAV.lastX, NAV.lastY) > 12) {
+    NAV.street = nm; NAV.lastX = c.x; NAV.lastY = c.y; NAV.showT = 4;
+    $('street').textContent = nm;
+    $('street').classList.add('on');
+  }
+
+  // district: persistent, flashes when you cross into a new one
+  const z = zoneAt(c.x, c.y);
+  const zn = z ? z.name : '';
+  if (zn && zn !== NAV.zone) {
+    NAV.zone = zn;
+    const el = $('zone');
+    el.textContent = zn;
+    el.classList.remove('flash'); void el.offsetWidth;   // restart the animation
+    el.classList.add('on', 'flash');
+    SFX.blipZone();
+  }
 }
 
 /* ------------------------------ 12. update ------------------------------ */
@@ -1210,6 +1517,8 @@ function update(dt) {
   // --- audio
   SFX.engine(clamp(spd / 46, 0, 1), inp.gas ? 1 : .3);
   SFX.siren(P.wanted >= 1 && cops.some(k => dist(k.x, k.y, c.x, c.y) < 170), dt);
+
+  updateNav(dt);
 
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
 }
@@ -1326,7 +1635,7 @@ function render() {
   ctx.globalAlpha = 1;
 
   // street lights — additive blits of a pre-tinted sprite
-  if (W.lights) {
+  if (W.lights && PAL.lights) {
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = .5;
     const R = 8.5;
@@ -1412,7 +1721,7 @@ function drawBuilding(b) {
   ctx.fillStyle = b.roof; ctx.fill();
   ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.stroke();
 
-  if (b.neon) {                             // neon trim, the whole point of the decade
+  if (b.neon && PAL.showNeon) {             // neon trim, the whole point of the decade
     ctx.strokeStyle = b.neon; ctx.lineWidth = 1.6;
     ctx.globalAlpha = .85;
     ctx.shadowColor = b.neon; ctx.shadowBlur = 11;
@@ -1440,8 +1749,8 @@ function drawCar(c, isPlayer) {
   ctx.translate(c.x, c.y); ctx.rotate(c.h);
   const L = c.l, Wd = c.w;
 
-  // headlight cone
-  if (isPlayer || c.kind === 'cop' || spd > 1) {
+  // headlight cone — barely visible in daylight
+  if ((isPlayer || c.kind === 'cop' || spd > 1) && PAL.lights) {
     const g = ctx.createLinearGradient(L / 2, 0, L / 2 + 24, 0);
     g.addColorStop(0, 'rgba(255,245,200,.20)'); g.addColorStop(1, 'rgba(255,245,200,0)');
     ctx.fillStyle = g;
@@ -1507,8 +1816,12 @@ function drawArrow() {
   const k = Math.min(rx / Math.abs(Math.cos(a) || 1e-6), ry / Math.abs(Math.sin(a) || 1e-6));
   const x = VW / 2 + Math.cos(a) * k;
   // keep it clear of the thumb pads when they're on screen
-  const botLimit = VH - (touchUI ? 190 : 46);
-  const y = Math.min(VH / 2 + Math.sin(a) * k, botLimit);
+  const botLimit = VH - (touchUI ? 190 : 92);   // clear the armor bar / speedo too
+  let y = Math.min(VH / 2 + Math.sin(a) * k, botLimit);
+  // and off the radar, which lives in the same left-hand strip
+  if (miniRect && x < miniRect.right + 60 && y > miniRect.top - 26 && y < miniRect.bottom + 40) {
+    y = y < (miniRect.top + miniRect.bottom) / 2 ? miniRect.top - 26 : miniRect.bottom + 40;
+  }
   const col = MISSION.state === 'pickup' ? '#ff4fd8' : '#ffe36a';
   ctx.save(); ctx.translate(x, y); ctx.rotate(a);
   ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
@@ -1550,7 +1863,7 @@ function drawMini() {
   mctx.clearRect(0, 0, w, h);
   mctx.save();
   mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
-  mctx.fillStyle = '#0a0614'; mctx.fillRect(0, 0, w, h);
+  mctx.fillStyle = PAL.mapBg; mctx.fillRect(0, 0, w, h);
 
   const showM = 230;                                  // metres across the radius
   const z = (r / showM) / W.mapScale;
@@ -1638,7 +1951,17 @@ window.__m = () => ({ state: MISSION.state, done: MISSION.done, reward: MISSION.
   time: +MISSION.time.toFixed(1),
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
-window.__bld = i => { const b = W.buildings[i]; return { cx: b.cx, cy: b.cy, bb: b.bb }; };
+window.__bld = i => { const b = W.buildings[i]; return { cx: b.cx, cy: b.cy, bb: b.bb, roof: b.roof, wall: b.wall }; };
+window.__nav = () => ({ street: NAV.street, zone: NAV.zone,
+  streetShown: $('street').classList.contains('on'),
+  streetTxt: $('street').textContent, zoneTxt: $('zone').textContent });
+window.__theme = () => ({ name: themeName, ground: PAL.ground, lights: PAL.lights,
+  places: W.places.length, namedRoads: W.roads.filter(r => r.name).length });
+// find a building by its exact material colour (the test payload seeds a pure-red one)
+window.__byColour = (r, g, b_) => {
+  const b = W.buildings.find(x => x.mWall[0] === r && x.mWall[1] === g && x.mWall[2] === b_);
+  return b ? { roof: b.roof, wall: b.wall, mRoof: b.mRoof, mWall: b.mWall } : null;
+};
 window.__inside = (x, y) => W.buildings.some(b => pointInPoly(b.pts, x, y));
 
 resize();
