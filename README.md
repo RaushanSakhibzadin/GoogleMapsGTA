@@ -25,7 +25,7 @@ is the whole game.
 | **W A S D** / arrow keys | drive, reverse, steer |
 | **Space** | handbrake — hold it into a corner and the back end steps out |
 | **H** | horn |
-| **N** | switch between dusk and daylight |
+| **N** | switch between dusk and daylight (or the ☀ button on touch devices) |
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
 
@@ -56,6 +56,10 @@ is the whole game.
   authority falls off with speed and inverts in reverse.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
+- **Tunnels and archways work.** Where a drivable centreline runs straight through a building
+  footprint — a tunnel, a gateway, or a block built over the street, which Riga's old town is
+  full of — that building stops colliding and is drawn back so you can see the road under it.
+  Buildings that merely sit beside the road stay as solid as ever.
 - **Off-road handling.** An 8 m drivable grid rasterized from the road network — leave the
   tarmac and you lose top speed, gain drag, and the camera starts shaking.
 - **Traffic and pedestrians.** Cars drive the real ways node by node. Pedestrians keep to the

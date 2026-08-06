@@ -164,6 +164,9 @@
   #tB{right:calc(32px + var(--pad))} #tA{right:16px;background:rgba(51,230,255,.22)}
   #tH{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
     padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
+  /* day/night, reachable without a keyboard */
+  #tN{right:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+    padding:9px 15px;border-radius:12px;font-size:20px;line-height:1}
 
   /* ---------- daylight: the HUD has to survive a light background ---------- */
   body.theme-day #post{
@@ -196,6 +199,7 @@
     #mini{top:auto;transform:none;left:14px;bottom:calc(var(--pad) + 132px);
       width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
     #tH{bottom:calc(var(--pad) + 74px)}
+    #tN{bottom:calc(var(--pad) + 74px)}
     #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:44vw}
     /* speedo moves up under the star row so the accelerator can't cover it */
     #speed{top:calc(16px + 12vw);right:14px;bottom:auto}
@@ -233,6 +237,7 @@
   <div class="pad" id="tL">◀</div><div class="pad" id="tR">▶</div>
   <div class="pad" id="tB">▼</div><div class="pad" id="tA">▲</div>
   <div class="pad" id="tH">DRIFT</div>
+  <div class="pad" id="tN">☀</div>
 </div>
 
 <!-- ===================== menu ===================== -->
@@ -657,8 +662,11 @@ function parseOSM(els) {
 
     if (t.highway) {
       const cls = ROADW[t.highway] ? t.highway : 'residential';
+      const layer = parseInt(t.layer || t.level || '0', 10) || 0;
       roads.push({ pts, cls, w: ROADW[cls], drive: DRIVABLE(cls), bb: bbox(pts),
-                   oneway: t.oneway === 'yes', name: t.name || t.ref || '' });
+                   oneway: t.oneway === 'yes', name: t.name || t.ref || '',
+                   tunnel: !!t.tunnel && t.tunnel !== 'no', covered: t.covered === 'yes',
+                   layer });
     } else if (t.building || t['building:part']) {
       if (pts.length < 4) continue;
       const a = polyArea(pts);
@@ -829,6 +837,34 @@ function addLights(roads) {
   }
 }
 
+/* A drivable centreline running through a footprint means a tunnel, an archway,
+   or a building put up over the street — Riga's old town is full of them. You
+   should drive through, not crash into it, so those buildings stop colliding.
+   Sampling the centreline against the building hash is precise and only costs
+   anything at load time. */
+function markPassable(roads) {
+  for (const r of roads) {
+    if (!r.drive) continue;
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      const len = dist(a.x, a.y, b.x, b.y) || 1;
+      const steps = Math.max(1, Math.ceil(len / 6));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
+        const arr = W.buckets.get(Math.floor(x / W.bcell) + ',' + Math.floor(y / W.bcell));
+        if (!arr) continue;
+        for (const bi of arr) {
+          const bl = W.buildings[bi];
+          if (bl.passable) continue;
+          if (x < bl.bb.x0 || x > bl.bb.x1 || y < bl.bb.y0 || y > bl.bb.y1) continue;
+          if (pointInPoly(bl.pts, x, y)) bl.passable = true;
+        }
+      }
+    }
+  }
+}
+
 function featureBounds(sets) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const arr of sets) for (const f of arr) {
@@ -855,6 +891,7 @@ function buildWorld(data, name, procedural) {
 
   markRoads(W.roads);
   indexBuildings(0);
+  markPassable(W.roads);
   W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
   indexRoads(W.roads);
   addLights(W.roads);
@@ -954,6 +991,9 @@ function mergeChunk(data) {
 
   markRoads(data.roads);            // the mask was blitted, so only new roads need marking
   indexBuildings(firstBuilding);
+  // ways crossing the seam matter both ways, so test every road touching this tile
+  markPassable(W.roads.filter(r => r.bb.x1 >= b.x0 && r.bb.x0 <= b.x1 &&
+                                   r.bb.y1 >= b.y0 && r.bb.y0 <= b.y1));
   indexRoads(data.roads);
   addLights(data.roads);
   for (const r of data.roads) if (r.drive && r.pts.length >= 2) W.driveRoads.push(r);
@@ -1226,6 +1266,7 @@ function buildingCollide(c) {
     const arr = W.buckets.get(kx + ',' + ky); if (!arr) continue;
     for (const bi of arr) {
       const b = W.buildings[bi];
+      if (b.passable) continue;      // a road runs through it: tunnel or archway
       if (c.x < b.bb.x0 - 2 || c.x > b.bb.x1 + 2 || c.y < b.bb.y0 - 2 || c.y > b.bb.y1 + 2) continue;
       if (!pointInPoly(b.pts, c.x, c.y)) continue;
 
@@ -1266,15 +1307,26 @@ function carsCollide(a, b) {
 /* ------------------------------ 6. input ------------------------------ */
 const keys = {};
 const touch = { l: 0, r: 0, a: 0, b: 0, h: 0 };
+// While you're typing a place name the keyboard belongs to the text box — not to
+// the car. Without this, space never reaches the input and "London" toggles night.
+const typing = e => {
+  const t = e.target;
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+};
+
+function toggleTheme() {
+  applyTheme(themeName === 'dusk' ? 'day' : 'dusk');
+  $('tN').textContent = themeName === 'dusk' ? '☀' : '☾';
+  toast(themeName === 'day' ? 'DAYLIGHT' : 'DUSK', 1100);
+}
+
 addEventListener('keydown', e => {
+  if (typing(e)) return;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
   keys[e.key.toLowerCase()] = 1;
   if (e.key === 'Escape') togglePause();
   if (e.key.toLowerCase() === 'h') SFX.horn();
-  if (e.key.toLowerCase() === 'n' && state === 'play') {
-    applyTheme(themeName === 'dusk' ? 'day' : 'dusk');
-    toast(themeName === 'day' ? 'DAYLIGHT' : 'DUSK', 1100);
-  }
+  if (e.key.toLowerCase() === 'n' && state === 'play') toggleTheme();
   if (state === 'play') audioStart();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = 0; });
@@ -1290,6 +1342,19 @@ function bindPad(el, prop) {
   addEventListener('mouseup', off);
 }
 bindPad($('tL'), 'l'); bindPad($('tR'), 'r'); bindPad($('tA'), 'a'); bindPad($('tB'), 'b'); bindPad($('tH'), 'h');
+
+// the theme button is a tap, not a hold, so it doesn't go through bindPad
+let themeTap = 0;
+const tapTheme = e => {
+  e.preventDefault();
+  const now = Date.now();
+  if (now - themeTap < 400) return;    // swallow the synthetic click after a touch
+  themeTap = now;
+  audioStart();
+  if (state === 'play') toggleTheme();
+};
+$('tN').addEventListener('touchstart', tapTheme, { passive: false });
+$('tN').addEventListener('click', tapTheme);
 
 function readInput() {
   const L = keys['a'] || keys['arrowleft'] || touch.l;
@@ -1980,6 +2045,9 @@ function drawBuilding(b) {
   }
   if (maxSX < -60 || minSX > VW + 60 || maxSY < -60 || minSY > VH + 60) return;
 
+  // a building you can drive under is drawn back so the street shows through
+  if (b.passable) ctx.globalAlpha = .45;
+
   // footprint shadow — grounds the block so it doesn't float
   ctx.beginPath(); ctx.moveTo(sx[0] - 3, sy[0] + 3);
   for (let i = 1; i < n; i++) ctx.lineTo(sx[i] - 3, sy[i] + 3);
@@ -2012,8 +2080,9 @@ function drawBuilding(b) {
     ctx.globalAlpha = .85;
     ctx.shadowColor = b.neon; ctx.shadowBlur = 11;
     ctx.stroke();
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
   }
+  ctx.globalAlpha = 1;
 }
 
 function marker(m, col) {
@@ -2258,6 +2327,7 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
+window.__passable = () => W.buildings.filter(b => b.passable).length;
 window.__newMission = () => newMission();
 window.__byColour = (r, g, b_) => {
   const b = W.buildings.find(x => x.mWall[0] === r && x.mWall[1] === g && x.mWall[2] === b_);
