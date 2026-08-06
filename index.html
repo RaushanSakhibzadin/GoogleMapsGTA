@@ -112,6 +112,13 @@
     text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
     opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
   #street.on{opacity:1;transform:none}
+  /* quiet note while the next district streams in */
+  #chunk{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    font-family:var(--ui);font-weight:600;font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:rgba(255,255,255,.62);opacity:0;transition:opacity .4s;
+    text-shadow:0 2px 8px rgba(0,0,0,.9);white-space:nowrap}
+  #chunk.on{opacity:1}
+  body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,255,.9)}
   /* district name: persistent, flashes on entry (Vice City zone style) */
   #zone{position:absolute;right:14px;bottom:calc(12px + clamp(46px,10vw,74px));
     max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
@@ -215,6 +222,7 @@
   <canvas id="mini"></canvas>
   <div id="hpWrap"><div id="hpLbl">ARMOR</div><div id="hpBar"><div id="hpIn"></div></div></div>
   <div id="street"></div>
+  <div id="chunk"></div>
   <div id="zone" class="hudTxt"></div>
   <div id="speed"><div id="spdN">0</div><div id="spdU">KM/H</div></div>
   <div id="toast" class="hudTxt"></div>
@@ -380,16 +388,23 @@ for (const k in THEMES.dusk) if (typeof THEMES.dusk[k] !== 'function') PAL[k] = 
 /* Resolve every building's stored material into this theme's drawn colours.
    Runs on theme change and at world build — thousands of buildings in a few ms,
    which is why drawBuilding never has to know a theme exists. */
-function applyTheme(name) {
-  themeName = name;
-  const t = THEMES[name];
-  for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'boolean') PAL[k] = t[k];
-  for (const b of W.buildings || []) {
+// Turn stored materials into drawn colours for the active theme. Runs over the
+// whole world on a theme change, or over just a newly streamed-in chunk.
+function resolveColours(list) {
+  const t = THEMES[themeName];
+  for (const b of list || []) {
     let roof = t.roofT(b.mRoof), wall = t.wallT(b.mWall);
     // the extrusion only reads as a solid while the roof stays brighter than the wall
     if (lum(roof) < lum(wall) + 18) wall = mul(wall, (lum(roof) - 18) / Math.max(lum(wall), 1));
     b.roof = css(roof); b.wall = css(wall);
   }
+}
+
+function applyTheme(name) {
+  themeName = name;
+  const t = THEMES[name];
+  for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'boolean') PAL[k] = t[k];
+  resolveColours(W.buildings);
   document.body.classList.toggle('theme-day', name === 'day');
   if (W.roads && W.roads.length) prerenderMap();   // roads alone are enough to draw a map
 }
@@ -403,6 +418,9 @@ function setOrigin(lat, lon) {
 }
 const projX = lon => (lon - GEO.lon0) * GEO.mLon;
 const projY = lat => -(lat - GEO.lat0) * GEO.mLat;
+// and back again, so we can ask Overpass for the tile next door
+const unprojLon = x => GEO.lon0 + x / GEO.mLon;
+const unprojLat = y => GEO.lat0 - y / GEO.mLat;
 
 // Road width in metres by OSM highway class.
 const ROADW = {
@@ -419,6 +437,13 @@ const OVERPASS = [
   'https://overpass.private.coffee/api/interpreter'
 ];
 const RADIUS = 900;   // metres fetched around the centre point
+/* The map streams in. Tile (i,j) covers a RADIUS*2 square centred on
+   (i*TILE, j*TILE), so tile (0,0) is exactly the area fetched at startup and
+   neighbours butt up against it with no gap and no overlap. */
+const TILE = RADIUS * 2;
+const LOOKAHEAD = 520;   // start fetching a neighbour once you're this close to it
+const MAX_TILES = 12;    // keeps memory and the minimap prerender bounded
+const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk requests
 
 function overpassQL(s, w, n, e) {
   const bb = `${s},${w},${n},${e}`;
@@ -452,13 +477,21 @@ function loadAbort() {
   for (const t of LOAD.timers) clearTimeout(t);
   LOAD.controllers = []; LOAD.timers = [];
 }
-function fetchTimeout(url, opts, ms) {
+function fetchTimeout(url, opts, ms, sess) {
+  sess = sess || LOAD;
   const ctrl = new AbortController();
-  LOAD.controllers.push(ctrl);
+  sess.controllers.push(ctrl);
   const t = setTimeout(() => ctrl.abort(), ms);
-  LOAD.timers.push(t);
+  sess.timers.push(t);
   return fetch(url, Object.assign({ signal: ctrl.signal }, opts))
     .finally(() => clearTimeout(t));
+}
+// a fetch scope for background chunk loads, so they never touch the load screen's
+function newSession() { return { cancelled: false, controllers: [], timers: [], bytes: 0 }; }
+function sessAbort(s) {
+  for (const c of s.controllers) { try { c.abort(); } catch (e) {} }
+  for (const t of s.timers) clearTimeout(t);
+  s.controllers = []; s.timers = [];
 }
 
 async function geocode(q) {
@@ -489,15 +522,15 @@ async function readBody(res, onBytes) {
 
 /* Hedged mirror racing: fire the first straight away, bring in the next one if it
    goes quiet, and take whichever answers first. Bounded by TOTAL_MS either way. */
-function fetchOSM(lat, lon, onMsg, onBytes) {
-  const dLat = RADIUS / 110540, dLon = RADIUS / (111320 * Math.cos(lat * Math.PI / 180));
-  const ql = overpassQL(lat - dLat, lon - dLon, lat + dLat, lon + dLon);
-  const body = 'data=' + encodeURIComponent(ql);
+/* One hedged, deadline-bounded Overpass request for an arbitrary bbox. Used for
+   the opening area and for every streamed-in chunk after it. */
+function overpassArea(s, w, n, e, sess, onMsg, onBytes, totalMs) {
+  const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e));
   let live = 0;
 
-  const attempt = (url, delay, i) => new Promise((resolve, reject) => {
+  const attempt = (url, delay) => new Promise((resolve, reject) => {
     const t = setTimeout(async () => {
-      if (LOAD.cancelled) return reject(new Error('cancelled'));
+      if (sess.cancelled) return reject(new Error('cancelled'));
       live++;
       onMsg(live > 1 ? 'Asking ' + live + ' mirrors…' : 'Surveying the streets…');
       try {
@@ -505,28 +538,34 @@ function fetchOSM(lat, lon, onMsg, onBytes) {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body
-        }, MIRROR_MS);
+        }, MIRROR_MS, sess);
         if (!r.ok) throw new Error('overpass ' + r.status);
         const j = JSON.parse(await readBody(r, onBytes));
         if (!j || !j.elements) throw new Error('empty response');
         resolve(j.elements);
-      } catch (e) { reject(e); }
+      } catch (err) { reject(err); }
     }, delay);
-    LOAD.timers.push(t);
+    sess.timers.push(t);
   });
 
-  const tries = OVERPASS.map((u, i) => attempt(u, i * HEDGE, i));
+  const tries = OVERPASS.map((u, i) => attempt(u, i * HEDGE));
   const deadline = new Promise((_, rej) => {
-    const t = setTimeout(() => rej(new Error('timed out')), TOTAL_MS);
-    LOAD.timers.push(t);
+    const t = setTimeout(() => rej(new Error('timed out')), totalMs || TOTAL_MS);
+    sess.timers.push(t);
   });
   deadline.catch(() => {});
 
-  return Promise.race([
+  const racers = [
     Promise.any(tries).catch(() => { throw new Error('all mirrors failed'); }),
-    deadline,
-    LOAD.cancelP
-  ]).finally(loadAbort);
+    deadline
+  ];
+  if (sess.cancelP) racers.push(sess.cancelP);
+  return Promise.race(racers).finally(() => sessAbort(sess));
+}
+
+function fetchOSM(lat, lon, onMsg, onBytes) {
+  const dLat = RADIUS / 110540, dLon = RADIUS / (111320 * Math.cos(lat * Math.PI / 180));
+  return overpassArea(lat - dLat, lon - dLon, lat + dLat, lon + dLon, LOAD, onMsg, onBytes);
 }
 
 /* ------------------------------ 3. world ------------------------------ */
@@ -702,28 +741,28 @@ function proceduralCity() {
   return { roads, buildings, water: [], parks, places };
 }
 
-function buildWorld(data, name, procedural) {
-  W.roads = data.roads; W.buildings = data.buildings;
-  W.water = data.water; W.parks = data.parks;
-  W.places = data.places || [];
-  W.name = name; W.procedural = procedural;
+/* ---- indexing, written so it can run over a whole world or just a new chunk ---- */
 
-  // ---- world bounds
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  const all = [W.roads, W.buildings, W.water, W.parks];
-  for (const arr of all) for (const f of arr) {
-    if (f.bb.x0 < x0) x0 = f.bb.x0; if (f.bb.y0 < y0) y0 = f.bb.y0;
-    if (f.bb.x1 > x1) x1 = f.bb.x1; if (f.bb.y1 > y1) y1 = f.bb.y1;
-  }
-  if (!isFinite(x0)) { x0 = y0 = -900; x1 = y1 = 900; }
+// Grow the drivable mask to cover new bounds, carrying the existing marks across.
+function fitGrid(x0, y0, x1, y1) {
   const pad = 40;
-  W.minX = x0 - pad; W.minY = y0 - pad; W.maxX = x1 + pad; W.maxY = y1 + pad;
+  const nMinX = Math.min(W.minX, x0 - pad), nMinY = Math.min(W.minY, y0 - pad);
+  const nMaxX = Math.max(W.maxX, x1 + pad), nMaxY = Math.max(W.maxY, y1 + pad);
+  if (W.grid && nMinX === W.minX && nMinY === W.minY && nMaxX === W.maxX && nMaxY === W.maxY) return false;
 
-  // ---- drivable mask (8 m cells) drives off-road handling cheaply
-  W.gw = Math.ceil((W.maxX - W.minX) / W.cell);
-  W.gh = Math.ceil((W.maxY - W.minY) / W.cell);
-  W.grid = new Uint8Array(W.gw * W.gh);
-  for (const r of W.roads) {
+  const gw = Math.ceil((nMaxX - nMinX) / W.cell), gh = Math.ceil((nMaxY - nMinY) / W.cell);
+  const grid = new Uint8Array(gw * gh);
+  if (W.grid) {                        // blit the old mask into its new offset
+    const ox = Math.round((W.minX - nMinX) / W.cell), oy = Math.round((W.minY - nMinY) / W.cell);
+    for (let y = 0; y < W.gh; y++) grid.set(W.grid.subarray(y * W.gw, (y + 1) * W.gw), (y + oy) * gw + ox);
+  }
+  W.minX = nMinX; W.minY = nMinY; W.maxX = nMaxX; W.maxY = nMaxY;
+  W.gw = gw; W.gh = gh; W.grid = grid;
+  return true;
+}
+
+function markRoads(roads) {
+  for (const r of roads) {
     if (!r.drive) continue;
     const hw = r.w / 2;
     for (let i = 0; i < r.pts.length - 1; i++) {
@@ -736,10 +775,11 @@ function buildWorld(data, name, procedural) {
       }
     }
   }
+}
 
-  // ---- building spatial hash for player collision
-  W.buckets.clear();
-  for (let i = 0; i < W.buildings.length; i++) {
+// Buckets are keyed off absolute metres, so they never need rebuilding — only adding to.
+function indexBuildings(from) {
+  for (let i = from; i < W.buildings.length; i++) {
     const b = W.buildings[i];
     const cx0 = Math.floor(b.bb.x0 / W.bcell), cx1 = Math.floor(b.bb.x1 / W.bcell);
     const cy0 = Math.floor(b.bb.y0 / W.bcell), cy1 = Math.floor(b.bb.y1 / W.bcell);
@@ -749,13 +789,9 @@ function buildWorld(data, name, procedural) {
       a.push(i);
     }
   }
-
-  // ---- roads usable for traffic / mission targets
-  W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
-
-  // ---- road spatial hash, so "what street is this?" is a few segment tests
-  W.rbuckets.clear();
-  for (const r of W.roads) {
+}
+function indexRoads(roads) {
+  for (const r of roads) {
     if (!r.name) continue;                 // only named roads can be announced
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1];
@@ -768,12 +804,11 @@ function buildWorld(data, name, procedural) {
       }
     }
   }
-
-  // ---- street lights down the bigger roads, alternating sides (pure decoration)
-  W.lights = [];
-  for (const r of W.roads) {
+}
+function addLights(roads) {
+  for (const r of roads) {
     if (r.w < 9) continue;
-    if (W.lights.length > 1800) break;
+    if (W.lights.length > 4200) break;
     const off = r.w / 2 + 1.4;
     let side = 1;
     for (let i = 0; i < r.pts.length - 1; i++) {
@@ -792,8 +827,142 @@ function buildWorld(data, name, procedural) {
       }
     }
   }
+}
+
+function featureBounds(sets) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const arr of sets) for (const f of arr) {
+    if (f.bb.x0 < x0) x0 = f.bb.x0; if (f.bb.y0 < y0) y0 = f.bb.y0;
+    if (f.bb.x1 > x1) x1 = f.bb.x1; if (f.bb.y1 > y1) y1 = f.bb.y1;
+  }
+  return { x0, y0, x1, y1 };
+}
+
+function buildWorld(data, name, procedural) {
+  W.roads = data.roads; W.buildings = data.buildings;
+  W.water = data.water; W.parks = data.parks;
+  W.places = data.places || [];
+  W.name = name; W.procedural = procedural;
+  W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
+  W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
+  W.tiles = new Map();
+  // a real map streams; the generated city is a fixed island
+  if (!procedural) W.tiles.set('0,0', 'loaded');
+
+  const b = featureBounds([W.roads, W.buildings, W.water, W.parks]);
+  if (!isFinite(b.x0)) { b.x0 = b.y0 = -900; b.x1 = b.y1 = 900; }
+  fitGrid(b.x0, b.y0, b.x1, b.y1);   // bounds start empty, so this sizes the first grid
+
+  markRoads(W.roads);
+  indexBuildings(0);
+  W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
+  indexRoads(W.roads);
+  addLights(W.roads);
 
   applyTheme(themeName);   // resolves every building's material and prerenders the map
+}
+
+/* ------------------------- streaming the map in -------------------------
+
+   The opening download is tile (0,0). As the player nears the edge of what's
+   loaded, the neighbouring tiles are fetched in the background and folded in,
+   so the world keeps going instead of stopping at a fence.                  */
+const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, note: '', mergeMs: 0, mapMs: 0,
+                retryAt: new Map(), tries: new Map() };
+
+const tileKey = (i, j) => i + ',' + j;
+const tileOf = (x, y) => [Math.round(x / TILE), Math.round(y / TILE)];
+
+// Tiles overlapping a look-ahead circle around the player that we don't have yet.
+function wantedTiles(px, py) {
+  const [ci, cj] = tileOf(px, py);
+  const now = Date.now();
+  const out = [];
+  for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+    const key = tileKey(i, j);
+    if (W.tiles.get(key)) continue;                      // already loaded or in flight
+    if ((CHUNK.retryAt.get(key) || 0) > now) continue;   // failed recently; backing off
+    // distance from the player to that tile's box, 0 if inside it
+    const dx = Math.max(Math.abs(px - i * TILE) - RADIUS, 0);
+    const dy = Math.max(Math.abs(py - j * TILE) - RADIUS, 0);
+    const d = Math.hypot(dx, dy);
+    if (d < LOOKAHEAD) out.push({ i, j, d });
+  }
+  return out.sort((a, b) => a.d - b.d);
+}
+
+async function loadTile(i, j) {
+  const key = tileKey(i, j);
+  W.tiles.set(key, 'loading');
+  CHUNK.busy = true;
+  CHUNK.note = 'Streaming the next district…';
+  const sess = newSession();
+  try {
+    const cx = i * TILE, cy = j * TILE;
+    const els = await overpassArea(
+      unprojLat(cy + RADIUS), unprojLon(cx - RADIUS),   // south, west
+      unprojLat(cy - RADIUS), unprojLon(cx + RADIUS),   // north, east  (+y is south)
+      sess, () => {}, () => {}, 20000);
+    const data = parseOSM(els);
+    if (!data.roads.length && !data.buildings.length) throw new Error('empty tile');
+    const t0 = performance.now();
+    mergeChunk(data);
+    CHUNK.mergeMs = Math.round(performance.now() - t0);
+    W.tiles.set(key, 'loaded');
+    CHUNK.loaded++;
+    CHUNK.note = '';
+    return true;
+  } catch (err) {
+    console.warn('chunk ' + key + ' failed:', err && err.message);
+    // let it be retried, but back off so a dead area can't hammer the mirrors
+    W.tiles.delete(key);
+    const n = (CHUNK.tries.get(key) || 0) + 1;
+    CHUNK.tries.set(key, n);
+    CHUNK.retryAt.set(key, Date.now() + Math.min(15000 * n, 90000));
+    CHUNK.failed++;
+    CHUNK.note = '';
+    return false;
+  } finally {
+    sessAbort(sess);
+    CHUNK.busy = false;
+    CHUNK.last = Date.now();
+  }
+}
+
+// Called from the game loop; cheap, and does nothing most frames.
+function updateChunks() {
+  if (W.procedural || CHUNK.busy) return;
+  if (CHUNK.loaded >= MAX_TILES) return;
+  if (Date.now() - CHUNK.last < TILE_COOLDOWN) return;
+  const want = wantedTiles(P.car.x, P.car.y);
+  if (want.length) loadTile(want[0].i, want[0].j);
+}
+
+/* Fold a freshly downloaded neighbouring tile into the live world. */
+function mergeChunk(data) {
+  const b = featureBounds([data.roads, data.buildings, data.water, data.parks]);
+  if (!isFinite(b.x0)) return 0;
+
+  const firstBuilding = W.buildings.length;
+  const grew = fitGrid(b.x0, b.y0, b.x1, b.y1);
+
+  for (const r of data.roads) W.roads.push(r);
+  for (const x of data.buildings) W.buildings.push(x);
+  for (const x of data.water) W.water.push(x);
+  for (const x of data.parks) W.parks.push(x);
+  for (const p of data.places || []) W.places.push(p);
+
+  markRoads(data.roads);            // the mask was blitted, so only new roads need marking
+  indexBuildings(firstBuilding);
+  indexRoads(data.roads);
+  addLights(data.roads);
+  for (const r of data.roads) if (r.drive && r.pts.length >= 2) W.driveRoads.push(r);
+
+  resolveColours(data.buildings);   // give the newcomers the current theme
+  const tm = performance.now();
+  prerenderMap();                   // bounds moved, so the minimap is redrawn
+  CHUNK.mapMs = Math.round(performance.now() - tm);
+  return data.roads.length;
 }
 
 function markDrivable(x, y, r) {
@@ -896,7 +1065,10 @@ function prerenderMap() {
   for (const f of W.parks) poly(f, PAL.mapPark);
   for (const f of W.water) poly(f, PAL.mapWater);
   g.lineCap = 'round'; g.lineJoin = 'round';
+  // in a big streamed world, minor lanes just muddy the radar and cost redraw time
+  const minW = W.roads.length > 2000 ? 6.5 : 0;
   for (const r of W.roads) {
+    if (r.w < minW) continue;
     g.beginPath(); g.moveTo(r.pts[0].x, r.pts[0].y);
     for (let i = 1; i < r.pts.length; i++) g.lineTo(r.pts[i].x, r.pts[i].y);
     g.lineWidth = Math.max(r.w * .9, 3 / s);
@@ -1391,8 +1563,13 @@ function resetRun() {
 }
 
 /* ------------------------------ 10. missions ------------------------------ */
+// Contracts reach further as more of the map streams in, so packets turn up in
+// the new districts instead of clustering in the block you started on.
+const missionReach = base => Math.min(base * (1 + (CHUNK.loaded - 1) * .55), base * 3.2);
+
 function newMission() {
-  const p = roadPoint(P.car.x, P.car.y, 90, 480);
+  const p = roadPoint(P.car.x, P.car.y, 90, missionReach(480))
+         || roadPoint(P.car.x, P.car.y, null);
   if (!p) { MISSION.state = 'none'; return; }
   MISSION.pick = p; MISSION.drop = null;
   MISSION.state = 'pickup';
@@ -1400,12 +1577,13 @@ function newMission() {
   setObjective(where ? 'Pick up on ' + where : 'Pick up the package');
 }
 function startDelivery() {
-  const d = roadPoint(P.car.x, P.car.y, 180, 700) || roadPoint(P.car.x, P.car.y, null);
+  const d = roadPoint(P.car.x, P.car.y, 180, missionReach(700))
+         || roadPoint(P.car.x, P.car.y, null);
   if (!d) { MISSION.state = 'none'; return; }
   MISSION.drop = d;
   MISSION.state = 'deliver';
   const dd = dist(P.car.x, P.car.y, d.x, d.y);
-  MISSION.time = clamp(dd / 15 + 16, 22, 95);
+  MISSION.time = clamp(dd / 13 + 18, 22, 150);   // cross-district runs need the room
   MISSION.reward = Math.round(120 + dd * 1.6 + MISSION.done * 45);
   SFX.pickup();
   toast('PACKAGE SECURED\n$' + MISSION.reward + ' ON DELIVERY', 1800);
@@ -1626,6 +1804,7 @@ function update(dt) {
   SFX.siren(P.wanted >= 1 && cops.some(k => dist(k.x, k.y, c.x, c.y) < 170), dt);
 
   updateNav(dt);
+  updateChunks();
 
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
 }
@@ -1958,6 +2137,9 @@ function drawHUD() {
   let s = '';
   for (let i = 0; i < 5; i++) s += i < w ? '★' : '<span class="off">★</span>';
   $('stars').innerHTML = s;
+  const ch = $('chunk');
+  if (CHUNK.note) { ch.textContent = CHUNK.note; ch.classList.add('on'); }
+  else ch.classList.remove('on');
   if (MISSION.state === 'deliver') {
     $('timer').textContent = Math.max(0, Math.ceil(MISSION.time)) + 's';
   } else $('timer').textContent = '';
@@ -2066,6 +2248,17 @@ window.__nav = () => ({ street: NAV.street, zone: NAV.zone,
 window.__theme = () => ({ name: themeName, ground: PAL.ground, lights: PAL.lights,
   places: W.places.length, namedRoads: W.roads.filter(r => r.name).length });
 // find a building by its exact material colour (the test payload seeds a pure-red one)
+window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHUNK.busy,
+  mergeMs: CHUNK.mergeMs, mapMs: CHUNK.mapMs,
+  note: CHUNK.note, tiles: [...W.tiles.entries()],
+  bounds: { x0: W.minX, y0: W.minY, x1: W.maxX, y1: W.maxY },
+  roads: W.roads.length, buildings: W.buildings.length, drive: W.driveRoads.length,
+  grid: W.gw + 'x' + W.gh });
+window.__mission = () => ({ state: MISSION.state,
+  pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
+  drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
+window.__onRoad = (x, y) => onRoad(x, y);
+window.__newMission = () => newMission();
 window.__byColour = (r, g, b_) => {
   const b = W.buildings.find(x => x.mWall[0] === r && x.mWall[1] === g && x.mWall[2] === b_);
   return b ? { roof: b.roof, wall: b.wall, mRoof: b.mRoof, mWall: b.mWall } : null;

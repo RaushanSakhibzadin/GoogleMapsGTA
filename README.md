@@ -34,6 +34,11 @@ is the whole game.
 - **Real map geometry.** Road centrelines with their OSM classification (a motorway is wider
   and faster than a service road), building footprints with real heights from `height` /
   `building:levels` tags, plus water and parks.
+- **The map streams as you drive.** The opening download is one 1.8 km tile. Get within ~500 m
+  of its edge and the neighbouring tile is fetched in the background and folded into the live
+  world — grid, collision, radar and all — so the city keeps going instead of stopping at a
+  fence. Packets, traffic and pedestrians spawn out in the new districts, and delivery contracts
+  reach further as more of the map arrives.
 - **Real building colours.** Every building takes the colour a mapper actually recorded in
   `building:colour` / `roof:colour` where one exists, then falls back through
   `building:material` (brick, concrete, glass, stone, metal, wood), then what the building is
@@ -74,6 +79,7 @@ is the whole game.
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
 | Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
+| Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. Merging a tile grows the drivable mask in place (the old one is blitted into the new offset), appends to the spatial hashes — which key off absolute metres and so never need rebuilding — and redraws the radar. One tile in flight at a time, with a cooldown and per-tile backoff on failure |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
 
 Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all
