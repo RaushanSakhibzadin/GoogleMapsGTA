@@ -1,0 +1,87 @@
+# VICE MAPS
+
+A GTA: Vice City–flavoured driving sandbox that runs on **real streets, anywhere on Earth**.
+Type a place — your street, Miami Beach, Shibuya — and it pulls the actual road network and
+building footprints for that spot and turns them into a drivable neon city.
+
+One file. No build step, no dependencies, no API key. Open `index.html` and drive.
+
+```
+git clone https://github.com/RaushanSakhibzadin/GoogleMapsGTA.git
+cd GoogleMapsGTA && open index.html          # or: python3 -m http.server
+```
+
+It also runs straight from GitHub Pages — enable Pages on the repo and the root `index.html`
+is the whole game.
+
+## Controls
+
+| | |
+|---|---|
+| **W A S D** / arrow keys | drive, reverse, steer |
+| **Space** | handbrake — hold it into a corner and the back end steps out |
+| **H** | horn |
+| **Esc** | pause / change city |
+| touch | on-screen pads appear automatically on phones and tablets |
+
+## What's in it
+
+- **Real map geometry.** Road centrelines with their OSM classification (a motorway is wider
+  and faster than a service road), building footprints with real heights from `height` /
+  `building:levels` tags, plus water and parks.
+- **Arcade physics.** Velocity is split into forward and lateral components against the car's
+  heading; lateral grip drops hard under the handbrake, which is what makes it drift. Steering
+  authority falls off with speed and inverts in reverse.
+- **Collision that means something.** Buildings push you out along the nearest wall normal and
+  damage you in proportion to closing speed. Cars exchange impulses and dent each other.
+- **Off-road handling.** An 8 m drivable grid rasterized from the road network — leave the
+  tarmac and you lose top speed, gain drag, and the camera starts shaking.
+- **Traffic and pedestrians.** Cars drive the real ways node by node. Pedestrians keep to the
+  pavement and turn back at the kerb, so you have to work to hit one.
+- **Five-star wanted level.** Ramming cars, hitting cops, and running people down raises it.
+  Police pursue directly and get faster with each star. Lose them for 8 seconds and it decays.
+  Stop next to a cop while wanted and you get **BUSTED**; run out of armor and you get **WASTED**.
+- **Delivery missions.** Pink marker to yellow marker against a timer, paying out by distance.
+  Cash persists in `localStorage`.
+- **Vice City dusk.** Neon rooftop trim, street lights, headlight cones, skid marks, scanlines,
+  a rotating minimap, and a synthesised engine that tracks your RPM — no audio files.
+
+## How it works
+
+| Concern | Approach |
+|---|---|
+| Geocoding | [Nominatim](https://nominatim.openstreetmap.org) — turns "Ocean Drive, Miami Beach" into a lat/lon |
+| Geometry | [Overpass API](https://overpass-api.de) `out geom;` over a 1.8 km box, so coordinates come inline |
+| Projection | Local equirectangular — `x = (lon−lon₀)·111320·cos(lat₀)`, metres are the world unit |
+| Rendering | Canvas 2D. Camera rotates so the car points up; buildings fake 3D by pushing the roof polygon away from screen centre and filling the wall quads |
+| Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
+| Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
+| Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
+
+Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all
+of them fail — or you pick a spot with no roads, like the middle of the ocean — it generates a
+procedural neon grid city instead and tells you so. **The game always starts.**
+
+## About Google Maps
+
+The repo is called GoogleMapsGTA, and the original ask was Google Maps. It uses OpenStreetMap
+instead, deliberately:
+
+1. The Google Maps JavaScript API requires a **billed API key**, which can't be committed to a
+   public repo — every visitor would be spending the owner's quota.
+2. More importantly, Google serves **rendered tiles** — pictures of a map. There are no road
+   centrelines or building polygons in them, so cars would be driving on a photograph with
+   nothing to collide against. Overpass returns real vector geometry, which is exactly what the
+   physics needs.
+
+If you have a key and want Google's tiles as the ground layer, the swap is small: draw the tiles
+into the world transform in `render()` beneath the road layer, and keep using OSM geometry for
+collision and the drivable grid. The projection helpers (`projX` / `projY`) already give you
+metre coordinates to place tiles against.
+
+## Credits
+
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
+Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
+
+A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.
