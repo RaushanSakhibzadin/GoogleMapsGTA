@@ -22,7 +22,7 @@ is the whole game.
 
 | | |
 |---|---|
-| **W A S D** / arrow keys | drive, reverse, steer |
+| **W A S D** / arrow keys | drive, reverse, steer — up to 300 km/h |
 | **Space** | handbrake — hold it into a corner and the back end steps out |
 | **H** | horn |
 | **N** | switch between dusk and daylight (or the ☀ button on touch devices) |
@@ -53,7 +53,9 @@ is the whole game.
   material colour rather than a finished one, so the swap is instant.
 - **Arcade physics.** Velocity is split into forward and lateral components against the car's
   heading; lateral grip drops hard under the handbrake, which is what makes it drift. Steering
-  authority falls off with speed and inverts in reverse.
+  authority falls off with speed and inverts in reverse. Constant engine force against linear
+  drag with a hard ceiling, so the 300 km/h on the clock is a speed you actually reach rather
+  than an asymptote. The camera pulls back as you wind it out.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
 - **Tunnels and archways work.** Where a drivable centreline runs straight through a building

@@ -441,6 +441,7 @@ const OVERPASS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter'
 ];
+const TOP_SPEED = 83.3;   // m/s — 300 km/h on the clock
 const RADIUS = 900;   // metres fetched around the centre point
 /* The map streams in. Tile (i,j) covers a RADIUS*2 square centred on
    (i*TILE, j*TILE), so tile (0,0) is exactly the area fetched at startup and
@@ -923,7 +924,8 @@ function wantedTiles(px, py) {
     const dx = Math.max(Math.abs(px - i * TILE) - RADIUS, 0);
     const dy = Math.max(Math.abs(py - j * TILE) - RADIUS, 0);
     const d = Math.hypot(dx, dy);
-    if (d < LOOKAHEAD) out.push({ i, j, d });
+    // the faster you're going, the earlier the next tile has to start loading
+    if (d < LOOKAHEAD + Math.hypot(P.car.vx, P.car.vy) * 6) out.push({ i, j, d });
   }
   return out.sort((a, b) => a.d - b.d);
 }
@@ -1023,10 +1025,19 @@ function onRoad(x, y) {
 
 /* Random point sitting on a real road, optionally within a distance band.
    Carries the way + node index so traffic can start driving it immediately. */
-function roadPoint(fromX, fromY, minD, maxD) {
+function roadLen(r) {
+  if (r.len == null) {
+    let L = 0;
+    for (let i = 0; i < r.pts.length - 1; i++) L += dist(r.pts[i].x, r.pts[i].y, r.pts[i + 1].x, r.pts[i + 1].y);
+    r.len = L;
+  }
+  return r.len;
+}
+function roadPoint(fromX, fromY, minD, maxD, minLen) {
   for (let tries = 0; tries < 260; tries++) {
     const r = pick(W.driveRoads);
     if (!r) return null;
+    if (minLen && roadLen(r) < minLen) continue;
     const i = randi(0, r.pts.length - 1);
     const a = r.pts[i], b = r.pts[i + 1] || r.pts[i];
     const t = Math.random();
@@ -1125,8 +1136,8 @@ function makeCar(x, y, h, kind) {
     x, y, h, vx: 0, vy: 0, kind,
     w: isCop ? 2.05 : rand(1.85, 2.15),
     l: isCop ? 4.7 : rand(4.1, 4.9),
-    hp: 100, maxSpeed: isCop ? 42 : (kind === 'player' ? 46 : rand(11, 17)),
-    accel: isCop ? 17 : (kind === 'player' ? 16 : 7),
+    hp: 100, maxSpeed: isCop ? 60 : (kind === 'player' ? TOP_SPEED : rand(11, 17)),
+    accel: isCop ? 28 : (kind === 'player' ? 28 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
     steer: 0, road: true, dead: false,
@@ -1145,7 +1156,7 @@ const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, don
 
 function spawnTraffic(n) {
   for (let i = 0; i < n; i++) {
-    const p = roadPoint(P.car.x, P.car.y, 60, 620);
+    const p = roadPoint(P.car.x, P.car.y, 60, 620, 140) || roadPoint(P.car.x, P.car.y, 60, 620);
     if (!p) continue;
     const c = makeCar(p.x, p.y, p.h, 'traffic');
     // the spawn point already knows which way it sits on — no search needed
@@ -1155,7 +1166,7 @@ function spawnTraffic(n) {
 }
 // Re-home a car onto some nearby way (used when one runs out of road).
 function rehome(c) {
-  const p = roadPoint(c.x, c.y, 0, 260) || roadPoint(c.x, c.y, null);
+  const p = roadPoint(c.x, c.y, 0, 260, 140) || roadPoint(c.x, c.y, 0, 260) || roadPoint(c.x, c.y, null);
   if (!p) return false;
   c.x = p.x; c.y = p.y; c.h = p.h;
   c.road_ = p.road; c.idx = p.idx; c.dir = Math.random() < .5 ? 1 : -1;
@@ -1198,14 +1209,15 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   const grip = c.road ? 1 : .58;
   const top = c.maxSpeed * grip;
 
-  if (throttle) vf += c.accel * dt * (1 - clamp(Math.abs(vf) / top, 0, 1)) * (vf < 0 ? 2.2 : 1);
-  if (brake) {
-    if (vf > .8) vf -= c.accel * 1.9 * dt;                     // brakes
-    else vf -= c.accel * .55 * dt * (1 - clamp(-vf / (top * .4), 0, 1));  // reverse
-  }
-  if (!throttle && !brake) vf -= vf * decay(.9, dt);           // engine braking
+  // Constant engine force against linear drag, with a hard ceiling. The old model
+  // faded the engine out as (1 - v/top) while drag kept pulling, so top speed was
+  // an asymptote you could never actually reach — 46 m/s on paper, 38 in practice.
+  if (throttle) vf += c.accel * dt * (vf < 0 ? 2.2 : 1);
+  if (brake) vf -= (vf > .8 ? c.accel * 1.9 : c.accel * .55) * dt;   // brakes, then reverse
+  if (!throttle && !brake) vf -= vf * decay(.9, dt);                 // engine braking
 
   vf -= vf * decay(c.road ? .32 : 1.5, dt);                     // drag / rough ground
+  vf = clamp(vf, -top * .45, top);                              // maxSpeed means maxSpeed
 
   // lateral grip: the handbrake lets the back end go, which is the whole point
   const lat = hand ? 1.7 : (c.road ? 9.5 : 6.5);
@@ -1862,7 +1874,7 @@ function update(dt) {
   const tx = c.x + Math.cos(c.h) * lead, ty = c.y + Math.sin(c.h) * lead;
   const k = decay(6.5, dt);
   cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
-  cam.s += (lerp(9.4, 6.2, clamp(spd / 42, 0, 1)) * zoomK - cam.s) * decay(2.4, dt);
+  cam.s += (lerp(9.4, 4.6, clamp(spd / TOP_SPEED, 0, 1)) * zoomK - cam.s) * decay(2.4, dt);
 
   // --- audio
   SFX.engine(clamp(spd / 46, 0, 1), inp.gas ? 1 : .3);
@@ -1881,16 +1893,26 @@ function sparks(x, y, col) {
 
 function updateTraffic(t, dt) {
   const r = t.road_;
-  if (!r) { rehome(t); return; }
-  // aim at the next node along the way, turn around at a dead end
+  if (!r || r.pts.length < 2) { rehome(t); return; }
+
+  // Walk past every node we've already reached. Turning round at a dead end has
+  // to step back TWO nodes, not one: stepping back one lands on the node the car
+  // is stood on, atan2 of a zero vector is noise, and the car spins on the spot
+  // for ever without escaping the arrival radius.
   t.idx = clamp(t.idx, 0, r.pts.length - 1);
-  let target = r.pts[t.idx];
-  if (dist(t.x, t.y, target.x, target.y) < 7) {
+  let guard = 0;
+  while (guard++ < 8 && dist(t.x, t.y, r.pts[t.idx].x, r.pts[t.idx].y) < 8) {
     t.idx += t.dir;
-    if (t.idx < 0 || t.idx >= r.pts.length) { t.dir *= -1; t.idx = clamp(t.idx + t.dir, 0, r.pts.length - 1); }
-    target = r.pts[t.idx];
+    if (t.idx < 0 || t.idx >= r.pts.length) {
+      t.dir *= -1;
+      t.idx = clamp(t.idx + 2 * t.dir, 0, r.pts.length - 1);
+      break;
+    }
   }
-  const want = Math.atan2(target.y - t.y, target.x - t.x);
+  const target = r.pts[t.idx];
+  const dx = target.x - t.x, dy = target.y - t.y;
+  if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast
+  const want = Math.atan2(dy, dx);
   const steer = clamp(angDiff(t.h, want) * 2.2, -1, 1);
 
   // slow down for whatever is directly in front (usually the player)
@@ -1912,7 +1934,7 @@ function updateCop(k, dt) {
   const d = dist(k.x, k.y, c.x, c.y);
   const gas = (Math.abs(df) < 1.5 || d > 30) ? 1 : 0;
   const brake = (Math.abs(df) > 2.2 && d < 20) ? 1 : 0;
-  k.maxSpeed = 34 + P.wanted * 3.4;      // higher stars, faster units
+  k.maxSpeed = 46 + P.wanted * 7.5;      // higher stars, faster units — 5 stars keeps up at 300
   drive(k, gas, brake, steer, 0, dt);
   fence(k);
   buildingCollide(k);
@@ -1999,6 +2021,15 @@ function render() {
   }
   ctx.restore();
 
+  /* ---- traffic and pedestrians go UNDER the buildings, or they look like
+         they're driving across the rooftops ---- */
+  ctx.save();
+  ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+  for (const p of peds) drawPed(p);
+  for (const t of traffic) drawCar(t);
+  for (const k of cops) drawCar(k);
+  ctx.restore();
+
   /* ---- buildings: fake 3D by pushing the roof away from screen centre ---- */
   const visB = [];
   for (const b of W.buildings) if (vis(b)) visB.push(b);
@@ -2006,16 +2037,14 @@ function render() {
   visB.sort((a, z) => dist2(z.cx, z.cy, cam.x, cam.y) - dist2(a.cx, a.cy, cam.x, cam.y));
   for (const b of visB) drawBuilding(b);
 
-  /* ---- entities, back in world space ---- */
+  /* ---- the player alone goes on top of the buildings, so you can never lose
+         your own car behind a tower or under an archway ---- */
   ctx.save();
   ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
 
   if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8');
   if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, '#ffe36a');
 
-  for (const p of peds) drawPed(p);
-  for (const t of traffic) drawCar(t);
-  for (const k of cops) drawCar(k);
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
 
   for (const p of parts) {
@@ -2054,14 +2083,32 @@ function drawBuilding(b) {
   ctx.closePath();
   ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill();
 
-  // walls
+  // Footprint, filled — this closes the near side, where the walls below are
+  // deliberately culled away.
   ctx.fillStyle = b.wall;
+  ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
+  for (let i = 1; i < n; i++) ctx.lineTo(sx[i], sy[i]);
+  ctx.closePath();
+  ctx.fill();
+
+  // Only the silhouette walls: the edges whose outward normal points away from
+  // the extrusion origin. Drawing the hidden ones too puts opposite windings in
+  // the same path, and where they overlap the nonzero rule cancels them to
+  // nothing — which is what tore the roofs off their footprints.
+  let area2 = 0;
+  for (let i = 0, j = n - 1; i < n; j = i++) area2 += sx[j] * sy[i] - sx[i] * sy[j];
+  const wind = area2 >= 0 ? 1 : -1;
   ctx.beginPath();
   for (let i = 0, j = n - 1; i < n; j = i++) {
+    const ex = sx[i] - sx[j], ey = sy[i] - sy[j];
+    const nx = wind * ey, ny = -wind * ex;                  // outward normal
+    const mx = (sx[i] + sx[j]) * .5 - HX, my = (sy[i] + sy[j]) * .5 - HY;
+    if (nx * mx + ny * my <= 0) continue;                   // faces the camera: hidden
     ctx.moveTo(sx[j], sy[j]); ctx.lineTo(sx[i], sy[i]);
     ctx.lineTo(tx[i], ty[i]); ctx.lineTo(tx[j], ty[j]); ctx.closePath();
   }
   ctx.fill();
+
   // a lit edge where wall meets ground, so the mass reads
   ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
@@ -2327,6 +2374,17 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
+window.__pal = () => PAL;
+window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
+window.__toScreen = (x, y) => toScreen(x, y);
+window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,
+  spd: Math.hypot(t.vx, t.vy), road: t.road_ ? t.road_.pts.length : 0, idx: t.idx, dir: t.dir }));
+window.__putTraffic = (i, x, y, h, col) => {
+  const t = traffic[i]; if (!t) return false;
+  t.x = x; t.y = y; t.h = h; t.vx = t.vy = 0;
+  if (col) t.color = col;
+  return true;
+};
 window.__passable = () => W.buildings.filter(b => b.passable).length;
 window.__newMission = () => newMission();
 window.__byColour = (r, g, b_) => {
