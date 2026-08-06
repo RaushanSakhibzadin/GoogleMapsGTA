@@ -62,6 +62,10 @@
   .chip{padding:9px 14px;font-size:13px;font-weight:600;border-radius:999px;cursor:pointer;
     color:var(--gold);background:rgba(255,227,106,.08);border:1px solid rgba(255,227,106,.35);transition:.15s}
   .chip:hover{background:rgba(255,227,106,.2);transform:translateY(-1px)}
+  #menuErr{display:none;margin-top:16px;max-width:min(560px,92vw);padding:11px 15px;
+    border-radius:10px;font-size:13px;line-height:1.6;color:#ffd2a0;
+    background:rgba(255,120,80,.10);border:1px solid rgba(255,120,80,.4)}
+  #menuErr.on{display:block}
   .hint{margin-top:24px;font-size:12.5px;line-height:1.85;color:rgba(255,255,255,.62);max-width:640px}
   .hint b{color:var(--cyan);font-weight:700}
   kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600 11px var(--ui);
@@ -250,6 +254,7 @@
     <button id="go" class="pink">DRIVE</button>
   </div>
   <div class="presets" id="presets"></div>
+  <div id="menuErr"></div>
   <div class="hint">
     <b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>N</kbd> day/night · <kbd>Esc</kbd> pause<br>
     Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
@@ -451,11 +456,16 @@ const LOOKAHEAD = 520;   // start fetching a neighbour once you're this close to
 const MAX_TILES = 12;    // keeps memory and the minimap prerender bounded
 const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk requests
 
-function overpassQL(s, w, n, e) {
+/* Two queries, not one. Streets are small and quick and are all you need to start
+   driving; buildings are the bulk of the payload and arrive afterwards. Splitting
+   them means a slow or refused building fetch costs you scenery, not the city. */
+function overpassQL(s, w, n, e, kind) {
   const bb = `${s},${w},${n},${e}`;
-  return `[out:json][timeout:40];(` +
+  if (kind === 'buildings') {
+    return `[out:json][timeout:60];(way["building"](${bb}););out geom qt;`;
+  }
+  return `[out:json][timeout:25];(` +
     `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bb});` +
-    `way["building"](${bb});` +
     `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
     `way["leisure"~"^(park|garden|golf_course)$"](${bb});` +
     `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
@@ -467,14 +477,19 @@ function overpassQL(s, w, n, e) {
 /* Overpass queues heavy queries instead of refusing them, so a mirror can accept
    the connection and then simply never answer. Every request therefore carries a
    hard deadline, and the whole load can be cancelled from the UI. */
-const HEDGE = 7000;      // start the next mirror if the current one is still quiet
-const MIRROR_MS = 22000; // hard timeout on any single request
-const TOTAL_MS = 25000;  // give up on real map data entirely and build a city
-const LOAD = { cancelled: false, controllers: [], timers: [], bytes: 0, t0: 0, cancelP: null, cancel: null };
+/* Timeouts have to be longer than the [timeout:N] in the query they carry, or we
+   kill the server mid-answer and never see a dense city at all. */
+const HEDGE = 7000;      // start another mirror if the current one is still silent
+const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
+const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
+const MAX_TRIES = 2;     // retries per mirror, on transient failures only
+// Overpass says these when it's busy, not when the query is wrong
+const TRANSIENT = new Set([429, 500, 502, 503, 504]);
+const LOAD = { cancelled: false, streaming: false, controllers: [], timers: [], bytes: 0, t0: 0, cancelP: null, cancel: null };
 
 function loadReset() {
   loadAbort();
-  LOAD.cancelled = false; LOAD.bytes = 0; LOAD.t0 = Date.now();
+  LOAD.cancelled = false; LOAD.streaming = false; LOAD.bytes = 0; LOAD.t0 = Date.now();
   LOAD.cancelP = new Promise((_, rej) => { LOAD.cancel = () => { LOAD.cancelled = true; rej(new Error('cancelled')); }; });
   LOAD.cancelP.catch(() => {});   // the race handles it; don't warn if nobody's listening
 }
@@ -493,7 +508,7 @@ function fetchTimeout(url, opts, ms, sess) {
     .finally(() => clearTimeout(t));
 }
 // a fetch scope for background chunk loads, so they never touch the load screen's
-function newSession() { return { cancelled: false, controllers: [], timers: [], bytes: 0 }; }
+function newSession() { return { cancelled: false, streaming: false, controllers: [], timers: [], bytes: 0 }; }
 function sessAbort(s) {
   for (const c of s.controllers) { try { c.abort(); } catch (e) {} }
   for (const t of s.timers) clearTimeout(t);
@@ -530,33 +545,63 @@ async function readBody(res, onBytes) {
    goes quiet, and take whichever answers first. Bounded by TOTAL_MS either way. */
 /* One hedged, deadline-bounded Overpass request for an arbitrary bbox. Used for
    the opening area and for every streamed-in chunk after it. */
-function overpassArea(s, w, n, e, sess, onMsg, onBytes, totalMs) {
-  const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e));
+function overpassArea(s, w, n, e, sess, opt) {
+  opt = opt || {};
+  const kind = opt.kind || 'streets';
+  const tune = kind === 'buildings' ? BUILDINGS : STREETS;
+  const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
+  const onMsg = opt.onMsg || (() => {});
+  const onBytes = opt.onBytes || (() => {});
   let live = 0;
 
   const attempt = (url, delay) => new Promise((resolve, reject) => {
-    const t = setTimeout(async () => {
+    const run = async (n) => {
       if (sess.cancelled) return reject(new Error('cancelled'));
+      // if another mirror is already sending us the body, don't pile on — wait and
+      // re-check, so we still have a runner if that one dies mid-stream
+      if (sess.streaming) {
+        const w8 = setTimeout(() => run(n), 5000);
+        sess.timers.push(w8);
+        return;
+      }
       live++;
-      onMsg(live > 1 ? 'Asking ' + live + ' mirrors…' : 'Surveying the streets…');
+      onMsg(live > 1 ? 'Asking ' + live + ' map servers…' : 'Surveying the streets…');
       try {
         const r = await fetchTimeout(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body
-        }, MIRROR_MS, sess);
-        if (!r.ok) throw new Error('overpass ' + r.status);
+        }, tune.mirrorMs, sess);
+        if (!r.ok) {
+          const e = new Error('overpass ' + r.status);
+          e.status = r.status;
+          e.retryAfter = (parseFloat(r.headers.get('retry-after')) || 0) * 1000;
+          throw e;
+        }
+        sess.streaming = true;             // headers in hand: stop hedging
         const j = JSON.parse(await readBody(r, onBytes));
         if (!j || !j.elements) throw new Error('empty response');
         resolve(j.elements);
-      } catch (err) { reject(err); }
-    }, delay);
+      } catch (err) {
+        // 429/5xx and network errors mean "busy, come back"; a 400 means our query
+        // is wrong and will never work. Our own timeout is left to the other mirrors.
+        const aborted = err && err.name === 'AbortError';
+        const retryable = !aborted && (err.status == null || TRANSIENT.has(err.status));
+        if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled) {
+          const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
+          onMsg('Map server busy — retrying…');
+          const t = setTimeout(() => run(n + 1), wait);
+          sess.timers.push(t);
+        } else reject(err);
+      }
+    };
+    const t = setTimeout(() => run(0), delay);
     sess.timers.push(t);
   });
 
   const tries = OVERPASS.map((u, i) => attempt(u, i * HEDGE));
   const deadline = new Promise((_, rej) => {
-    const t = setTimeout(() => rej(new Error('timed out')), totalMs || TOTAL_MS);
+    const t = setTimeout(() => rej(new Error('timed out')), opt.totalMs || tune.totalMs);
     sess.timers.push(t);
   });
   deadline.catch(() => {});
@@ -569,9 +614,17 @@ function overpassArea(s, w, n, e, sess, onMsg, onBytes, totalMs) {
   return Promise.race(racers).finally(() => sessAbort(sess));
 }
 
-function fetchOSM(lat, lon, onMsg, onBytes) {
+function areaBox(lat, lon) {
   const dLat = RADIUS / 110540, dLon = RADIUS / (111320 * Math.cos(lat * Math.PI / 180));
-  return overpassArea(lat - dLat, lon - dLon, lat + dLat, lon + dLon, LOAD, onMsg, onBytes);
+  return [lat - dLat, lon - dLon, lat + dLat, lon + dLon];
+}
+function fetchStreets(lat, lon, onMsg, onBytes) {
+  const b = areaBox(lat, lon);
+  return overpassArea(b[0], b[1], b[2], b[3], LOAD, { kind: 'streets', onMsg, onBytes });
+}
+function fetchBuildings(lat, lon, sess) {
+  const b = areaBox(lat, lon);
+  return overpassArea(b[0], b[1], b[2], b[3], sess, { kind: 'buildings' });
 }
 
 /* ------------------------------ 3. world ------------------------------ */
@@ -938,18 +991,26 @@ async function loadTile(i, j) {
   const sess = newSession();
   try {
     const cx = i * TILE, cy = j * TILE;
-    const els = await overpassArea(
-      unprojLat(cy + RADIUS), unprojLon(cx - RADIUS),   // south, west
-      unprojLat(cy - RADIUS), unprojLon(cx + RADIUS),   // north, east  (+y is south)
-      sess, () => {}, () => {}, 20000);
+    const s = unprojLat(cy + RADIUS), w = unprojLon(cx - RADIUS);   // south, west
+    const n = unprojLat(cy - RADIUS), e = unprojLon(cx + RADIUS);   // north, east (+y is south)
+
+    // streets first: that's what extends the drivable world
+    const els = await overpassArea(s, w, n, e, sess, { kind: 'streets' });
     const data = parseOSM(els);
-    if (!data.roads.length && !data.buildings.length) throw new Error('empty tile');
+    if (!data.roads.length) throw new Error('empty tile');
     const t0 = performance.now();
     mergeChunk(data);
     CHUNK.mergeMs = Math.round(performance.now() - t0);
     W.tiles.set(key, 'loaded');
     CHUNK.loaded++;
     CHUNK.note = '';
+
+    // then its buildings, which are the bulk of the bytes and purely scenery
+    const bs = newSession();
+    overpassArea(s, w, n, e, bs, { kind: 'buildings' })
+      .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels)); })
+      .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
+      .finally(() => sessAbort(bs));
     return true;
   } catch (err) {
     console.warn('chunk ' + key + ' failed:', err && err.message);
@@ -1495,23 +1556,26 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
 
+// lat/lon baked in: the preset buttons never need the geocoder, which is the
+// flakiest hop in the chain and rate-limits browsers hard
 const PRESETS = [
-  ['Miami Beach 🌴', 'Ocean Drive, Miami Beach, Florida'],
-  ['Manhattan', 'Times Square, New York'],
-  ['Monaco', 'Monte Carlo, Monaco'],
-  ['Tokyo', 'Shibuya Crossing, Tokyo'],
-  ['London', 'Piccadilly Circus, London'],
-  ['Paris', 'Arc de Triomphe, Paris'],
-  ['Los Santos', 'Vinewood, Los Angeles'],
-  ['Venice 🚤', 'Piazza San Marco, Venice'],
+  ['Miami Beach 🌴', 'Ocean Drive, Miami Beach', 25.7809, -80.1300],
+  ['Manhattan', 'Times Square, New York', 40.7580, -73.9855],
+  ['Monaco', 'Monte Carlo, Monaco', 43.7404, 7.4269],
+  ['Tokyo', 'Shibuya, Tokyo', 35.6595, 139.7005],
+  ['London', 'Piccadilly Circus, London', 51.5100, -0.1340],
+  ['Paris', 'Arc de Triomphe, Paris', 48.8738, 2.2950],
+  ['Los Santos', 'Vinewood, Los Angeles', 34.1016, -118.3269],
+  ['Venice 🚤', 'Piazza San Marco, Venice', 45.4341, 12.3388],
+  ['Riga', 'Vecrīga, Riga', 56.9496, 24.1052],
   ['📍 My location', '@geo']
 ];
 (function fillPresets() {
   const box = $('presets');
-  for (const [label, q] of PRESETS) {
+  for (const [label, q, lat, lon] of PRESETS) {
     const d = document.createElement('div');
     d.className = 'chip'; d.textContent = label;
-    d.onclick = () => { audioStart(); q === '@geo' ? useGeo() : startGame(q); };
+    d.onclick = () => { audioStart(); q === '@geo' ? useGeo() : startGame(q, lat, lon, q); };
     box.appendChild(d);
   }
 })();
@@ -1567,38 +1631,93 @@ function prog(p, msg, sub) {
 }
 $('skip').onclick = () => { if (LOAD.cancel) LOAD.cancel(); };
 
+/* Buildings for the opening area arrive after you're already driving. Failing
+   here costs scenery, not the city — which is the whole point of the split. */
+async function loadOpeningBuildings(lat, lon, gen) {
+  const sess = newSession();
+  CHUNK.note = 'Raising the buildings…';
+  try {
+    const els = await fetchBuildings(lat, lon, sess);
+    if (gen !== loadGen || W.procedural) return;
+    mergeChunk(parseOSM(els));
+  } catch (err) {
+    console.warn('buildings failed:', err && err.message);
+  } finally {
+    sessAbort(sess);
+    CHUNK.note = '';
+  }
+}
+
+let loadGen = 0;
+function backToMenu(msg) {
+  endLoad();
+  state = 'menu';
+  $('load').classList.add('hide');
+  $('menu').classList.remove('hide');
+  $('barIn').style.width = '0%';
+  const el = $('menuErr');
+  el.textContent = msg;
+  el.classList.add('on');
+}
+
 async function startGame(query, lat, lon, label) {
+  const gen = ++loadGen;                 // a second DRIVE press abandons this one
   audioStart();
+  $('menuErr').classList.remove('on');
   showLoad('Locating…', query || label || '');
   prog(.08);
   let name = label || query || 'Somewhere';
-  let procedural = false, data = null, why = '';
+  let procedural = false, data = null, why = '', geoFailed = false;
 
-  try {
-    if (lat == null) {
+  // 1. where is it? Presets already know, so only typed searches ask Nominatim.
+  if (lat == null) {
+    try {
       const g = await geocode(query);
       lat = g.lat; lon = g.lon; name = g.name;
+    } catch (err) {
+      if (gen !== loadGen) return;
+      console.warn('geocode failed:', err);
+      // A working geocoder saying "no such place" is an answer: a generated city
+      // would be actively wrong, so send them back to fix the spelling. A geocoder
+      // that never answered is different — we still don't know where they meant,
+      // but dead-ending an offline player helps nobody, so fall through and build
+      // the offline city with the reason on the label.
+      if (/no such place/i.test(err.message)) {
+        return backToMenu('Couldn’t find “' + query +
+          '”. Try a fuller name, like “Ocean Drive, Miami Beach”.');
+      }
+      geoFailed = true;
     }
+  }
+  if (gen !== loadGen) return;
+
+  // 2. the streets — everything you need to start driving
+  try {
+    if (geoFailed) throw new Error('place search unreachable');
     setOrigin(lat, lon);
     $('loadCity').textContent = name;
     prog(.25, 'Surveying the streets…', 'downloading ' + (RADIUS * 2) + 'm of real map data');
-    const els = await fetchOSM(lat, lon,
+    const els = await fetchStreets(lat, lon,
       m => { $('loadMsg').textContent = m; },
       b => { LOAD.bytes = b; });
+    if (gen !== loadGen) return;
     prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
     data = parseOSM(els);
-    if (data.roads.filter(r => r.drive).length < 6) {
+    // a quiet village is still a real place — only invent a city if there's nothing
+    if (!data.roads.length) {
       procedural = true;
       data = proceduralCity();
+      why = 'nothing mapped out there';
       name = name + ' — no roads out here';
     }
   } catch (err) {
+    if (gen !== loadGen) return;
     console.warn('map load failed:', err);
     setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
     procedural = true;
     data = proceduralCity();
-    // say which of the three it was, rather than a blanket "unavailable"
-    why = err && /cancel/i.test(err.message) ? 'skipped the download'
+    why = geoFailed ? 'couldn’t reach the place search'
+        : err && /cancel/i.test(err.message) ? 'skipped the download'
         : err && /timed out/i.test(err.message) ? 'map servers were too slow'
         : 'map servers unreachable';
     name = 'Neon Grid City (offline)';
@@ -1624,6 +1743,7 @@ async function startGame(query, lat, lon, label) {
   state = 'play'; lastT = performance.now(); acc = 0;
   toast(procedural ? 'WELCOME TO\nNEON GRID CITY' : 'WELCOME TO\n' + name.toUpperCase(), 2600);
   if (!raf) { raf = true; requestAnimationFrame(loop); }
+  if (!procedural) loadOpeningBuildings(lat, lon, gen);
 }
 
 function resetRun() {
@@ -2374,6 +2494,9 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
+window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, hedge: HEDGE, maxTries: MAX_TRIES,
+  streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
+  buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1] });
 window.__pal = () => PAL;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
 window.__toScreen = (x, y) => toScreen(x, y);
