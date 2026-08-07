@@ -34,9 +34,10 @@ is the whole game.
 - **Real map geometry.** Road centrelines with their OSM classification (a motorway is wider
   and faster than a service road), building footprints with real heights from `height` /
   `building:levels` tags, plus water and parks.
-- **The map streams as you drive.** The opening download is one 1.8 km tile. Get within ~500 m
-  of its edge and the neighbouring tile is fetched in the background and folded into the live
-  world — grid, collision, radar and all — so the city keeps going instead of stopping at a
+- **The map streams as you drive, and keeps streaming.** The opening download is one 1.8 km tile.
+  Get within ~500 m of its edge and the neighbouring tile is fetched in the background and folded
+  into the live world — grid, collision, radar and all. Tiles you've left far behind are recycled to
+  make room, so the city keeps going however far you drive instead of stopping at a
   fence. Packets, traffic and pedestrians spawn out in the new districts, and delivery contracts
   reach further as more of the map arrives.
 - **Real building colours.** Every building takes the colour a mapper actually recorded in
@@ -114,6 +115,7 @@ is the whole game.
 | Drive-through landmarks | The `passable` flag the tunnel handling already uses: skipped in collision, drawn at 45% alpha. Marked on any footprint a landmark falls inside, which covers both tagging styles — the way form where the hospital *is* the building, and the node form where a garage node sits in someone else's outline |
 | Respawning | Snaps to the nearest point *on* a drivable segment, not its midpoint, which on a long straight way can be hundreds of metres out. It only snaps when tarmac is within 120 m, since the wide sweep finds landmarks well outside the loaded streets and the nearest loaded road to those is the edge of the map. Beyond 6 km you go to the start point instead: the collision grid and the pre-rendered map both span everything loaded, so a long jump bloats the mask and zooms the radar out until it's useless |
 | Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. Merging a tile grows the drivable mask in place (the old one is blitted into the new offset), appends to the spatial hashes — which key off absolute metres and so never need rebuilding — and redraws the radar. One tile in flight at a time, with a cooldown and per-tile backoff on failure |
+| Recycling | Twelve tiles are held at once, and the ones furthest behind you are dropped to make room, so you can drive indefinitely without the collision mask or the pre-rendered map growing without bound. Every feature carries the tile it arrived with, so a tile leaves with its own scenery, and what remains is re-indexed from scratch — the same pass the opening load runs. The look-ahead only ever wants nine tiles against a budget of twelve, so what's in play is never what gets dropped |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
 
 Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all

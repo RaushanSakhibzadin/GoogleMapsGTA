@@ -1025,15 +1025,30 @@ function buildWorld(data, name, procedural) {
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
-  W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
-  W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
   W.tiles = new Map();
   // a real map streams; the generated city is a fixed island
-  if (!procedural) W.tiles.set('0,0', 'loaded');
+  if (!procedural) { W.tiles.set('0,0', 'loaded'); stampTile(data, '0,0'); }
+
+  reindexWorld();
+  applyTheme(themeName);   // resolves every building's material and prerenders the map
+}
+
+/* Which tile a feature came from, so recycling one can take its scenery with it. */
+function stampTile(data, key) {
+  for (const arr of [data.roads, data.buildings, data.water, data.parks, data.places || []])
+    for (const f of arr) f.tile = key;
+}
+
+/* Everything derived from the feature arrays: bounds, drivable mask, spatial
+   hashes, lights, minimap. Run once at startup and again whenever a tile is
+   recycled, since both cases are "the feature arrays changed underneath us". */
+function reindexWorld() {
+  W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
+  W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
 
   const b = featureBounds([W.roads, W.buildings, W.water, W.parks]);
   if (!isFinite(b.x0)) { b.x0 = b.y0 = -900; b.x1 = b.y1 = 900; }
-  fitGrid(b.x0, b.y0, b.x1, b.y1);   // bounds start empty, so this sizes the first grid
+  fitGrid(b.x0, b.y0, b.x1, b.y1);   // bounds start empty, so this sizes the grid afresh
 
   markRoads(W.roads);
   indexBuildings(0);
@@ -1042,8 +1057,6 @@ function buildWorld(data, name, procedural) {
   W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
   indexRoads(W.roads);
   addLights(W.roads);
-
-  applyTheme(themeName);   // resolves every building's material and prerenders the map
 }
 
 /* ------------------------- streaming the map in -------------------------
@@ -1051,7 +1064,7 @@ function buildWorld(data, name, procedural) {
    The opening download is tile (0,0). As the player nears the edge of what's
    loaded, the neighbouring tiles are fetched in the background and folded in,
    so the world keeps going instead of stopping at a fence.                  */
-const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, note: '', mergeMs: 0, mapMs: 0,
+const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, evicted: 0, note: '', mergeMs: 0, mapMs: 0,
                 retryAt: new Map(), tries: new Map() };
 
 const tileKey = (i, j) => i + ',' + j;
@@ -1092,7 +1105,7 @@ async function loadTile(i, j) {
     const data = parseOSM(els);
     if (!data.roads.length) throw new Error('empty tile');
     const t0 = performance.now();
-    mergeChunk(data);
+    mergeChunk(data, key);
     CHUNK.mergeMs = Math.round(performance.now() - t0);
     W.tiles.set(key, 'loaded');
     CHUNK.loaded++;
@@ -1102,7 +1115,7 @@ async function loadTile(i, j) {
     // then its buildings, which are the bulk of the bytes and purely scenery
     const bs = newSession();
     overpassArea(s, w, n, e, bs, { kind: 'buildings' })
-      .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels)); })
+      .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels), key); })
       .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
       .finally(() => sessAbort(bs));
     return true;
@@ -1123,19 +1136,59 @@ async function loadTile(i, j) {
   }
 }
 
+/* MAX_TILES used to be a lifetime cap: once you had streamed twelve tiles the
+   world simply stopped growing and fence() pinned you against the edge of it.
+   It's a budget now — the nearest tiles are kept and the rest are recycled, so
+   you can drive as far as you like without the mask or the minimap growing
+   without bound. The 3×3 look-ahead only ever wants nine tiles against a budget
+   of twelve, so what's in play is never what gets dropped and nothing thrashes. */
+function evictFarTiles(px, py, budget) {
+  if (W.tiles.size <= budget) return false;
+  const loaded = [...W.tiles.entries()].filter(([, st]) => st === 'loaded');
+  if (loaded.length <= budget) return false;
+  const withD = loaded.map(([k]) => {
+    const [i, j] = k.split(',').map(Number);
+    return { k, d: Math.hypot(px - i * TILE, py - j * TILE) };
+  }).sort((a, b) => a.d - b.d);
+
+  const drop = new Set(withD.slice(budget).map(t => t.k));
+  if (!drop.size) return false;
+  for (const k of drop) W.tiles.delete(k);
+
+  const keep = f => !drop.has(f.tile);
+  W.roads = W.roads.filter(keep);
+  W.buildings = W.buildings.filter(keep);
+  W.water = W.water.filter(keep);
+  W.parks = W.parks.filter(keep);
+  W.places = W.places.filter(keep);
+  // landmarks stay: a handful of points, they never touch the grid bounds, and
+  // dropping them would throw away the wide sweep and leave a bust nowhere to go
+
+  reindexWorld();
+  prerenderMap();
+  CHUNK.evicted += drop.size;
+
+  // a delivery whose marker was in a recycled tile is unreachable — reissue it
+  const t = MISSION.state === 'pickup' ? MISSION.pick : MISSION.state === 'deliver' ? MISSION.drop : null;
+  if (t && !inWorld(t.x, t.y)) { MISSION.state = 'none'; newMission(); }
+  return true;
+}
+
 // Called from the game loop; cheap, and does nothing most frames.
 function updateChunks() {
   if (W.procedural || CHUNK.busy) return;
-  if (CHUNK.loaded >= MAX_TILES) return;
   if (Date.now() - CHUNK.last < TILE_COOLDOWN) return;
   const want = wantedTiles(P.car.x, P.car.y);
-  if (want.length) loadTile(want[0].i, want[0].j);
+  if (!want.length) return;
+  evictFarTiles(P.car.x, P.car.y, MAX_TILES - 1);   // make room for the one we're about to add
+  loadTile(want[0].i, want[0].j);
 }
 
 /* Fold a freshly downloaded neighbouring tile into the live world. */
-function mergeChunk(data) {
+function mergeChunk(data, key) {
   const b = featureBounds([data.roads, data.buildings, data.water, data.parks]);
   if (!isFinite(b.x0)) return 0;
+  stampTile(data, key || '0,0');
 
   const firstBuilding = W.buildings.length;
   const grew = fitGrid(b.x0, b.y0, b.x1, b.y1);
@@ -1315,9 +1368,15 @@ function nearestPOI(kind, x, y) {
 /* Where you wake up afterwards. A 1.8 km slice of a real city often has neither
    a station nor a hospital in it, so falling back to the start is the common
    path, not an edge case. */
+// inside the patch of world currently loaded — tiles get recycled behind you
+const inWorld = (x, y) => x > W.minX && x < W.maxX && y > W.minY && y < W.maxY;
+
 function recoverPoint(kind) {
+  // the start point can itself have been recycled once you've driven far enough
+  const home = () => inWorld(P.spawn.x, P.spawn.y) ? P.spawn
+                   : (nearestRoadPoint(P.car.x, P.car.y) || P.spawn);
   const poi = nearestPOI(kind, P.car.x, P.car.y);
-  if (!poi || dist(poi.x, poi.y, P.car.x, P.car.y) > RECOVER_MAX) return P.spawn;
+  if (!poi || dist(poi.x, poi.y, P.car.x, P.car.y) > RECOVER_MAX) return home();
   // Snap to the kerb only when there is actually tarmac by the door. The wide
   // sweep finds landmarks far outside the loaded streets, and for those the
   // nearest loaded road is the edge of the map — miles from where you want to be.
@@ -1906,7 +1965,7 @@ async function loadOpeningBuildings(lat, lon, gen) {
   try {
     const els = await fetchBuildings(lat, lon, sess);
     if (gen !== loadGen || W.procedural) return;
-    mergeChunk(parseOSM(els));
+    mergeChunk(parseOSM(els), '0,0');
   } catch (err) {
     console.warn('buildings failed:', err && err.message);
   } finally {
@@ -2849,6 +2908,7 @@ window.__theme = () => ({ name: themeName, ground: PAL.ground, lights: PAL.light
   places: W.places.length, namedRoads: W.roads.filter(r => r.name).length });
 // find a building by its exact material colour (the test payload seeds a pure-red one)
 window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHUNK.busy,
+  evicted: CHUNK.evicted, live: W.tiles.size, maxTiles: MAX_TILES, pois: W.pois.length,
   mergeMs: CHUNK.mergeMs, mapMs: CHUNK.mapMs,
   note: CHUNK.note, tiles: [...W.tiles.entries()],
   bounds: { x0: W.minX, y0: W.minY, x1: W.maxX, y1: W.maxY },
