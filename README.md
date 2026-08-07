@@ -58,6 +58,12 @@ is the whole game.
   than an asymptote. The camera pulls back as you wind it out.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
+- **Every car is destructible.** Traffic and police take damage from any impact — including
+  crashes with each other, which you don't have to be part of. A damaged car starts smoking and
+  visibly loses top speed, down to about a third of it when it's nearly finished. At zero it goes
+  up in an orange fireball, throws burning debris, and is gone. The blast hurts everything inside
+  it — other traffic, police, and **you** — so a car exploding beside a queue sets off a chain,
+  and standing next to a wreck is a bad idea.
 - **Tunnels and archways work.** Where a drivable centreline runs straight through a building
   footprint — a tunnel, a gateway, or a block built over the street, which dense old towns are
   full of — that building stops colliding and is drawn back so you can see the road under it.

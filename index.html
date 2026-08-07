@@ -1191,9 +1191,11 @@ function prerenderMap() {
 }
 
 /* ------------------------------ 4. entities ------------------------------ */
+let carSeq = 0;
 function makeCar(x, y, h, kind) {
   const isCop = kind === 'cop';
   return {
+    id: ++carSeq,
     x, y, h, vx: 0, vy: 0, kind,
     w: isCop ? 2.05 : rand(1.85, 2.15),
     l: isCop ? 4.7 : rand(4.1, 4.9),
@@ -1201,7 +1203,7 @@ function makeCar(x, y, h, kind) {
     accel: isCop ? 28 : (kind === 'player' ? 28 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
-    steer: 0, road: true, dead: false,
+    steer: 0, road: true, dead: false, hitCd: 0,
     // traffic path state
     road_: null, idx: 0, dir: 1, blink: 0
   };
@@ -1212,7 +1214,7 @@ const P = {                       // player + run state
   bustT: 0, dead: false, deadT: 0, spawn: { x: 0, y: 0, h: 0 },
   hitCd: 0, horn: 0
 };
-let traffic = [], cops = [], peds = [], marks = [], parts = [];
+let traffic = [], cops = [], peds = [], marks = [], parts = [], blasts = [];
 const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0 };
 
 function spawnTraffic(n) {
@@ -1268,7 +1270,9 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
 
   c.road = onRoad(c.x, c.y);
   const grip = c.road ? 1 : .58;
-  const top = c.maxSpeed * grip;
+  // a wrecked car limps — the player's own top speed stays honest
+  const wear = c.kind === 'player' ? 1 : lerp(.32, 1, clamp(c.hp / 100, 0, 1));
+  const top = c.maxSpeed * grip * wear;
 
   // Constant engine force against linear drag, with a hard ceiling. The old model
   // faded the engine out as (1 - v/top) while drag kept pulling, so top speed was
@@ -1359,6 +1363,74 @@ function buildingCollide(c) {
     }
   }
   return 0;
+}
+
+/* Impact speed into health lost. Gentle nudges are ignored, or cars idling into
+   each other in slow traffic would grind themselves to death. The short cooldown
+   is because updateTraffic visits each pair twice a frame. */
+function damageCar(c, rel) {
+  if (!c || c.dead || rel < 5.5 || c.hitCd > 0) return 0;
+  const dmg = clamp((rel - 5.5) * 1.5, 0, 60);
+  c.hp -= dmg;
+  c.hitCd = .35;
+  return dmg;
+}
+
+/* Orange going-up-in-flames, plus a blast that hurts whatever is stood too close.
+   Nothing in here explodes anything directly: it only deals damage, and the normal
+   per-frame health check turns any neighbour it flattens into its own explosion on
+   the next frame. That's what makes chains work without recursion. */
+function explode(x, y) {
+  blasts.push({ x, y, r: 3, life: .55, max: 16 });
+  for (let i = 0; i < 26; i++) {
+    const a = rand(0, TAU), s = rand(4, 30);
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(.35, 1.1), r: rand(.3, 1.1),
+      col: pick(['#ff8a2a', '#ff7418', '#ffa347', '#ff5a1f', '#ff9130', '#ffd06a']) });
+  }
+  for (let i = 0; i < 10; i++) {      // smoke, slower and darker
+    const a = rand(0, TAU), s = rand(1, 7);
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(.8, 1.8), r: rand(.8, 2), col: '#4a4048' });
+  }
+  SFX.boom();
+  cam.shake = Math.min(1, cam.shake + clamp(90 / (10 + dist(x, y, P.car.x, P.car.y)), 0, .8));
+
+  // the blast itself — everything nearby, the player included
+  const R = 15;
+  for (const o of traffic) hurtByBlast(o, x, y, R);
+  for (const o of cops) hurtByBlast(o, x, y, R);
+  const pd = dist(P.car.x, P.car.y, x, y);
+  if (pd < R && !P.dead) {
+    P.car.hp -= (1 - pd / R) * 45;
+    if (P.car.hp <= 0) { P.car.hp = 0; wasted(); }
+  }
+}
+function hurtByBlast(o, x, y, R) {
+  if (o.dead) return;
+  const d = dist(o.x, o.y, x, y);
+  if (d < R) o.hp -= (1 - d / R) * 55;
+}
+
+// wrecked cars burn; a wisp now and then so the speed drop reads as damage
+function smoke(c) {
+  parts.push({ x: c.x + rand(-1, 1), y: c.y + rand(-1, 1), vx: rand(-1.5, 1.5), vy: rand(-1.5, 1.5),
+    life: rand(.5, 1.1), r: rand(.35, .8), col: c.hp < 22 ? '#3a3238' : '#565060' });
+}
+
+// Health hit zero: blow it up and let the list filters drop it.
+function wreck(c) {
+  if (c.dead) return;
+  c.dead = true;
+  explode(c.x, c.y);
+}
+
+// One place that decides whether a car is still with us, run once per car per frame.
+function checkWreck(c, dt) {
+  c.hitCd -= dt;
+  if (c.dead) return;
+  if (c.hp <= 0) { wreck(c); return; }
+  if (c.hp < 45) { c.smokeT = (c.smokeT || 0) - dt; if (c.smokeT <= 0) { c.smokeT = rand(.05, .18); smoke(c); } }
 }
 
 function carsCollide(a, b) {
@@ -1497,7 +1569,8 @@ const SFX = (() => {
     star: () => { blip(300, .22, 'sawtooth', .07); },
     horn: () => { blip(370, .22, 'square', .05); },
     bust: () => { blip(200, .5, 'sawtooth', .08); },
-    blipZone: () => { blip(520, .07, 'sine', .05); setTimeout(() => blip(780, .12, 'sine', .045), 70); }
+    blipZone: () => { blip(520, .07, 'sine', .05); setTimeout(() => blip(780, .12, 'sine', .045), 70); },
+    boom: () => { noise(.7, .5); blip(70, .5, 'sawtooth', .1); setTimeout(() => blip(45, .6, 'sine', .08), 60); }
   };
 })();
 function audioStart() { SFX.start(); }
@@ -1751,7 +1824,7 @@ function resetRun() {
   P.spawn = { x: sp.x, y: sp.y, h: sp.h };
   P.cash = +store.get('vm_cash', 0) || 0;
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
-  traffic = []; cops = []; peds = []; marks = []; parts = [];
+  traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
   cam.x = P.car.x; cam.y = P.car.y;
   spawnTraffic(26); spawnPeds(34);
@@ -1908,6 +1981,9 @@ function update(dt) {
 
   // --- traffic
   for (const t of traffic) updateTraffic(t, dt);
+  // anything out of health goes up; the list filters below drop the wreckage
+  for (const o of traffic) checkWreck(o, dt);
+  for (const o of cops) checkWreck(o, dt);
   for (const t of traffic) {
     const rel = carsCollide(c, t);
     if (rel > 6 && P.hitCd <= 0) {
@@ -1917,6 +1993,7 @@ function update(dt) {
       SFX.crash(rel);
       for (let i = 0; i < 5; i++) parts.push(sparks((c.x + t.x) / 2, (c.y + t.y) / 2));
       if (rel > 13) addWanted(.34);
+      damageCar(t, rel);
       t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
     }
   }
@@ -1945,7 +2022,7 @@ function update(dt) {
     const d = dist(k.x, k.y, c.x, c.y);
     if (d < 130) nearCop = true;
     const rel = carsCollide(c, k);
-    if (rel > 5) { c.hp -= clamp(rel * .5, 0, 14); addWanted(.22); SFX.crash(rel); }
+    if (rel > 5) { c.hp -= clamp(rel * .5, 0, 14); damageCar(k, rel); addWanted(.22); SFX.crash(rel); }
     // busted: stopped, next to a cop, for a beat
     if (d < 8 && spd < 3 && P.wanted >= 1) { P.bustT += dt; if (P.bustT > 1.6 && !P.dead) busted(); }
   }
@@ -1957,7 +2034,7 @@ function update(dt) {
       if (P.cool > 8) { P.cool = 0; P.wanted = Math.max(0, P.wanted - 1); if (P.wanted === 0) { cops = []; toast('YOU LOST THEM', 1400); } }
     } else P.cool = 0;
     // despawn units that fell hopelessly behind, then top the pursuit back up
-    cops = cops.filter(k => dist(k.x, k.y, c.x, c.y) < 700);
+    cops = cops.filter(k => !k.dead && dist(k.x, k.y, c.x, c.y) < 700);
     stockCops(Math.round(P.wanted * 1.6));
   }
 
@@ -1975,7 +2052,7 @@ function update(dt) {
   if (P.dead) { P.deadT -= dt; if (P.deadT <= 0) doRespawn(); }
 
   // --- respawn thinning population near the player
-  traffic = traffic.filter(t => dist(t.x, t.y, c.x, c.y) < 780);
+  traffic = traffic.filter(t => !t.dead && dist(t.x, t.y, c.x, c.y) < 780);
   if (traffic.length < 26) spawnTraffic(1);
   peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
   if (peds.length < 34) spawnPeds(1);
@@ -1985,6 +2062,8 @@ function update(dt) {
   marks = marks.filter(m => m.life > 0);
   for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .94; p.vy *= .94; p.life -= dt; }
   parts = parts.filter(p => p.life > 0);
+  for (const b of blasts) { b.life -= dt; b.r += (b.max - b.r) * decay(9, dt); }
+  blasts = blasts.filter(b => b.life > 0);
   cam.shake = Math.max(0, cam.shake - dt * 2.2);
   if (!c.road && spd > 6) cam.shake = Math.min(.28, cam.shake + dt * .55);
 
@@ -2042,7 +2121,10 @@ function updateTraffic(t, dt) {
 
   drive(t, brake ? 0 : 1, brake, steer, 0, dt);
   fence(t);
-  for (const o of traffic) if (o !== t) carsCollide(t, o);
+  for (const o of traffic) if (o !== t) {
+    const rel = carsCollide(t, o);
+    if (rel > 5.5) { damageCar(t, rel); damageCar(o, rel); SFX.crash(rel * .6); }
+  }
 }
 
 function updateCop(k, dt) {
@@ -2057,7 +2139,10 @@ function updateCop(k, dt) {
   drive(k, gas, brake, steer, 0, dt);
   fence(k);
   buildingCollide(k);
-  for (const o of cops) if (o !== k) carsCollide(k, o);
+  for (const o of cops) if (o !== k) {
+    const rel = carsCollide(k, o);
+    if (rel > 5.5) { damageCar(k, rel); damageCar(o, rel); }
+  }
   k.blink += dt;
 }
 
@@ -2169,9 +2254,28 @@ function render() {
   for (const p of parts) {
     ctx.globalAlpha = clamp(p.life * 2, 0, 1);
     ctx.fillStyle = p.col;
-    ctx.fillRect(p.x - .28, p.y - .28, .56, .56);
+    const r = p.r || .28;
+    ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
   }
   ctx.globalAlpha = 1;
+
+  // fireballs, blitted additively off the tinted glow sprite the street lights use
+  if (blasts.length) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of blasts) {
+      const t = clamp(b.life / .55, 0, 1);
+      // Additive light adds up: a bright core over a bright body pushes green to
+      // full and the whole thing turns yellow. So the body is a deep red-orange
+      // and the white-hot core is small and gone quickly — it stays orange.
+      ctx.globalAlpha = t;
+      ctx.drawImage(glowFor('#ff4d00'), b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+      ctx.globalAlpha = t * t * t * .7;
+      const c2 = b.r * .34;
+      ctx.drawImage(glowFor('#ffc26a'), b.x - c2, b.y - c2, c2 * 2, c2 * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
   ctx.restore();
 
   drawArrow();
@@ -2505,9 +2609,26 @@ window.__playerColour = c => { P.car.color = c; };                       // live
 window.__toScreen = (x, y) => toScreen(x, y);
 window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,
   spd: Math.hypot(t.vx, t.vy), road: t.road_ ? t.road_.pts.length : 0, idx: t.idx, dir: t.dir }));
-window.__putTraffic = (i, x, y, h, col) => {
+window.__cars = () => ({
+  traffic: traffic.map(t => ({ id: t.id, x: +t.x.toFixed(1), y: +t.y.toFixed(1), hp: +t.hp.toFixed(1),
+                               spd: +Math.hypot(t.vx, t.vy).toFixed(2), dead: !!t.dead })),
+  cops: cops.map(k => ({ id: k.id, x: +k.x.toFixed(1), y: +k.y.toFixed(1), hp: +k.hp.toFixed(1), dead: !!k.dead })),
+  blasts: blasts.length, parts: parts.length, playerHp: +P.car.hp.toFixed(1)
+});
+window.__setCarHp = (list, i, hp) => {
+  const a = list === 'cops' ? cops : traffic;
+  if (!a[i]) return false; a[i].hp = hp; return true;
+};
+// identity survives the array shuffling that wrecks and respawns cause
+window.__hpById = (id, hp) => {
+  for (const a of [traffic, cops]) for (const c of a) if (c.id === id) { c.hp = hp; return true; }
+  return false;
+};
+window.__putCop = (i, x, y, h) => { const k = cops[i]; if (!k) return false; k.x = x; k.y = y; k.h = h; k.vx = k.vy = 0; return true; };
+window.__explodeAt = (x, y) => explode(x, y);
+window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   const t = traffic[i]; if (!t) return false;
-  t.x = x; t.y = y; t.h = h; t.vx = t.vy = 0;
+  t.x = x; t.y = y; t.h = h; t.vx = vx || 0; t.vy = vy || 0;
   if (col) t.color = col;
   return true;
 };
