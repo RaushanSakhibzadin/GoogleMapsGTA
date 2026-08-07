@@ -92,12 +92,12 @@ is the whole game.
 - **Landmarks are drive-through.** Repair shops, police stations and hospitals go transparent and
   stop colliding, exactly like a building with a road under it — drive straight in, no damage, no
   wall. They're marked in green on the radar, police stations in blue and hospitals in red.
-- **A widening sweep for landmarks.** The opening download is 1.8 km across, and plenty of real
-  neighbourhoods that size hold no station, no hospital and no garage. If any of the three is
-  missing once you're driving, the game quietly sweeps **18 km in every direction** for landmarks
-  alone — no streets, no buildings, so it stays one cheap request — and folds whatever it finds
-  into the city you're already in. Every new district you stream into is another check: still no
-  station and no hospital anywhere, and it goes wider again, out to 45 km.
+- **A widening sweep for landmarks, while it loads.** The opening download is 1.8 km across, and
+  plenty of real neighbourhoods that size hold no station, no hospital and no garage. If any of the
+  three is missing, the loading screen sweeps **18 km in every direction** for landmarks alone — no
+  streets, no buildings, so it stays one cheap request — and goes wider still, out to 45 km, if
+  there's no station and no hospital in range. It all happens before you start driving: once you're
+  on the road, nothing but small neighbouring tiles is ever fetched.
 - **Delivery missions.** Pink marker to yellow marker against a timer, paying out by distance.
   Cash persists in `localStorage`.
 - **Vice City dusk.** Neon rooftop trim, street lights, headlight cones, skid marks, scanlines,
@@ -115,9 +115,9 @@ is the whole game.
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
 | Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
-| Water | Areas from `natural=water` / `waterway=riverbank`, plus `natural=water` **relations** — big rivers, harbours and bays are multipolygons, so without them you'd cross the Danube as if it were tarmac. Relations get their own `out geom(bbox)` statement, which clips the geometry so one spanning a country returns just the slice over this tile; clipping the main union instead would trim roads at the tile seam. Inner rings are holes, so an island in a lake stays dry |
+| Water | Areas from `natural=water` / `waterway=riverbank` in the streets query, plus `natural=water` **relations** on a request of their own — big rivers, harbours and bays are multipolygons, so without them you'd cross the Danube as if it were tarmac. Kept off the streets query deliberately: that one has to succeed for the city to exist at all, and river polygons are a nicety, so a server that dislikes the relation query costs you water rather than the whole place. `out geom(bbox)` clips, so a relation spanning a country returns just the slice over this tile. Inner rings are holes, so an island in a lake stays dry |
 | Landmarks | `amenity=police`, `amenity=hospital` and `shop=car_repair`, pulled with the streets query as `nwr` so a station tagged as a bare node and one tagged as a building both land. Overpass returns the same landmark more than once — a hospital matches the amenity query and again as a building, and anything on a tile seam arrives with both tiles — so they're deduped by kind within 30 m |
-| Wide sweep | When a kind is missing, one landmark-only query over a 36 km box, four seconds after play starts so the scenery gets the bandwidth first. Sparse tag-indexed features make the area cheap, and `out center` returns a point per hit instead of a whole building outline. Every tile that lands re-checks, and with still no station and no hospital it climbs the next rung, out to a 90 km box. Each rung runs at most once and a sweep in flight blocks the next, so a burst of merges can't become a burst of requests. Failing costs nothing — the start point is still there |
+| Wide sweep | When a kind is missing, a landmark-only query over a 36 km box — run **while the loading screen is still up**, so that once you're driving nothing but tile-sized requests ever fire. Sparse tag-indexed features make the area cheap, and `out center` returns a point per hit instead of a whole building outline. Still no station and no hospital and it climbs to a 90 km box there and then. Waited on with a few seconds' cap rather than blocked on, and no new rung may start once loading is done — a landmark query is allowed 40 s, and a loading screen that hangs on a nicety is its own bug. Failing costs nothing — the start point is still there |
 | Drive-through landmarks | The `passable` flag the tunnel handling already uses: skipped in collision, drawn at 45% alpha. Marked on any footprint a landmark falls inside, which covers both tagging styles — the way form where the hospital *is* the building, and the node form where a garage node sits in someone else's outline |
 | Respawning | Snaps to the nearest point *on* a drivable segment, not its midpoint, which on a long straight way can be hundreds of metres out. It only snaps when tarmac is within 120 m, since the wide sweep finds landmarks well outside the loaded streets and the nearest loaded road to those is the edge of the map. Beyond 6 km you go to the start point instead: the collision grid and the pre-rendered map both span everything loaded, so a long jump bloats the mask and zooms the radar out until it's useless |
 | Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. Merging a tile grows the drivable mask in place (the old one is blitted into the new offset), appends to the spatial hashes — which key off absolute metres and so never need rebuilding — and redraws the radar. One tile in flight at a time, with a cooldown and per-tile backoff on failure |

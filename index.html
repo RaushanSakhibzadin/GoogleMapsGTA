@@ -485,6 +485,14 @@ function overpassQL(s, w, n, e, kind) {
   if (kind === 'buildings') {
     return `[out:json][timeout:60];(way["building"](${bb}););out geom qt;`;
   }
+  // Big rivers, harbours and bays are multipolygons rather than ways, so without
+  // this you drive across the Danube as if it were tarmac. Deliberately its OWN
+  // request rather than a clause on the streets query: that one has to succeed for
+  // the city to exist at all, and river polygons are a nicety. `out geom(bbox)`
+  // clips, so a relation spanning a country returns just the slice over this tile.
+  if (kind === 'water') {
+    return `[out:json][timeout:25];relation["natural"="water"](${bb});out geom(${bb}) qt;`;
+  }
   // Landmarks over a much wider area than we could ever load streets for. These
   // are sparse and tag-indexed, so the area costs little — and `out center`
   // returns one point per hit instead of a whole building outline.
@@ -505,13 +513,7 @@ function overpassQL(s, w, n, e, kind) {
     // nwr, because a station is a node in one city and a building way in the next
     `nwr["amenity"~"^(police|hospital)$"](${bb});` +
     `nwr["shop"="car_repair"](${bb});` +
-    `);out geom qt;` +
-    // Big rivers, harbours and bays are multipolygons rather than ways, so without
-    // this you drive across the Danube as if it were tarmac. Its own out statement
-    // with the bbox form, which CLIPS the geometry — a relation spanning a country
-    // returns just the slice over this tile. Clipping the union above instead would
-    // also trim roads at the seam, which the continuity handling relies on.
-    `relation["natural"="water"](${bb});out geom(${bb}) qt;`;
+    `);out geom qt;`;
 }
 
 /* Overpass queues heavy queries instead of refusing them, so a mirror can accept
@@ -523,6 +525,7 @@ const HEDGE = 7000;      // start another mirror if the current one is still sil
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
+const WATER = { mirrorMs: 30000, totalMs: 40000 };      // query says timeout:25
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 // Overpass says these when it's busy, not when the query is wrong
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
@@ -589,7 +592,8 @@ async function readBody(res, onBytes) {
 function overpassArea(s, w, n, e, sess, opt) {
   opt = opt || {};
   const kind = opt.kind || 'streets';
-  const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS : STREETS;
+  const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS
+              : kind === 'water' ? WATER : STREETS;
   const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
@@ -1108,6 +1112,22 @@ function wantedTiles(px, py) {
   return out.sort((a, b) => a.d - b.d);
 }
 
+/* Rivers and harbours mapped as multipolygons, fetched on their own so a server
+   that dislikes the query costs you drownable water rather than the whole city.
+   Same best-effort shape as the buildings fetch: land it if it arrives, shrug if
+   it doesn't. */
+function loadWater(s, w, n, e, key) {
+  const ws = newSession();
+  overpassArea(s, w, n, e, ws, { kind: 'water' })
+    .then(els => {
+      if (key !== '0,0' && W.tiles.get(key) !== 'loaded') return;
+      const data = parseOSM(els);
+      if (data.water.length) mergeChunk(data, key);
+    })
+    .catch(err => console.warn('water ' + key + ':', err && err.message))
+    .finally(() => sessAbort(ws));
+}
+
 async function loadTile(i, j) {
   const key = tileKey(i, j);
   W.tiles.set(key, 'loading');
@@ -1129,7 +1149,6 @@ async function loadTile(i, j) {
     W.tiles.set(key, 'loaded');
     CHUNK.loaded++;
     CHUNK.note = '';
-    checkTileLandmarks();     // a new district with still no station or hospital widens the search
 
     // then its buildings, which are the bulk of the bytes and purely scenery
     const bs = newSession();
@@ -1137,6 +1156,7 @@ async function loadTile(i, j) {
       .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels), key); })
       .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
       .finally(() => sessAbort(bs));
+    loadWater(s, w, n, e, key);
     return true;
   } catch (err) {
     console.warn('chunk ' + key + ' failed:', err && err.message);
@@ -1341,6 +1361,8 @@ const POI_RADII = [18000, 45000];
    and zooms the radar out until it's useless. A landmark further out than this
    is still found, drawn and driveable-to — you just don't get carried there. */
 const RECOVER_MAX = 6000;
+// how long the loading screen will wait on the landmark sweep before starting anyway
+const LOAD_SWEEP_WAIT = 6000;
 
 const POI_KINDS = ['police', 'hospital', 'repair'];
 const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k));
@@ -1371,13 +1393,24 @@ async function widenLandmarkSearch() {
   }
 }
 
-/* Every tile that lands is a chance to notice we still have no station and no
-   hospital anywhere. When that's so, go a rung wider — a burst of merges can't
-   fire a burst of requests, since a sweep in flight blocks the next. */
-function checkTileLandmarks() {
-  if (W.procedural || W.sweeping) return;
-  if (!missingKinds().some(k => k === 'police' || k === 'hospital')) return;
-  widenLandmarkSearch();
+/* Run once, while the loading screen is still up. If the first radius turns up no
+   station and no hospital it goes a rung wider there and then, so the "somewhere
+   to be taken after a bust" guarantee survives without any wide request ever
+   firing mid-game — once you're driving, only tile-sized loads happen. */
+async function sweepLandmarks() {
+  const out = [];
+  // No new rung may START once the loading screen is done — a straggler already in
+  // flight can land late, but nothing wide is ever kicked off while you're driving.
+  const until = Date.now() + LOAD_SWEEP_WAIT;
+  for (let rung = 0; rung < POI_RADII.length; rung++) {
+    if (rung && Date.now() > until) break;
+    const r = await widenLandmarkSearch();
+    if (!r) break;
+    out.push(r);
+    // only keep widening while the two that matter for a respawn are still absent
+    if (!missingKinds().some(k => k === 'police' || k === 'hospital')) break;
+  }
+  return out;
 }
 
 /* Overpass hands the same landmark back more than once: a hospital is matched by
@@ -2124,6 +2157,16 @@ async function startGame(query, lat, lon, label) {
   await new Promise(r => setTimeout(r, 40));
   buildWorld(data, name, procedural);
 
+  // Landmarks go out over a wide radius here, while the loading screen is still
+  // up, so that once you're driving nothing but tile-sized requests ever fire.
+  // Waited on with a cap rather than blocked on: this query is allowed 40 s, and
+  // a loading screen that hangs on a nicety is the exact failure fixed earlier.
+  if (!procedural) {
+    prog(.9, 'Finding the hospitals…');
+    await Promise.race([sweepLandmarks(), new Promise(r => setTimeout(r, LOAD_SWEEP_WAIT))]);
+    if (gen !== loadGen) return;
+  }
+
   prog(.95, 'Starting the engine…');
   await new Promise(r => setTimeout(r, 60));
   resetRun();
@@ -2140,8 +2183,7 @@ async function startGame(query, lat, lon, label) {
   if (!raf) { raf = true; requestAnimationFrame(loop); }
   if (!procedural) {
     loadOpeningBuildings(lat, lon, gen);
-    // behind the buildings, so the scenery you can see wins the bandwidth
-    setTimeout(() => { if (state !== 'menu') widenLandmarkSearch(); }, 4000);
+    loadWater(...areaBox(lat, lon), '0,0');
   }
 }
 
@@ -2153,6 +2195,10 @@ function resetRun() {
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
   traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
+  // otherwise a new city opens still showing the last one's street and district
+  NAV.street = NAV.zone = NAV.cand = ''; NAV.candT = NAV.showT = 0;
+  $('street').textContent = ''; $('street').classList.remove('on');
+  $('zone').textContent = ''; $('zone').classList.remove('on');
   cam.x = P.car.x; cam.y = P.car.y;
   spawnTraffic(26); spawnPeds(34);
   newMission();
@@ -2995,11 +3041,16 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
-window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
+window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, water: WATER, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
   buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
-  poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1] });
+  poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1],
+  waterQueryTimeout: +(overpassQL(0,0,0,0,'water').match(/timeout:(\d+)/)||[])[1],
+  // the streets query is the one the whole game depends on — nothing optional rides on it
+  streetsOuts: (overpassQL(0,0,0,0,'streets').match(/out /g) || []).length,
+  streetsHasRelation: /relation/.test(overpassQL(0,0,0,0,'streets')),
+  loadSweepWait: LOAD_SWEEP_WAIT });
 window.__pal = () => PAL;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
 window.__toScreen = (x, y) => toScreen(x, y);
@@ -3034,6 +3085,9 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
 window.__missingKinds = () => missingKinds();
 window.__wideSearch = () => widenLandmarkSearch();
+window.__sweepLandmarks = () => sweepLandmarks();
+window.__loadWater = () => { try { loadWater(...areaBox(GEO.lat0, GEO.lon0), '0,0'); return 'called'; }
+                             catch (e) { return 'threw: ' + e.message; } };
 window.__sweep = () => ({ sweptTo: W.sweptTo, sweeping: W.sweeping, radii: POI_RADII });
 window.__copSpeed = () => cops[0] ? Math.hypot(cops[0].vx, cops[0].vy) : null;
 window.__bustT = () => P.bustT;
