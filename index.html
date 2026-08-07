@@ -492,6 +492,10 @@ function overpassQL(s, w, n, e, kind) {
     `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
     // district names for the GTA-style zone banner
     `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
+    // where you wake up after a bust or a wasting, and where you get patched up.
+    // nwr, because a station is a node in one city and a building way in the next
+    `nwr["amenity"~"^(police|hospital)$"](${bb});` +
+    `nwr["shop"="car_repair"](${bb});` +
     `);out geom qt;`;
 }
 
@@ -653,6 +657,7 @@ const W = {
   roads: [], buildings: [], water: [], parks: [],
   minX: 0, minY: 0, maxX: 0, maxY: 0,
   places: [],                            // named districts / neighbourhoods
+  pois: [],                              // police stations, hospitals, repair shops
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   bcell: 90, buckets: new Map(),         // building spatial hash
   rbuckets: new Map(),                   // road spatial hash (named roads only)
@@ -720,8 +725,14 @@ function buildingColours(t, area, h, seed) {
   return { mWall: wall, mRoof: mul(roof, 1.22) };
 }
 
+// police reuses the blue the cop blips already use, so the radar reads consistently
+const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e' };
+const POI_KIND = t => t.amenity === 'police' ? 'police'
+                    : t.amenity === 'hospital' ? 'hospital'
+                    : t.shop === 'car_repair' ? 'repair' : null;
+
 function parseOSM(els) {
-  const roads = [], buildings = [], water = [], parks = [], places = [];
+  const roads = [], buildings = [], water = [], parks = [], places = [], pois = [];
   for (const el of els) {
     const t = el.tags || {};
 
@@ -730,10 +741,17 @@ function parseOSM(els) {
       if (t.place && t.name) {
         places.push({ x: projX(el.lon), y: projY(el.lat), name: t.name, kind: t.place });
       }
+      const pk = POI_KIND(t);
+      if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
       continue;
     }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
     const pts = el.geometry.map(g => ({ x: projX(g.lon), y: projY(g.lat) }));
+
+    // A station or a hospital is usually a building too, so this records the
+    // point of interest and then falls through to draw the building as normal.
+    const pk = POI_KIND(t);
+    if (pk) { const c = centroid(pts); pois.push({ x: c.x, y: c.y, kind: pk, name: t.name || '', cool: 0 }); }
 
     if (t.highway) {
       const cls = ROADW[t.highway] ? t.highway : 'residential';
@@ -764,10 +782,10 @@ function parseOSM(els) {
       parks.push({ pts, bb: bbox(pts) });
     }
   }
-  return { roads, buildings, water, parks, places };
+  return { roads, buildings, water, parks, places, pois };
 }
 
-const FAKE_ST = ['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Way',
+const FAKE_ST =['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Way',
   'Palm Parkway', 'Neon Street', 'Marina Road', 'Sunset Strip', 'Coral Avenue',
   'Bayshore Drive', 'Starfish Lane', 'Chrome Street', 'Lagoon Road'];
 const FAKE_ZONE = ['Downtown', 'Little Habana', 'Beachfront', 'The Docks', 'Vice Point'];
@@ -821,7 +839,15 @@ function proceduralCity() {
         neon: (area > 700 && Math.random() < .22) ? pick(PAL.neon) : null });
     }
   }
-  return { roads, buildings, water: [], parks, places };
+  // Nothing out here carries OSM tags, so the landmarks are invented the same way
+  // the street and district names are. On a real map they are only ever real ones.
+  const pois = [
+    { x: -S, y: -S, kind: 'police', name: 'Vice PD', cool: 0 },
+    { x: 2 * S, y: S, kind: 'hospital', name: 'Ocean View Medical', cool: 0 },
+    { x: S, y: -2 * S, kind: 'repair', name: 'Pay ’n’ Spray', cool: 0 },
+    { x: -3 * S, y: 2 * S, kind: 'repair', name: 'Chrome & Lights', cool: 0 },
+  ];
+  return { roads, buildings, water: [], parks, places, pois };
 }
 
 /* ---- indexing, written so it can run over a whole world or just a new chunk ---- */
@@ -953,6 +979,7 @@ function buildWorld(data, name, procedural) {
   W.roads = data.roads; W.buildings = data.buildings;
   W.water = data.water; W.parks = data.parks;
   W.places = data.places || [];
+  W.pois = []; addPOIs(data.pois || []);
   W.name = name; W.procedural = procedural;
   W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
@@ -1072,6 +1099,7 @@ function mergeChunk(data) {
   for (const x of data.water) W.water.push(x);
   for (const x of data.parks) W.parks.push(x);
   for (const p of data.places || []) W.places.push(p);
+  addPOIs(data.pois || []);
 
   markRoads(data.roads);            // the mask was blitted, so only new roads need marking
   indexBuildings(firstBuilding);
@@ -1167,13 +1195,51 @@ function zoneAt(x, y) {
   return best;
 }
 
+/* Overpass hands the same landmark back more than once: a hospital is matched by
+   the amenity query and again as a building, and anything sitting on a tile seam
+   arrives with both tiles. Same kind within 30 m is the same place. */
+function addPOIs(list) {
+  for (const p of list) {
+    if (W.pois.some(q => q.kind === p.kind && dist2(q.x, q.y, p.x, p.y) < 900)) continue;
+    W.pois.push(p);
+  }
+}
+
+/* Nearest station / hospital / repair shop. Only a handful are ever loaded, so
+   a plain scan is right — the same call zoneAt makes just above. */
+function nearestPOI(kind, x, y) {
+  let best = null, bd = Infinity;
+  for (const p of W.pois) {
+    if (p.kind !== kind) continue;
+    const d = dist2(p.x, p.y, x, y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+/* Where you wake up afterwards. A 1.8 km slice of a real city often has neither
+   a station nor a hospital in it, so falling back to the start is the common
+   path, not an edge case. */
+function recoverPoint(kind) {
+  const poi = nearestPOI(kind, P.car.x, P.car.y);
+  if (!poi) return P.spawn;
+  return nearestRoadPoint(poi.x, poi.y) || poi;
+}
+
+/* Nearest drivable tarmac to a point. Projects onto each segment rather than
+   testing its midpoint: a long way — a dual carriageway drawn as one straight
+   line — has a midpoint hundreds of metres from the spot you actually want, and
+   that is exactly the geometry a station or hospital tends to sit beside. */
 function nearestRoadPoint(x, y) {
   let best = null, bd = Infinity;
   for (const r of W.driveRoads) {
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1];
-      const d = dist2((a.x + b.x) / 2, (a.y + b.y) / 2, x, y);
-      if (d < bd) { bd = d; best = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, h: Math.atan2(b.y - a.y, b.x - a.x) }; }
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const L = ex * ex + ey * ey || 1e-6;
+      const t = clamp(((x - a.x) * ex + (y - a.y) * ey) / L, 0, 1);
+      const px = a.x + ex * t, py = a.y + ey * t;
+      const d = dist2(px, py, x, y);
+      if (d < bd) { bd = d; best = { x: px, y: py, h: Math.atan2(ey, ex) }; }
     }
   }
   return best;
@@ -1208,6 +1274,13 @@ function prerenderMap() {
     g.strokeStyle = r.w >= 11 ? PAL.mapRoadBig : PAL.mapRoad;
     g.stroke();
   }
+  // Landmarks never move, so they belong in the pre-render rather than the
+  // per-frame blip list — the minimap stays one drawImage a frame.
+  const dot = 5 / s;
+  for (const p of W.pois) {
+    g.fillStyle = POI_COL[p.kind];
+    g.beginPath(); g.arc(p.x, p.y, dot, 0, TAU); g.fill();
+  }
   W.map = c;
 }
 
@@ -1232,7 +1305,7 @@ function makeCar(x, y, h, kind) {
 
 const P = {                       // player + run state
   car: null, cash: 0, score: 0, wanted: 0, cool: 0,
-  bustT: 0, dead: false, deadT: 0, spawn: { x: 0, y: 0, h: 0 },
+  bustT: 0, dead: false, deadT: 0, spawn: { x: 0, y: 0, h: 0 }, recover: null,
   hitCd: 0, horn: 0
 };
 let traffic = [], cops = [], peds = [], marks = [], parts = [], blasts = [];
@@ -1914,25 +1987,40 @@ function addWanted(n) {
     if (before === 0) toast('WANTED', 1200);
   }
 }
+/* A repair shop puts the armor back and resprays you on the way out. The new
+   colour excludes the current one, so it always visibly changes. */
+function repairAt(p) {
+  p.cool = 6;                                  // parked on it shouldn't re-fire
+  P.car.hp = 100;
+  const others = PAL.carBody.filter(c => c !== P.car.color);
+  P.car.color = pick(others.length ? others : PAL.carBody);
+  SFX.pickup();
+  toast(p.name ? p.name.toUpperCase() + ' · REPAIRED' : 'REPAIRED · NEW PAINT', 1600);
+}
+
 function busted() {
-  P.cash = Math.max(0, P.cash - 200);
+  const lost = P.cash - Math.floor(P.cash / 2);
+  P.cash = Math.floor(P.cash / 2);
   store.set('vm_cash', P.cash);
-  bigMsg('BUSTED', '#33e6ff', '−$200 · they took the package');
-  respawn();
+  bigMsg('BUSTED', '#33e6ff', `−$${lost} · booked at the station`);
+  respawn('police');
 }
 function wasted() {
-  P.cash = Math.max(0, P.cash - 100);
+  P.cash = 0;
   store.set('vm_cash', P.cash);
-  bigMsg('WASTED', '#ff4fd8', '−$100 · walk it off');
-  respawn();
+  bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
+  respawn('hospital');
 }
-function respawn() {
+function respawn(kind) {
   P.dead = true; P.deadT = 2.2;
+  // resolved now, while the car is still where it went wrong — you come round at
+  // the station or hospital nearest to where it happened
+  P.recover = recoverPoint(kind);
   SFX.bust();
   if (MISSION.state === 'deliver') { MISSION.state = 'none'; setTimeout(newMission, 2600); }
 }
 function doRespawn() {
-  const sp = roadPoint(P.car.x, P.car.y, 120, 400) || P.spawn;
+  const sp = P.recover || P.spawn;
   P.car.x = sp.x; P.car.y = sp.y; P.car.h = sp.h;
   P.car.vx = P.car.vy = 0; P.car.hp = 100;
   P.wanted = 0; P.cool = 0; cops = [];
@@ -2049,8 +2137,14 @@ function update(dt) {
     if (d < 130) nearCop = true;
     const rel = carsCollide(c, k);
     if (rel > 5) { c.hp -= clamp(rel * .5, 0, 14); damageCar(k, rel); addWanted(.22); SFX.crash(rel); }
-    // busted: stopped, next to a cop, for a beat
-    if (d < 8 && spd < 3 && P.wanted >= 1) { P.bustT += dt; if (P.bustT > 1.6 && !P.dead) busted(); }
+    // busted: you stopped, a cop pulled up alongside and stopped too, for a beat.
+    // The cop has to be stationary as well — one blowing past at speed is a near
+    // miss, not an arrest.
+    const copSpd = Math.hypot(k.vx, k.vy);
+    if (d < 8 && spd < 3 && copSpd < 3 && P.wanted >= 1) {
+      P.bustT += dt;
+      if (P.bustT > 1.6 && !P.dead) busted();
+    }
   }
   if (!nearCop || P.wanted === 0) P.bustT = 0;
 
@@ -2071,6 +2165,13 @@ function update(dt) {
     MISSION.time -= dt;
     if (MISSION.time <= 0) failDelivery();
     else if (MISSION.drop && dist(c.x, c.y, MISSION.drop.x, MISSION.drop.y) < 8 && spd < 14) completeDelivery();
+  }
+
+  // --- repair shops: drive in, leave with full armor and a new paint job
+  for (const p of W.pois) {
+    if (p.cool > 0) p.cool -= dt;
+    if (p.kind !== 'repair' || p.cool > 0 || P.dead) continue;
+    if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
   }
 
   // --- health / death
@@ -2272,6 +2373,11 @@ function render() {
   ctx.save();
   ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
 
+  // landmarks first, so a mission marker on top of one still reads
+  for (const p of W.pois) {
+    if (Math.abs(p.x - cam.x) > viewR || Math.abs(p.y - cam.y) > viewR) continue;
+    marker(p, POI_COL[p.kind]);
+  }
   if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8');
   if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, '#ffe36a');
 
@@ -2601,7 +2707,7 @@ window.__w = () => ({ name: W.name, procedural: W.procedural, roads: W.roads.len
 window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.h.toFixed(2),
   spd: +Math.hypot(P.car.vx, P.car.vy).toFixed(2), hp: +P.car.hp.toFixed(1), onRoad: P.car.road,
   wanted: +P.wanted.toFixed(2), cops: cops.length, traffic: traffic.length, peds: peds.length,
-  cash: P.cash, mission: MISSION.state });
+  cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
 window.__addWanted = n => addWanted(n);
 window.__hurt = () => { P.car.hp = 0; };
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;
@@ -2650,7 +2756,10 @@ window.__hpById = (id, hp) => {
   for (const a of [traffic, cops]) for (const c of a) if (c.id === id) { c.hp = hp; return true; }
   return false;
 };
-window.__putCop = (i, x, y, h) => { const k = cops[i]; if (!k) return false; k.x = x; k.y = y; k.h = h; k.vx = k.vy = 0; return true; };
+window.__putCop = (i, x, y, h, vx, vy) => {
+  const k = cops[i]; if (!k) return false;
+  k.x = x; k.y = y; k.h = h; k.vx = vx || 0; k.vy = vy || 0; return true;
+};
 window.__explodeAt = (x, y) => explode(x, y);
 window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   const t = traffic[i]; if (!t) return false;
@@ -2658,6 +2767,10 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   if (col) t.color = col;
   return true;
 };
+window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
+window.__cash = () => P.cash;
+window.__setCash = n => { P.cash = n; store.set('vm_cash', n); };
+window.__spawn = () => ({ x: +P.spawn.x.toFixed(1), y: +P.spawn.y.toFixed(1) });
 window.__passable = () => W.buildings.filter(b => b.passable).length;
 window.__newMission = () => newMission();
 window.__byColour = (r, g, b_) => {

@@ -74,7 +74,14 @@ is the whole game.
   pavement and turn back at the kerb, so you have to work to hit one.
 - **Five-star wanted level.** Ramming cars, hitting cops, and running people down raises it.
   Police pursue directly and get faster with each star. Lose them for 8 seconds and it decays.
-  Stop next to a cop while wanted and you get **BUSTED**; run out of armor and you get **WASTED**.
+- **Busted and wasted have somewhere to take you.** Come to a stop with a police car stopped
+  alongside you and you're **BUSTED** — half your cash gone, and you come round at the nearest real
+  police station on the map. A cop still moving is a near miss, not an arrest. Run out of armor and
+  you're **WASTED** — cleaned out completely, and you wake up at the nearest hospital. Where the map
+  has neither, you go back to where the game started.
+- **Repair shops.** Drive into a real `shop=car_repair` and you leave with full armor and a
+  different paint job. They're marked in green on the radar, police stations in blue and hospitals
+  in red, so you can see where you'd end up.
 - **Delivery missions.** Pink marker to yellow marker against a timer, paying out by distance.
   Cash persists in `localStorage`.
 - **Vice City dusk.** Neon rooftop trim, street lights, headlight cones, skid marks, scanlines,
@@ -92,6 +99,7 @@ is the whole game.
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
 | Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
+| Landmarks | `amenity=police`, `amenity=hospital` and `shop=car_repair`, pulled with the streets query as `nwr` so a station tagged as a bare node and one tagged as a building both land. Overpass returns the same landmark more than once — a hospital matches the amenity query and again as a building, and anything on a tile seam arrives with both tiles — so they're deduped by kind within 30 m. Respawning snaps to the nearest point *on* a drivable segment, not its midpoint, which on a long straight way can be hundreds of metres out |
 | Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. Merging a tile grows the drivable mask in place (the old one is blitted into the new offset), appends to the spatial hashes — which key off absolute metres and so never need rebuilding — and redraws the radar. One tile in flight at a time, with a cooldown and per-tile backoff on failure |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
 
