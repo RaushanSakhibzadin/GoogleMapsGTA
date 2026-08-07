@@ -474,7 +474,7 @@ const RADIUS = 900;   // metres fetched around the centre point
    neighbours butt up against it with no gap and no overlap. */
 const TILE = RADIUS * 2;
 const LOOKAHEAD = 520;   // start fetching a neighbour once you're this close to it
-const MAX_TILES = 12;    // keeps memory and the minimap prerender bounded
+const MAX_TILES = 20;    // the opening 3x3 ring plus room to drive before recycling
 const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk requests
 
 /* Two queries, not one. Streets are small and quick and are all you need to start
@@ -1033,6 +1033,72 @@ function markPOIBuildings() {
   }
 }
 
+/* The world is as big as the tiles we deliberately loaded — never as big as the
+   geometry inside them. Overpass returns the FULL shape of anything that merely
+   touches the box it was asked for, and a riverbank way or a water multipolygon
+   runs for hundreds of kilometres: sizing the world off feature bounds let a
+   single river stretch it to ±150 km, which shrank the whole city to a speck on
+   the radar and blew the collision mask up to millions of cells. Overhanging
+   features are simply drawn and clipped; markDrivable already bounds-checks. */
+const tileRect = key => {
+  const [i, j] = key.split(',').map(Number);
+  return { x0: i * TILE - RADIUS, y0: j * TILE - RADIUS,
+           x1: i * TILE + RADIUS, y1: j * TILE + RADIUS };
+};
+function worldBounds() {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [key, st] of W.tiles) {
+    if (st !== 'loaded') continue;
+    const r = tileRect(key);
+    if (r.x0 < x0) x0 = r.x0; if (r.y0 < y0) y0 = r.y0;
+    if (r.x1 > x1) x1 = r.x1; if (r.y1 > y1) y1 = r.y1;
+  }
+  // the generated city has no tiles, so fall back to what its features cover
+  if (!isFinite(x0)) {
+    const b = featureBounds([W.roads, W.buildings, W.parks]);
+    return isFinite(b.x0) ? b : { x0: -900, y0: -900, x1: 900, y1: 900 };
+  }
+  return { x0, y0, x1, y1 };
+}
+
+/* Sutherland–Hodgman against an axis-aligned rectangle. The clip region is convex
+   so this is exact, and it's what keeps a river honest: returned whole it is
+   hundreds of kilometres long, and a bounding box that size passes the view cull
+   every single frame. Clipped to its tile it costs what it looks like. */
+function clipPoly(pts, r) {
+  const inside = (p, e) => e === 0 ? p.x >= r.x0 : e === 1 ? p.x <= r.x1
+                         : e === 2 ? p.y >= r.y0 : p.y <= r.y1;
+  const cut = (a, b, e) => {
+    const t = e === 0 ? (r.x0 - a.x) / (b.x - a.x) : e === 1 ? (r.x1 - a.x) / (b.x - a.x)
+            : e === 2 ? (r.y0 - a.y) / (b.y - a.y) : (r.y1 - a.y) / (b.y - a.y);
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  };
+  let out = pts;
+  for (let e = 0; e < 4 && out.length; e++) {
+    const inp = out; out = [];
+    for (let i = 0; i < inp.length; i++) {
+      const a = inp[i], b = inp[(i + 1) % inp.length];
+      const ia = inside(a, e), ib = inside(b, e);
+      if (ia) out.push(a);
+      if (ia !== ib) out.push(cut(a, b, e));   // only when it crosses, so never /0
+    }
+  }
+  return out;
+}
+
+function clipWater(data, rect) {
+  const pad = 60;
+  const r = { x0: rect.x0 - pad, y0: rect.y0 - pad, x1: rect.x1 + pad, y1: rect.y1 + pad };
+  const out = [];
+  for (const f of data.water) {
+    const pts = clipPoly(f.pts, r);
+    if (pts.length < 3) continue;
+    const holes = (f.holes || []).map(h => clipPoly(h, r)).filter(h => h.length >= 3);
+    out.push({ pts, bb: bbox(pts), holes: holes.length ? holes : undefined });
+  }
+  data.water = out;
+}
+
 function featureBounds(sets) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const arr of sets) for (const f of arr) {
@@ -1043,6 +1109,7 @@ function featureBounds(sets) {
 }
 
 function buildWorld(data, name, procedural) {
+  if (!procedural) clipWater(data, tileRect('0,0'));
   W.roads = data.roads; W.buildings = data.buildings;
   W.water = data.water; W.parks = data.parks;
   W.places = data.places || [];
@@ -1069,8 +1136,7 @@ function reindexWorld() {
   W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
 
-  const b = featureBounds([W.roads, W.buildings, W.water, W.parks]);
-  if (!isFinite(b.x0)) { b.x0 = b.y0 = -900; b.x1 = b.y1 = 900; }
+  const b = worldBounds();
   fitGrid(b.x0, b.y0, b.x1, b.y1);   // bounds start empty, so this sizes the grid afresh
 
   markRoads(W.roads);
@@ -1112,20 +1178,34 @@ function wantedTiles(px, py) {
   return out.sort((a, b) => a.d - b.d);
 }
 
+/* Scenery — buildings and water — queues through one worker. Opening the city on
+   nine tiles would otherwise put sixteen side requests in the air at once, and
+   Overpass hands out about two slots per IP: the streets request in flight plus
+   one of these is exactly the budget, and anything more just earns 429s. */
+const SIDE = { q: [], busy: false };
+function sideFetch(fn) { SIDE.q.push(fn); pumpSide(); }
+async function pumpSide() {
+  if (SIDE.busy) return;
+  SIDE.busy = true;
+  while (SIDE.q.length) { try { await SIDE.q.shift()(); } catch (e) {} }
+  SIDE.busy = false;
+}
+
 /* Rivers and harbours mapped as multipolygons, fetched on their own so a server
    that dislikes the query costs you drownable water rather than the whole city.
-   Same best-effort shape as the buildings fetch: land it if it arrives, shrug if
-   it doesn't. */
+   Best-effort: land it if it arrives, shrug if it doesn't. */
 function loadWater(s, w, n, e, key) {
-  const ws = newSession();
-  overpassArea(s, w, n, e, ws, { kind: 'water' })
-    .then(els => {
-      if (key !== '0,0' && W.tiles.get(key) !== 'loaded') return;
-      const data = parseOSM(els);
-      if (data.water.length) mergeChunk(data, key);
-    })
-    .catch(err => console.warn('water ' + key + ':', err && err.message))
-    .finally(() => sessAbort(ws));
+  sideFetch(() => {
+    const ws = newSession();
+    return overpassArea(s, w, n, e, ws, { kind: 'water' })
+      .then(els => {
+        if (key !== '0,0' && W.tiles.get(key) !== 'loaded') return;
+        const data = parseOSM(els);
+        if (data.water.length) mergeChunk(data, key);
+      })
+      .catch(err => console.warn('water ' + key + ':', err && err.message))
+      .finally(() => sessAbort(ws));
+  });
 }
 
 async function loadTile(i, j) {
@@ -1151,11 +1231,13 @@ async function loadTile(i, j) {
     CHUNK.note = '';
 
     // then its buildings, which are the bulk of the bytes and purely scenery
-    const bs = newSession();
-    overpassArea(s, w, n, e, bs, { kind: 'buildings' })
-      .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels), key); })
-      .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
-      .finally(() => sessAbort(bs));
+    sideFetch(() => {
+      const bs = newSession();
+      return overpassArea(s, w, n, e, bs, { kind: 'buildings' })
+        .then(bels => { if (W.tiles.get(key) === 'loaded') mergeChunk(parseOSM(bels), key); })
+        .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
+        .finally(() => sessAbort(bs));
+    });
     loadWater(s, w, n, e, key);
     return true;
   } catch (err) {
@@ -1225,12 +1307,20 @@ function updateChunks() {
 
 /* Fold a freshly downloaded neighbouring tile into the live world. */
 function mergeChunk(data, key) {
-  const b = featureBounds([data.roads, data.buildings, data.water, data.parks]);
-  if (!isFinite(b.x0)) return 0;
-  stampTile(data, key || '0,0');
+  const tk = key || '0,0';
+  // the tile's own rectangle, not what its features happen to span
+  const r = tileRect(tk);
+  clipWater(data, r);
+  if (!(data.roads.length || data.buildings.length || data.water.length || data.parks.length)) return 0;
+  stampTile(data, tk);
 
   const firstBuilding = W.buildings.length;
-  const grew = fitGrid(b.x0, b.y0, b.x1, b.y1);
+  const grew = fitGrid(r.x0, r.y0, r.x1, r.y1);
+  // The GRID is sized by the tile, but passability is a geometry question — which
+  // buildings a road actually runs through — so it works off where the features
+  // really are. A way overhanging the tile edge would otherwise never be tested,
+  // and you'd hit a solid wall where the map shows an archway.
+  const b = featureBounds([data.roads, data.buildings]);
 
   for (const r of data.roads) W.roads.push(r);
   for (const x of data.buildings) W.buildings.push(x);
@@ -1242,8 +1332,9 @@ function mergeChunk(data, key) {
   markRoads(data.roads);            // the mask was blitted, so only new roads need marking
   indexBuildings(firstBuilding);
   // ways crossing the seam matter both ways, so test every road touching this tile
-  markPassable(W.roads.filter(r => r.bb.x1 >= b.x0 && r.bb.x0 <= b.x1 &&
-                                   r.bb.y1 >= b.y0 && r.bb.y0 <= b.y1));
+  if (isFinite(b.x0))
+    markPassable(W.roads.filter(rd => rd.bb.x1 >= b.x0 && rd.bb.x0 <= b.x1 &&
+                                      rd.bb.y1 >= b.y0 && rd.bb.y0 <= b.y1));
   markPOIBuildings();               // buildings arrive here too, opening ones included
   indexRoads(data.roads);
   addLights(data.roads);
@@ -1363,6 +1454,8 @@ const POI_RADII = [18000, 45000];
 const RECOVER_MAX = 6000;
 // how long the loading screen will wait on the landmark sweep before starting anyway
 const LOAD_SWEEP_WAIT = 6000;
+// how long loading will wait on the opening ring before starting with what landed
+const LOAD_RING_WAIT = 12000;
 
 const POI_KINDS = ['police', 'hospital', 'repair'];
 const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k));
@@ -1397,6 +1490,24 @@ async function widenLandmarkSearch() {
    station and no hospital it goes a rung wider there and then, so the "somewhere
    to be taken after a bust" guarantee survives without any wide request ever
    firing mid-game — once you're driving, only tile-sized loads happen. */
+/* The eight tiles around the opening one, pulled while the loading screen is still
+   up so you start in a 5.4 km city rather than a 1.8 km one. Sequential, because
+   Overpass gives roughly two slots per IP and a burst just earns 429s, and bounded
+   by a deadline so a slow city starts with whatever landed rather than not at all. */
+async function preloadRing(onEach) {
+  const ring = [];
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (i || j) ring.push([i, j]);
+  ring.sort((a, b) => (Math.abs(a[0]) + Math.abs(a[1])) - (Math.abs(b[0]) + Math.abs(b[1])));
+  const until = Date.now() + LOAD_RING_WAIT;
+  let got = 0;
+  for (const [i, j] of ring) {
+    if (Date.now() > until) break;
+    if (await loadTile(i, j)) got++;
+    if (onEach) onEach(got, ring.length);
+  }
+  return got;
+}
+
 async function sweepLandmarks() {
   const out = [];
   // No new rung may START once the loading screen is done — a straggler already in
@@ -1477,7 +1588,9 @@ function nearestRoadPoint(x, y) {
 /* Whole-city render, once, so the minimap costs nothing per frame. */
 function prerenderMap() {
   const spanX = W.maxX - W.minX, spanY = W.maxY - W.minY;
-  const s = Math.min(1400 / Math.max(spanX, 1), 1400 / Math.max(spanY, 1), 1.1);
+  // 2400 rather than 1400: the city opens at 5.4 km now, and the radar samples a
+  // window of this, so too coarse a pre-render shows up as a soft minimap
+  const s = Math.min(2400 / Math.max(spanX, 1), 2400 / Math.max(spanY, 1), 1.1);
   W.mapScale = s;
   const c = document.createElement('canvas');
   c.width = Math.max(2, Math.ceil(spanX * s)); c.height = Math.max(2, Math.ceil(spanY * s));
@@ -2157,13 +2270,25 @@ async function startGame(query, lat, lon, label) {
   await new Promise(r => setTimeout(r, 40));
   buildWorld(data, name, procedural);
 
-  // Landmarks go out over a wide radius here, while the loading screen is still
-  // up, so that once you're driving nothing but tile-sized requests ever fire.
-  // Waited on with a cap rather than blocked on: this query is allowed 40 s, and
-  // a loading screen that hangs on a nicety is the exact failure fixed earlier.
+  // The city opens at 5.4 km rather than 1.8: the ring comes in here, before you
+  // ever take the wheel, and only its scenery trickles in afterwards. The tile you
+  // are standing in gets its scenery queued first, so it fills in before the rest.
   if (!procedural) {
-    prog(.9, 'Finding the hospitals…');
-    await Promise.race([sweepLandmarks(), new Promise(r => setTimeout(r, LOAD_SWEEP_WAIT))]);
+    loadOpeningBuildings(lat, lon, gen);
+    loadWater(...areaBox(lat, lon), '0,0');
+    // The landmark sweep doesn't depend on the ring, so it runs alongside rather
+    // than adding its wait on top — two independent waits stacked is how a loading
+    // screen quietly becomes half a minute.
+    const sweep = sweepLandmarks();
+    // Raced, not just deadlined between tiles: one slow district would otherwise
+    // run to the streets budget and hold the loading screen for a minute. What is
+    // still in flight when the race ends simply lands while you're driving.
+    await Promise.race([
+      preloadRing(g => prog(.85 + .05 * (g / 8), 'Extending the city…', g + ' of 8 districts')),
+      new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
+    ]);
+    prog(.92, 'Finding the hospitals…');
+    await Promise.race([sweep, new Promise(r => setTimeout(r, 2500))]);
     if (gen !== loadGen) return;
   }
 
@@ -2181,10 +2306,6 @@ async function startGame(query, lat, lon, label) {
   state = 'play'; lastT = performance.now(); acc = 0;
   toast(procedural ? 'WELCOME TO\nNEON GRID CITY' : 'WELCOME TO\n' + name.toUpperCase(), 2600);
   if (!raf) { raf = true; requestAnimationFrame(loop); }
-  if (!procedural) {
-    loadOpeningBuildings(lat, lon, gen);
-    loadWater(...areaBox(lat, lon), '0,0');
-  }
 }
 
 function resetRun() {
