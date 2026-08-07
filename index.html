@@ -91,7 +91,7 @@
   #stars{position:absolute;top:calc(12px + clamp(30px,6vw,46px));right:14px;font-size:clamp(19px,3.9vw,27px);
     letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 16px rgba(255,180,60,.85)}
   #stars .off{color:rgba(255,255,255,.16);text-shadow:none}
-  #obj{position:absolute;top:12px;left:14px;max-width:min(48vw,420px);
+  #obj{position:absolute;bottom:56px;left:14px;max-width:min(48vw,420px);
     font-size:clamp(15px,2.5vw,21px);color:#fff;line-height:1.25}
   #obj small{display:block;font-family:var(--ui);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
@@ -105,12 +105,12 @@
   #hpIn{height:100%;width:100%;transition:width .18s;
     background:linear-gradient(90deg,#48ff9e,#33e6ff);box-shadow:0 0 14px rgba(51,230,255,.6)}
 
-  #mini{position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  #mini{position:absolute;left:14px;top:14px;
     width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
     border:3px solid rgba(255,79,216,.75);box-shadow:0 0 26px rgba(255,79,216,.4),inset 0 0 30px rgba(0,0,0,.65);
     background:#0a0614}
   /* street name: appears when you turn onto a new road, then fades (GTA V style) */
-  #street{position:absolute;left:14px;top:calc(50% + clamp(120px,21vw,178px)/2 + 10px);
+  #street{position:absolute;left:14px;top:calc(14px + clamp(120px,21vw,178px) + 10px);
     max-width:min(38vw,300px);font-family:var(--ui);font-weight:700;font-size:13px;
     letter-spacing:.13em;text-transform:uppercase;color:var(--cyan);
     text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
@@ -166,10 +166,10 @@
   .pad.act{background:rgba(255,79,216,.5);border-color:var(--pink)}
   #tL{left:16px} #tR{left:calc(32px + var(--pad))}
   #tB{right:calc(32px + var(--pad))} #tA{right:16px;background:rgba(51,230,255,.22)}
-  #tH{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+  #tH{right:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
     padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
   /* day/night, reachable without a keyboard */
-  #tN{right:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+  #tN{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
     padding:9px 15px;border-radius:12px;font-size:20px;line-height:1}
 
   /* ---------- daylight: the HUD has to survive a light background ---------- */
@@ -199,21 +199,21 @@
   .credit a{color:rgba(51,230,255,.75)}
   /* Phones: everything has to clear the thumb pads along the bottom edge. */
   @media (max-width:760px),(pointer:coarse){
-    /* left column stacks upward: pads, armor, drift, minimap */
-    #mini{top:auto;transform:none;left:14px;bottom:calc(var(--pad) + 132px);
+    /* radar pinned top-left; the left column below stacks pads → armor → objective */
+    #mini{top:14px;bottom:auto;left:14px;
       width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
-    #tH{bottom:calc(var(--pad) + 74px)}
-    #tN{bottom:calc(var(--pad) + 74px)}
+    #tH{right:16px;left:auto;bottom:calc(var(--pad) + 74px)}
+    #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
     #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:44vw}
     /* speedo moves up under the star row so the accelerator can't cover it */
     #speed{top:calc(16px + 12vw);right:14px;bottom:auto}
     #spdN{font-size:clamp(30px,7.5vw,46px)}
-    #obj{max-width:56vw}
+    /* left column bottom-up: pads, armor, day/night, objective */
+    #obj{max-width:56vw;bottom:calc(var(--pad) + 128px)}
     #toast{top:30%}
-    /* left column stacks pads → armor → drift → radar, so the street name goes above it all */
-    #street{top:auto;left:14px;max-width:52vw;
-      bottom:calc(var(--pad) + 140px + clamp(96px,25vw,150px))}
-    #zone{bottom:calc(var(--pad) + 120px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+    #street{top:calc(14px + clamp(96px,25vw,150px) + 8px);bottom:auto;left:14px;max-width:52vw}
+    /* DRIFT now shares the right-hand side, so the district name lifts clear of it */
+    #zone{bottom:calc(var(--pad) + 132px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
   }
 </style>
 </head>
@@ -892,7 +892,7 @@ function addLights(roads) {
 }
 
 /* A drivable centreline running through a footprint means a tunnel, an archway,
-   or a building put up over the street — Riga's old town is full of them. You
+   or a building put up over the street — dense old towns are full of them. You
    should drive through, not crash into it, so those buildings stop colliding.
    Sampling the centreline against the building hash is precise and only costs
    anything at load time. */
@@ -1567,7 +1567,6 @@ const PRESETS = [
   ['Paris', 'Arc de Triomphe, Paris', 48.8738, 2.2950],
   ['Los Santos', 'Vinewood, Los Angeles', 34.1016, -118.3269],
   ['Venice 🚤', 'Piazza San Marco, Venice', 45.4341, 12.3388],
-  ['Riga', 'Vecrīga, Riga', 56.9496, 24.1052],
   ['📍 My location', '@geo']
 ];
 (function fillPresets() {
@@ -2340,10 +2339,14 @@ function drawArrow() {
   // keep it clear of the thumb pads when they're on screen
   const botLimit = VH - (touchUI ? 190 : 92);   // clear the armor bar / speedo too
   let y = Math.min(VH / 2 + Math.sin(a) * k, botLimit);
-  // and off the radar, which lives in the same left-hand strip
+  // and off the radar, which lives in the same left-hand strip. Now that the radar
+  // is in the top corner there's no room to dodge upwards, so go under it instead
+  // of shoving the arrow off the top of the screen.
   if (miniRect && x < miniRect.right + 60 && y > miniRect.top - 26 && y < miniRect.bottom + 40) {
-    y = y < (miniRect.top + miniRect.bottom) / 2 ? miniRect.top - 26 : miniRect.bottom + 40;
+    const above = miniRect.top - 26, below = miniRect.bottom + 40;
+    y = (above > 46 && y < (miniRect.top + miniRect.bottom) / 2) ? above : below;
   }
+  y = clamp(y, 46, botLimit);
   const col = MISSION.state === 'pickup' ? '#ff4fd8' : '#ffe36a';
   ctx.save(); ctx.translate(x, y); ctx.rotate(a);
   ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;

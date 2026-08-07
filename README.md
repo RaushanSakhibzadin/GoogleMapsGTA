@@ -59,7 +59,7 @@ is the whole game.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
 - **Tunnels and archways work.** Where a drivable centreline runs straight through a building
-  footprint — a tunnel, a gateway, or a block built over the street, which Riga's old town is
+  footprint — a tunnel, a gateway, or a block built over the street, which dense old towns are
   full of — that building stops colliding and is drawn back so you can see the road under it.
   Buildings that merely sit beside the road stay as solid as ever.
 - **Off-road handling.** An 8 m drivable grid rasterized from the road network — leave the
