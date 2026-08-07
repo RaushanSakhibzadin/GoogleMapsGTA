@@ -82,6 +82,11 @@ is the whole game.
 - **Repair shops.** Drive into a real `shop=car_repair` and you leave with full armor and a
   different paint job. They're marked in green on the radar, police stations in blue and hospitals
   in red, so you can see where you'd end up.
+- **A wide sweep for landmarks.** The opening download is 1.8 km across, and plenty of real
+  neighbourhoods that size hold no station, no hospital and no garage. If any of the three is
+  missing once you're driving, the game quietly sweeps **18 km in every direction** for landmarks
+  alone — no streets, no buildings, so it stays one cheap request — and folds whatever it finds
+  into the city you're already in.
 - **Delivery missions.** Pink marker to yellow marker against a timer, paying out by distance.
   Cash persists in `localStorage`.
 - **Vice City dusk.** Neon rooftop trim, street lights, headlight cones, skid marks, scanlines,
@@ -99,7 +104,9 @@ is the whole game.
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
 | Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
-| Landmarks | `amenity=police`, `amenity=hospital` and `shop=car_repair`, pulled with the streets query as `nwr` so a station tagged as a bare node and one tagged as a building both land. Overpass returns the same landmark more than once — a hospital matches the amenity query and again as a building, and anything on a tile seam arrives with both tiles — so they're deduped by kind within 30 m. Respawning snaps to the nearest point *on* a drivable segment, not its midpoint, which on a long straight way can be hundreds of metres out |
+| Landmarks | `amenity=police`, `amenity=hospital` and `shop=car_repair`, pulled with the streets query as `nwr` so a station tagged as a bare node and one tagged as a building both land. Overpass returns the same landmark more than once — a hospital matches the amenity query and again as a building, and anything on a tile seam arrives with both tiles — so they're deduped by kind within 30 m |
+| Wide sweep | When a kind is missing, one landmark-only query over a 36 km box, four seconds after play starts so the scenery gets the bandwidth first. Sparse tag-indexed features make the area cheap, and `out center` returns a point per hit instead of a whole building outline. It runs once per city, and failing costs nothing — the start point is still there |
+| Respawning | Snaps to the nearest point *on* a drivable segment, not its midpoint, which on a long straight way can be hundreds of metres out. It only snaps when tarmac is within 120 m, since the wide sweep finds landmarks well outside the loaded streets and the nearest loaded road to those is the edge of the map. Beyond 6 km you go to the start point instead: the collision grid and the pre-rendered map both span everything loaded, so a long jump bloats the mask and zooms the radar out until it's useless |
 | Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. Merging a tile grows the drivable mask in place (the old one is blitted into the new offset), appends to the spatial hashes — which key off absolute metres and so never need rebuilding — and redraws the radar. One tile in flight at a time, with a cooldown and per-tile backoff on failure |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
 

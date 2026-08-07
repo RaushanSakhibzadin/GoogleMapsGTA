@@ -485,6 +485,15 @@ function overpassQL(s, w, n, e, kind) {
   if (kind === 'buildings') {
     return `[out:json][timeout:60];(way["building"](${bb}););out geom qt;`;
   }
+  // Landmarks over a much wider area than we could ever load streets for. These
+  // are sparse and tag-indexed, so the area costs little — and `out center`
+  // returns one point per hit instead of a whole building outline.
+  if (kind === 'pois') {
+    return `[out:json][timeout:40];(` +
+      `nwr["amenity"~"^(police|hospital)$"](${bb});` +
+      `nwr["shop"="car_repair"](${bb});` +
+      `);out center qt;`;
+  }
   return `[out:json][timeout:25];(` +
     `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bb});` +
     `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
@@ -507,6 +516,7 @@ function overpassQL(s, w, n, e, kind) {
 const HEDGE = 7000;      // start another mirror if the current one is still silent
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
+const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 // Overpass says these when it's busy, not when the query is wrong
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
@@ -573,7 +583,7 @@ async function readBody(res, onBytes) {
 function overpassArea(s, w, n, e, sess, opt) {
   opt = opt || {};
   const kind = opt.kind || 'streets';
-  const tune = kind === 'buildings' ? BUILDINGS : STREETS;
+  const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS : STREETS;
   const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
@@ -658,6 +668,7 @@ const W = {
   minX: 0, minY: 0, maxX: 0, maxY: 0,
   places: [],                            // named districts / neighbourhoods
   pois: [],                              // police stations, hospitals, repair shops
+  wideSearched: false,                   // the one-shot wide landmark sweep has run
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   bcell: 90, buckets: new Map(),         // building spatial hash
   rbuckets: new Map(),                   // road spatial hash (named roads only)
@@ -783,6 +794,22 @@ function parseOSM(els) {
     }
   }
   return { roads, buildings, water, parks, places, pois };
+}
+
+/* The wide landmark sweep asks for `out center`, so a way arrives as a single
+   point rather than an outline. Parsed on its own rather than through parseOSM,
+   which would see a way with no geometry and drop it. */
+function parsePOIs(els) {
+  const out = [];
+  for (const el of els) {
+    const kind = POI_KIND(el.tags || {});
+    if (!kind) continue;
+    const lat = el.lat != null ? el.lat : el.center && el.center.lat;
+    const lon = el.lon != null ? el.lon : el.center && el.center.lon;
+    if (lat == null || lon == null) continue;
+    out.push({ x: projX(lon), y: projY(lat), kind, name: (el.tags || {}).name || '', cool: 0 });
+  }
+  return out;
 }
 
 const FAKE_ST =['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Way',
@@ -980,7 +1007,7 @@ function buildWorld(data, name, procedural) {
   W.water = data.water; W.parks = data.parks;
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
-  W.name = name; W.procedural = procedural;
+  W.name = name; W.procedural = procedural; W.wideSearched = false;
   W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
   W.tiles = new Map();
@@ -1195,6 +1222,38 @@ function zoneAt(x, y) {
   return best;
 }
 
+const POI_SEARCH_R = 18000;   // metres, half-width of the wide landmark sweep
+/* How far a bust or a wasting may move you. The world grid and the pre-rendered
+   map both span everything loaded, so a long teleport bloats the collision mask
+   and zooms the radar out until it's useless. A landmark further out than this
+   is still found, drawn and driveable-to — you just don't get carried there. */
+const RECOVER_MAX = 6000;
+
+const POI_KINDS = ['police', 'hospital', 'repair'];
+const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k));
+
+/* The opening area is 1.8 km across, and plenty of real neighbourhoods that size
+   hold no station, no hospital and no garage. When one is missing, sweep a much
+   wider area for landmarks alone — no streets, no buildings, so it stays a cheap
+   request — and fold whatever turns up into the world already being played. */
+async function widenLandmarkSearch() {
+  const missing = missingKinds();
+  if (!missing.length || W.procedural || W.wideSearched) return null;
+  W.wideSearched = true;
+  const R = POI_SEARCH_R;
+  const s = unprojLat(R), w = unprojLon(-R), n = unprojLat(-R), e = unprojLon(R);
+  try {
+    const els = await overpassArea(s, w, n, e, newSession(), { kind: 'pois' });
+    const before = W.pois.length;
+    addPOIs(parsePOIs(els));
+    const found = W.pois.length - before;
+    if (found) prerenderMap();          // the radar picks up anything in range
+    return { missing, found };
+  } catch (err) {
+    return { missing, found: 0, err: err.message };   // the start point still covers us
+  }
+}
+
 /* Overpass hands the same landmark back more than once: a hospital is matched by
    the amenity query and again as a building, and anything sitting on a tile seam
    arrives with both tiles. Same kind within 30 m is the same place. */
@@ -1221,8 +1280,13 @@ function nearestPOI(kind, x, y) {
    path, not an edge case. */
 function recoverPoint(kind) {
   const poi = nearestPOI(kind, P.car.x, P.car.y);
-  if (!poi) return P.spawn;
-  return nearestRoadPoint(poi.x, poi.y) || poi;
+  if (!poi || dist(poi.x, poi.y, P.car.x, P.car.y) > RECOVER_MAX) return P.spawn;
+  // Snap to the kerb only when there is actually tarmac by the door. The wide
+  // sweep finds landmarks far outside the loaded streets, and for those the
+  // nearest loaded road is the edge of the map — miles from where you want to be.
+  // Better to arrive at the building and let the next tile pave around you.
+  const on = nearestRoadPoint(poi.x, poi.y);
+  return (on && dist(on.x, on.y, poi.x, poi.y) < 120) ? on : { x: poi.x, y: poi.y, h: 0 };
 }
 
 /* Nearest drivable tarmac to a point. Projects onto each segment rather than
@@ -1909,7 +1973,11 @@ async function startGame(query, lat, lon, label) {
   state = 'play'; lastT = performance.now(); acc = 0;
   toast(procedural ? 'WELCOME TO\nNEON GRID CITY' : 'WELCOME TO\n' + name.toUpperCase(), 2600);
   if (!raf) { raf = true; requestAnimationFrame(loop); }
-  if (!procedural) loadOpeningBuildings(lat, lon, gen);
+  if (!procedural) {
+    loadOpeningBuildings(lat, lon, gen);
+    // behind the buildings, so the scenery you can see wins the bandwidth
+    setTimeout(() => { if (state !== 'menu') widenLandmarkSearch(); }, 4000);
+  }
 }
 
 function resetRun() {
@@ -2733,9 +2801,11 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
-window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, hedge: HEDGE, maxTries: MAX_TRIES,
+window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
+  searchRadius: POI_SEARCH_R, recoverMax: RECOVER_MAX,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
-  buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1] });
+  buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
+  poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1] });
 window.__pal = () => PAL;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
 window.__toScreen = (x, y) => toScreen(x, y);
@@ -2768,6 +2838,9 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   return true;
 };
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
+window.__missingKinds = () => missingKinds();
+window.__wideSearch = () => { W.wideSearched = false; return widenLandmarkSearch(); };
+window.__recover = kind => { const r = recoverPoint(kind); return { x: +r.x.toFixed(1), y: +r.y.toFixed(1) }; };
 window.__cash = () => P.cash;
 window.__setCash = n => { P.cash = n; store.set('vm_cash', n); };
 window.__spawn = () => ({ x: +P.spawn.x.toFixed(1), y: +P.spawn.y.toFixed(1) });
