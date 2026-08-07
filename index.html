@@ -206,7 +206,9 @@
   @media (max-width:760px),(pointer:coarse){
     #hudTL{max-width:56vw}
     #mini{width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
-    #tH{right:16px;left:auto;bottom:calc(var(--pad) + 74px)}
+    /* DRIFT tucks in just above the accelerator — it's held mid-corner, so it
+       has to fall under the same thumb, not sit up the screen away from it */
+    #tH{right:16px;left:auto;bottom:calc(var(--pad) + 30px)}
     #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
     /* armor is capped so a wide landscape phone can't run it under the car */
     #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(44vw,calc(50vw - 60px))}
