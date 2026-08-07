@@ -2598,8 +2598,13 @@ async function startGame(query, lat, lon, label) {
     const skelMs = Date.now() - t0;
     // Note, don't act on it: the ring that follows is full street detail and still
     // needs the streets query. Scenery-only mode starts when play does.
+    // "0 more roads across 18 km" is a real outcome — a small town whose trunk
+    // roads the detailed centre already had — but it reads like a failure, so say
+    // how big the city is instead of how little the last request added to it.
     if (skel) prog(.88, 'Wiring the neon…',
-                   skel.roads.toLocaleString() + ' more roads across ' + Math.round(skel.radius / 1000) + ' km');
+                   skel.roads ? skel.roads.toLocaleString() + ' more roads across ' +
+                                Math.round(skel.radius / 1000) + ' km'
+                              : Math.round(skel.radius / 1000) + ' km of city');
 
     // Raced, not just deadlined between tiles: one slow district would otherwise
     // run to the streets budget and hold the loading screen for a minute. What is
