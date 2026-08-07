@@ -477,6 +477,18 @@ const LOOKAHEAD = 520;   // start fetching a neighbour once you're this close to
 const MAX_TILES = 20;    // the opening 3x3 ring plus room to drive before recycling
 const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk requests
 
+/* The city is 36 km across, and it all arrives before you drive.
+   Full detail — every lane, every service road — only covers the tiles around
+   where you start. Out past those, the world is the ARTERIAL SKELETON: the roads
+   you'd actually take to cross a city, fetched once over an 18 km half-width.
+   Asking for every street in a box that size is 15-40 MB and times out in any
+   real city; the trunk roads alone are a few, and they're what makes the place
+   feel like somewhere with a horizon. Nothing about the road network is ever
+   requested again after this — once you're driving, only scenery loads. */
+const SKELETON_RADII = [18000, 9000, 4000];   // tried in order; first one to land wins
+const SKELETON_MS = [28000, 12000, 8000];     // per attempt, so the ladder can't run away
+const SKELETON_WAIT = 45000;                  // shared deadline over the whole ladder
+
 /* Two queries, not one. Streets are small and quick and are all you need to start
    driving; buildings are the bulk of the payload and arrive afterwards. Splitting
    them means a slow or refused building fetch costs you scenery, not the city. */
@@ -500,6 +512,16 @@ function overpassQL(s, w, n, e, kind) {
       `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
       `);out geom qt;` +
       `relation["natural"="water"](${bb});out geom(${bb}) qt;`;
+  }
+  // The wide skeleton: the roads you'd cross a city on, over an area 400x the
+  // detailed one. Deliberately NOT the full drivable set — residential lanes are
+  // the overwhelming majority of a city's ways, and including them here is the
+  // difference between a few megabytes and a query the server refuses outright.
+  if (kind === 'arterials') {
+    return `[out:json][timeout:90];(` +
+      `way["highway"~"^(motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link)$"](${bb});` +
+      `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
+      `);out geom qt;`;
   }
   // Landmarks over a much wider area than we could ever load streets for. These
   // are sparse and tag-indexed, so the area costs little — and `out center`
@@ -530,6 +552,7 @@ const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
 const WATER = { mirrorMs: 30000, totalMs: 40000 };      // query says timeout:25
+const ARTERIALS = { mirrorMs: 40000, totalMs: 45000 };  // query says timeout:90, big box
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 // Overpass says these when it's busy, not when the query is wrong
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
@@ -597,7 +620,7 @@ function overpassArea(s, w, n, e, sess, opt) {
   opt = opt || {};
   const kind = opt.kind || 'streets';
   const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS
-              : kind === 'water' ? WATER : STREETS;
+              : kind === 'water' ? WATER : kind === 'arterials' ? ARTERIALS : STREETS;
   const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
@@ -614,7 +637,7 @@ function overpassArea(s, w, n, e, sess, opt) {
         return;
       }
       live++;
-      onMsg(live > 1 ? 'Asking ' + live + ' map servers…' : 'Surveying the streets…');
+      onMsg(live > 1 ? 'Asking ' + live + ' map servers…' : (opt.label || 'Surveying the streets…'));
       try {
         const r = await fetchTimeout(url, {
           method: 'POST',
@@ -686,7 +709,13 @@ const W = {
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   bcell: 90, buckets: new Map(),         // building spatial hash
   rbuckets: new Map(),                   // road spatial hash (named roads only)
+  vcell: 256, vbuckets: new Map(),       // road spatial hash for view culling (all roads)
+  dcell: 300, dbuckets: new Map(),       // drivable roads, for spawning and snapping
+  roadIds: new Set(),                    // every way already in the world, so none lands twice
+  skelRect: null,                        // the wide arterial box, if one landed
+  tiles: new Map(), fixed: new Set(),    // streamed tiles; the ones that predate play are permanent
   map: null, mapScale: 1,                // pre-rendered minimap
+  mapOrigin: { x: 0, y: 0 },             // world point the pre-render's top-left corner is
   procedural: false, name: ''
 };
 
@@ -794,7 +823,11 @@ function parseOSM(els) {
     if (t.highway) {
       const cls = ROADW[t.highway] ? t.highway : 'residential';
       const layer = parseInt(t.layer || t.level || '0', 10) || 0;
-      roads.push({ pts, cls, w: ROADW[cls], drive: DRIVABLE(cls), bb: bbox(pts),
+      // The OSM id travels with the road so the same way can't be added twice.
+      // It arrives twice routinely now: the wide skeleton repeats every trunk road
+      // the detailed centre already has, and a way lying on a tile seam comes with
+      // both tiles.
+      roads.push({ id: el.id, pts, cls, w: ROADW[cls], drive: DRIVABLE(cls), bb: bbox(pts),
                    oneway: t.oneway === 'yes', name: t.name || t.ref || '',
                    tunnel: !!t.tunnel && t.tunnel !== 'no', covered: t.covered === 'yes',
                    layer });
@@ -811,7 +844,11 @@ function parseOSM(els) {
       const col = buildingColours(t, a, h, el.id || buildings.length + 1);
       // neon is now the exception, and only on things that would really carry a sign
       const signable = /^(commercial|retail|office|hotel|supermarket)$/.test(t.building || '') || a > 700;
-      buildings.push({ pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
+      // The id travels with it for the same reason roads carry theirs: overlapping
+      // requests return the same way more than once, and a doubled footprint is
+      // drawn twice, collides twice, and only the first copy is marked passable —
+      // so an archway you could drive through becomes a wall you cannot.
+      buildings.push({ id: el.id, pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
                        mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
                        neon: (signable && Math.random() < .22) ? pick(PAL.neon) : null });
     } else if (t.natural === 'water' || t.waterway === 'riverbank') {
@@ -953,6 +990,79 @@ function indexBuildings(from) {
     }
   }
 }
+/* Two more hashes over the same absolute-metre scheme, both there because a 36 km
+   world broke a linear scan that was fine at 1.8 km.
+
+   vbuckets: every road, for the view cull. render() used to filter W.roads each
+   frame — at skeleton scale that is tens of thousands of bounding-box tests per
+   frame, four times over.
+
+   dbuckets: drivable roads, for roadPoint(). That picks a random road and rejects
+   it unless it falls in a distance band around the player; spread over 400x the
+   area it fails all 260 tries and traffic simply stops appearing. */
+function bucketSpan(bb, cell, fn) {
+  const cx0 = Math.floor(bb.x0 / cell), cx1 = Math.floor(bb.x1 / cell);
+  const cy0 = Math.floor(bb.y0 / cell), cy1 = Math.floor(bb.y1 / cell);
+  for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) fn(cx + ',' + cy);
+}
+/* Bucketed by SEGMENT, not by whole-road bounding box. A motorway crossing the
+   city diagonally has a bounding box the size of the city: filed by that box it
+   would land in every one of ~20,000 cells it mostly doesn't touch, and every
+   view query would drag it back. Walking the segments files it only where it
+   actually runs. Cells are collected per road first, so a street that wiggles
+   across one cell a dozen times is still filed there once. */
+function indexView(roads) {
+  const cells = new Set();
+  for (const r of roads) {
+    cells.clear();
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      bucketSpan({ x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y),
+                   x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) }, W.vcell, k => cells.add(k));
+    }
+    for (const k of cells) {
+      let arr = W.vbuckets.get(k); if (!arr) { arr = []; W.vbuckets.set(k, arr); }
+      arr.push(r);
+    }
+  }
+}
+/* Segments again, and the segment INDEX is stored alongside the road. Spawning
+   wants a point near you; filing a 15 km motorway under every cell its box covers
+   would hand you the road but leave you picking a random point along all 15 km of
+   it, which is a miss almost every time. A segment is a place. */
+function indexDrive(idx) {
+  const r = W.driveRoads[idx];
+  for (let i = 0; i < r.pts.length - 1; i++) {
+    const a = r.pts[i], b = r.pts[i + 1];
+    bucketSpan({ x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y),
+                 x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) }, W.dcell, k => {
+      let arr = W.dbuckets.get(k); if (!arr) { arr = []; W.dbuckets.set(k, arr); }
+      arr.push({ r, i });
+    });
+  }
+}
+
+/* Roads overlapping a rectangle. A road spanning several cells is in each of
+   them, so it comes back more than once — stamped with a per-call token rather
+   than gathered into a Set, which would allocate every frame. */
+let visTok = 0;
+function roadsIn(x0, y0, x1, y1) {
+  const out = [], tok = ++visTok;
+  const cx0 = Math.floor(x0 / W.vcell), cx1 = Math.floor(x1 / W.vcell);
+  const cy0 = Math.floor(y0 / W.vcell), cy1 = Math.floor(y1 / W.vcell);
+  for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+    const a = W.vbuckets.get(cx + ',' + cy);
+    if (!a) continue;
+    for (const r of a) {
+      if (r._tok === tok) continue;
+      r._tok = tok;
+      if (r.bb.x1 < x0 || r.bb.x0 > x1 || r.bb.y1 < y0 || r.bb.y0 > y1) continue;
+      out.push(r);
+    }
+  }
+  return out;
+}
+
 function indexRoads(roads) {
   for (const r of roads) {
     if (!r.name) continue;                 // only named roads can be announced
@@ -1049,8 +1159,16 @@ const tileRect = key => {
   return { x0: i * TILE - RADIUS, y0: j * TILE - RADIUS,
            x1: i * TILE + RADIUS, y1: j * TILE + RADIUS };
 };
+// 'skel' is not a tile — it's the one wide rectangle, and it is never recycled.
+const rectFor = key => key === 'skel' ? W.skelRect : tileRect(key);
 function worldBounds() {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  // The skeleton is the whole reason the world is 36 km across rather than 1.8.
+  // It isn't a tile and is never recycled, so it sets the floor for the bounds and
+  // everything downstream — the grid, the fence, the radar — sizes itself off it.
+  if (W.skelRect) {
+    x0 = W.skelRect.x0; y0 = W.skelRect.y0; x1 = W.skelRect.x1; y1 = W.skelRect.y1;
+  }
   for (const [key, st] of W.tiles) {
     if (st !== 'loaded') continue;
     const r = tileRect(key);
@@ -1119,9 +1237,10 @@ function buildWorld(data, name, procedural) {
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
-  W.tiles = new Map();
+  W.tiles = new Map(); W.fixed = new Set();
+  W.skelRect = null; SCENERY_ONLY = false;   // a new city starts with no wide map
   // a real map streams; the generated city is a fixed island
-  if (!procedural) { W.tiles.set('0,0', 'loaded'); stampTile(data, '0,0'); }
+  if (!procedural) { W.tiles.set('0,0', 'loaded'); W.fixed.add('0,0'); stampTile(data, '0,0'); }
 
   reindexWorld();
   applyTheme(themeName);   // resolves every building's material and prerenders the map
@@ -1137,7 +1256,11 @@ function stampTile(data, key) {
    hashes, lights, minimap. Run once at startup and again whenever a tile is
    recycled, since both cases are "the feature arrays changed underneath us". */
 function reindexWorld() {
-  W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
+  W.buckets.clear(); W.rbuckets.clear(); W.vbuckets.clear(); W.dbuckets.clear();
+  W.lights = [];
+  W.roadIds = new Set();
+  for (const arr of [W.roads, W.buildings])
+    for (const f of arr) if (f.id != null) W.roadIds.add(f.id);
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
 
   const b = worldBounds();
@@ -1145,9 +1268,11 @@ function reindexWorld() {
 
   markRoads(W.roads);
   indexBuildings(0);
+  indexView(W.roads);
   markPassable(W.roads);
   markPOIBuildings();
   W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
+  for (let i = 0; i < W.driveRoads.length; i++) indexDrive(i);
   indexRoads(W.roads);
   addLights(W.roads);
 }
@@ -1159,6 +1284,12 @@ function reindexWorld() {
    so the world keeps going instead of stopping at a fence.                  */
 const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, evicted: 0, note: '', mergeMs: 0, mapMs: 0,
                 retryAt: new Map(), tries: new Map() };
+
+/* Once the loading screen is down, tiles stop carrying roads and carry only
+   scenery. Set only when a skeleton actually landed: if the whole ladder failed
+   the wide world doesn't exist, and streaming roads the old way is then strictly
+   better than fencing the player into the opening tile. */
+let SCENERY_ONLY = false;
 
 const tileKey = (i, j) => i + ',' + j;
 const tileOf = (x, y) => [Math.round(x / TILE), Math.round(y / TILE)];
@@ -1223,6 +1354,26 @@ async function loadTile(i, j) {
     const s = unprojLat(cy + RADIUS), w = unprojLon(cx - RADIUS);   // south, west
     const n = unprojLat(cy - RADIUS), e = unprojLon(cx + RADIUS);   // north, east (+y is south)
 
+    /* Once you're driving, the road network is finished — the skeleton covers
+       everywhere you can reach and never has to be asked for again. All a tile
+       does from here is dress the place: buildings and water. Roads are only
+       fetched while the loading screen is still up. */
+    if (SCENERY_ONLY) {
+      const bels = await overpassArea(s, w, n, e, sess, { kind: 'buildings' });
+      const bdata = parseOSM(bels);
+      // An empty answer is an ANSWER out here: plenty of real ground has nothing
+      // built on it. Treating it as a failure would retry open countryside
+      // forever, on backoff, for the rest of the drive.
+      const t0 = performance.now();
+      if (bdata.buildings.length || bdata.parks.length) mergeChunk(bdata, key);
+      CHUNK.mergeMs = Math.round(performance.now() - t0);
+      W.tiles.set(key, 'loaded');
+      CHUNK.loaded++;
+      CHUNK.note = '';
+      loadWater(s, w, n, e, key);
+      return true;
+    }
+
     // streets first: that's what extends the drivable world
     const els = await overpassArea(s, w, n, e, sess, { kind: 'streets' });
     const data = parseOSM(els);
@@ -1231,6 +1382,10 @@ async function loadTile(i, j) {
     mergeChunk(data, key);
     CHUNK.mergeMs = Math.round(performance.now() - t0);
     W.tiles.set(key, 'loaded');
+    // Only tiles that predate play are permanent. In the fallback case — no
+    // skeleton landed, so roads still stream — marking these too would make every
+    // tile un-evictable and the world would grow without bound on a long drive.
+    if (state !== 'play') W.fixed.add(key);
     CHUNK.loaded++;
     CHUNK.note = '';
 
@@ -1268,8 +1423,10 @@ async function loadTile(i, j) {
    without bound. The 3×3 look-ahead only ever wants nine tiles against a budget
    of twelve, so what's in play is never what gets dropped and nothing thrashes. */
 function evictFarTiles(px, py, budget) {
-  if (W.tiles.size <= budget) return false;
-  const loaded = [...W.tiles.entries()].filter(([, st]) => st === 'loaded');
+  // Tiles loaded before play are permanent: their roads are part of the fixed
+  // network, and recycling them would tear holes in the city you started in.
+  const loaded = [...W.tiles.entries()].filter(([k, st]) => st === 'loaded' && !W.fixed.has(k));
+  budget = Math.max(4, budget - W.fixed.size);
   if (loaded.length <= budget) return false;
   const withD = loaded.map(([k]) => {
     const [i, j] = k.split(',').map(Number);
@@ -1281,15 +1438,32 @@ function evictFarTiles(px, py, budget) {
   for (const k of drop) W.tiles.delete(k);
 
   const keep = f => !drop.has(f.tile);
-  W.roads = W.roads.filter(keep);
+  // Let the ids go with them, or driving back into a recycled district finds every
+  // building deduped away against a copy that no longer exists.
+  for (const arr of [W.roads, W.buildings])
+    for (const f of arr) if (!keep(f) && f.id != null) W.roadIds.delete(f.id);
   W.buildings = W.buildings.filter(keep);
   W.water = W.water.filter(keep);
   W.parks = W.parks.filter(keep);
-  W.places = W.places.filter(keep);
   // landmarks stay: a handful of points, they never touch the grid bounds, and
   // dropping them would throw away the wide sweep and leave a bust nowhere to go
 
-  reindexWorld();
+  if (SCENERY_ONLY) {
+    /* Only scenery was dropped, so only the building hash is stale. reindexWorld()
+       used to run here unconditionally — over an 18 km skeleton that re-marks the
+       whole drivable mask and rebuilds every hash mid-drive, which is a visible
+       stutter for no gain: roads, the mask, driveRoads, the road hashes and the
+       lights cannot change any more once the skeleton is in. */
+    W.buckets.clear();
+    indexBuildings(0);
+    markPOIBuildings();
+  } else {
+    // No skeleton, so tiles still carry roads and dropping one really does change
+    // the network. Everything derived has to be rebuilt, exactly as before.
+    W.roads = W.roads.filter(keep);
+    W.places = W.places.filter(keep);
+    reindexWorld();
+  }
   prerenderMap();
   CHUNK.evicted += drop.size;
 
@@ -1309,17 +1483,38 @@ function updateChunks() {
   loadTile(want[0].i, want[0].j);
 }
 
+/* The radar's pre-rendered window follows the car. Nothing to do while the whole
+   world already fits in one, which is every small city and the generated one. */
+function updateMapWindow() {
+  if (!W.map || W.mapWhole || !W.mapCentre) return;
+  if (dist2(P.car.x, P.car.y, W.mapCentre.x, W.mapCentre.y) < MAP_REDRAW * MAP_REDRAW) return;
+  prerenderMap(P.car.x, P.car.y);
+}
+
 /* Fold a freshly downloaded neighbouring tile into the live world. */
 function mergeChunk(data, key) {
   const tk = key || '0,0';
+  const skel = tk === 'skel';
   // the tile's own rectangle, not what its features happen to span
-  const r = tileRect(tk);
+  const r = rectFor(tk);
   clipWater(data, r);
-  if (!(data.roads.length || data.buildings.length || data.water.length || data.parks.length)) return 0;
-  stampTile(data, tk);
+  /* Drop any way already in the world. Overlapping requests are now the norm, not
+     the exception: the skeleton repeats every trunk road the detailed centre
+     holds, the opening buildings cover the same ground as tile (0,0), and a way
+     lying on a seam arrives with both its tiles. A way is either a road or a
+     piece of scenery, never both, so one set of ids covers all of it. */
+  const fresh = a => a.filter(f => f.id == null || !W.roadIds.has(f.id));
+  data.roads = fresh(data.roads);
+  data.buildings = fresh(data.buildings);
+  for (const f of data.roads) if (f.id != null) W.roadIds.add(f.id);
+  for (const f of data.buildings) if (f.id != null) W.roadIds.add(f.id);
 
   const firstBuilding = W.buildings.length;
+  // Sized before the emptiness check: a skeleton that turned out to be all
+  // duplicates still has to grow the world to its rectangle.
   const grew = fitGrid(r.x0, r.y0, r.x1, r.y1);
+  if (!(data.roads.length || data.buildings.length || data.water.length || data.parks.length)) return 0;
+  stampTile(data, tk);
   // The GRID is sized by the tile, but passability is a geometry question — which
   // buildings a road actually runs through — so it works off where the features
   // really are. A way overhanging the tile edge would otherwise never be tested,
@@ -1335,14 +1530,18 @@ function mergeChunk(data, key) {
 
   markRoads(data.roads);            // the mask was blitted, so only new roads need marking
   indexBuildings(firstBuilding);
+  indexView(data.roads);
+  for (const r of data.roads) if (r.drive && r.pts.length >= 2) indexDrive(W.driveRoads.push(r) - 1);
   // ways crossing the seam matter both ways, so test every road touching this tile
-  if (isFinite(b.x0))
+  if (!skel && isFinite(b.x0))
     markPassable(W.roads.filter(rd => rd.bb.x1 >= b.x0 && rd.bb.x0 <= b.x1 &&
                                       rd.bb.y1 >= b.y0 && rd.bb.y0 <= b.y1));
   markPOIBuildings();               // buildings arrive here too, opening ones included
   indexRoads(data.roads);
-  addLights(data.roads);
-  for (const r of data.roads) if (r.drive && r.pts.length >= 2) W.driveRoads.push(r);
+  // Street lights and archway-passability are detail-area concerns. The skeleton
+  // covers 400x the area with no buildings out there to drive through and a light
+  // budget it would swallow whole, leaving the ones you can actually see unlit.
+  if (!skel) addLights(data.roads);
 
   resolveColours(data.buildings);   // give the newcomers the current theme
   const tm = performance.now();
@@ -1394,12 +1593,39 @@ function roadLen(r) {
   }
   return r.len;
 }
+/* Drivable road SEGMENTS reaching a band around a point. Picking at random from
+   the whole world was fine when the world was 1.8 km across; at skeleton scale
+   the odds of a random road being within 200 m of you are tiny, all 260 tries
+   miss, and no traffic ever spawns. */
+function driveSegsNear(x, y, maxD) {
+  const out = [];
+  const cx0 = Math.floor((x - maxD) / W.dcell), cx1 = Math.floor((x + maxD) / W.dcell);
+  const cy0 = Math.floor((y - maxD) / W.dcell), cy1 = Math.floor((y + maxD) / W.dcell);
+  for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+    const a = W.dbuckets.get(cx + ',' + cy);
+    if (a) for (const s of a) out.push(s);
+  }
+  return out;
+}
+// nearestRoadPoint wants whole roads, so it gets them from the same cells
+function driveRoadsNear(x, y, maxD) {
+  const out = [], tok = ++visTok;
+  for (const s of driveSegsNear(x, y, maxD)) {
+    if (s.r._dtok === tok) continue;
+    s.r._dtok = tok;
+    out.push(s.r);
+  }
+  return out;
+}
 function roadPoint(fromX, fromY, minD, maxD, minLen) {
+  // With a band, draw only from the segments that could satisfy it.
+  const pool = minD == null ? null : driveSegsNear(fromX, fromY, maxD);
+  if (pool && !pool.length) return null;
   for (let tries = 0; tries < 260; tries++) {
-    const r = pick(W.driveRoads);
-    if (!r) return null;
+    let r, i;
+    if (pool) { const s = pick(pool); r = s.r; i = s.i; }
+    else { r = pick(W.driveRoads); if (!r) return null; i = randi(0, r.pts.length - 1); }
     if (minLen && roadLen(r) < minLen) continue;
-    const i = randi(0, r.pts.length - 1);
     const a = r.pts[i], b = r.pts[i + 1] || r.pts[i];
     const t = Math.random();
     const p = { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t),
@@ -1500,6 +1726,39 @@ async function widenLandmarkSearch() {
    up so you start in a 5.4 km city rather than a 1.8 km one. Sequential, because
    Overpass gives roughly two slots per IP and a burst just earns 429s, and bounded
    by a deadline so a slow city starts with whatever landed rather than not at all. */
+/* The wide city, fetched once. Walks 18 km, then 9, then 4 — a server that won't
+   answer for the big box will often answer for a smaller one, and the biggest
+   world that server would give us is the one we want. First success wins; if the
+   whole ladder fails you still have the detailed centre and the game starts. */
+async function loadSkeleton(onMsg) {
+  const until = Date.now() + SKELETON_WAIT;
+  for (let rung = 0; rung < SKELETON_RADII.length; rung++) {
+    if (Date.now() > until) break;
+    const R = SKELETON_RADII[rung];
+    const sess = newSession();
+    try {
+      if (onMsg) onMsg('Mapping ' + Math.round(R / 1000) + ' km of city…');
+      const s = unprojLat(R), w = unprojLon(-R), n = unprojLat(-R), e = unprojLon(R);
+      const els = await overpassArea(s, w, n, e, sess, {
+        kind: 'arterials', totalMs: Math.min(SKELETON_MS[rung], until - Date.now()),
+        label: 'Mapping ' + Math.round(R / 1000) + ' km of city…', onMsg
+      });
+      const data = parseOSM(els);
+      if (!data.roads.length) throw new Error('no arterials out there');
+      // Set before merging: mergeChunk sizes the grid off this rectangle, and it
+      // has to grow even when every road in the response was already a duplicate.
+      W.skelRect = { x0: -R, y0: -R, x1: R, y1: R };
+      const added = mergeChunk(data, 'skel');
+      return { radius: R, roads: added, places: data.places.length };
+    } catch (err) {
+      console.warn('skeleton ' + R + 'm:', err && err.message);
+    } finally {
+      sessAbort(sess);
+    }
+  }
+  return null;
+}
+
 async function preloadRing(openingMs, onEach) {
   let ring = [];
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (i || j) ring.push([i, j]);
@@ -1581,8 +1840,17 @@ function recoverPoint(kind) {
    line — has a midpoint hundreds of metres from the spot you actually want, and
    that is exactly the geometry a station or hospital tends to sit beside. */
 function nearestRoadPoint(x, y) {
+  // Widening ring rather than a whole-world scan: over an 18 km skeleton that
+  // scan is hundreds of thousands of segment tests, and it runs per landmark.
+  for (const R of [300, 900, 2500, 7000]) {
+    const p = nearestRoadPointIn(x, y, driveRoadsNear(x, y, R));
+    if (p) return p;
+  }
+  return nearestRoadPointIn(x, y, W.driveRoads);   // last resort: everything
+}
+function nearestRoadPointIn(x, y, roads) {
   let best = null, bd = Infinity;
-  for (const r of W.driveRoads) {
+  for (const r of roads) {
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1];
       const ex = b.x - a.x, ey = b.y - a.y;
@@ -1596,30 +1864,56 @@ function nearestRoadPoint(x, y) {
   return best;
 }
 
-/* Whole-city render, once, so the minimap costs nothing per frame. */
-function prerenderMap() {
+/* A window of the city, pre-rendered so the minimap costs one drawImage a frame.
+
+   It used to be the WHOLE city, which worked while the city was a few kilometres
+   across. An 18 km skeleton is 36 km wide: fitted into one canvas that is 0.067
+   pixels per metre and the radar is an unreadable smear, and drawing it sharp
+   would need a 116-megapixel canvas. So the pre-render follows you — 4 km around
+   the car, redrawn when you leave the middle of it. Sharper than it ever was. */
+const MAP_WIN = 4000;      // metres across the pre-rendered window
+const MAP_PX = 2400;       // pixels across it — 0.6 px/m
+const MAP_REDRAW = 900;    // re-render once the car is this far from the window centre
+
+function prerenderMap(cx, cy) {
+  if (cx == null) { const pc = P && P.car; cx = pc ? pc.x : 0; cy = pc ? pc.y : 0; }
   const spanX = W.maxX - W.minX, spanY = W.maxY - W.minY;
-  // 2400 rather than 1400: the city opens at 5.4 km now, and the radar samples a
-  // window of this, so too coarse a pre-render shows up as a soft minimap
-  const s = Math.min(2400 / Math.max(spanX, 1), 2400 / Math.max(spanY, 1), 1.1);
+  let x0, y0, spanW, spanH, s;
+  if (spanX <= MAP_WIN && spanY <= MAP_WIN) {
+    // small world — the generated city, or a skeleton that never landed. Whole.
+    x0 = W.minX; y0 = W.minY; spanW = spanX; spanH = spanY;
+    s = Math.min(MAP_PX / Math.max(spanW, 1), MAP_PX / Math.max(spanH, 1), 1.1);
+  } else {
+    s = MAP_PX / MAP_WIN;
+    spanW = Math.min(MAP_WIN, spanX); spanH = Math.min(MAP_WIN, spanY);
+    x0 = clamp(cx - spanW / 2, W.minX, Math.max(W.minX, W.maxX - spanW));
+    y0 = clamp(cy - spanH / 2, W.minY, Math.max(W.minY, W.maxY - spanH));
+  }
+  const x1 = x0 + spanW, y1 = y0 + spanH;
   W.mapScale = s;
+  W.mapOrigin = { x: x0, y: y0 };
+  W.mapCentre = { x: x0 + spanW / 2, y: y0 + spanH / 2 };
+  W.mapWhole = spanW >= spanX && spanH >= spanY;
+
   const c = document.createElement('canvas');
-  c.width = Math.max(2, Math.ceil(spanX * s)); c.height = Math.max(2, Math.ceil(spanY * s));
+  c.width = Math.max(2, Math.ceil(spanW * s)); c.height = Math.max(2, Math.ceil(spanH * s));
   const g = c.getContext('2d');
   g.fillStyle = PAL.mapBg; g.fillRect(0, 0, c.width, c.height);
-  g.setTransform(s, 0, 0, s, -W.minX * s, -W.minY * s);
+  g.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
 
+  const inWin = f => !(f.bb.x1 < x0 || f.bb.x0 > x1 || f.bb.y1 < y0 || f.bb.y0 > y1);
   const poly = (f, fill) => {
     g.beginPath(); g.moveTo(f.pts[0].x, f.pts[0].y);
     for (let i = 1; i < f.pts.length; i++) g.lineTo(f.pts[i].x, f.pts[i].y);
     g.closePath(); g.fillStyle = fill; g.fill();
   };
-  for (const f of W.parks) poly(f, PAL.mapPark);
-  for (const f of W.water) poly(f, PAL.mapWater);
+  for (const f of W.parks) if (inWin(f)) poly(f, PAL.mapPark);
+  for (const f of W.water) if (inWin(f)) poly(f, PAL.mapWater);
   g.lineCap = 'round'; g.lineJoin = 'round';
-  // in a big streamed world, minor lanes just muddy the radar and cost redraw time
-  const minW = W.roads.length > 2000 ? 6.5 : 0;
-  for (const r of W.roads) {
+  const winRoads = roadsIn(x0, y0, x1, y1);
+  // in a dense window, minor lanes just muddy the radar and cost redraw time
+  const minW = winRoads.length > 2000 ? 6.5 : 0;
+  for (const r of winRoads) {
     if (r.w < minW) continue;
     g.beginPath(); g.moveTo(r.pts[0].x, r.pts[0].y);
     for (let i = 1; i < r.pts.length; i++) g.lineTo(r.pts[i].x, r.pts[i].y);
@@ -2248,7 +2542,7 @@ async function startGame(query, lat, lon, label) {
     if (geoFailed) throw new Error('place search unreachable');
     setOrigin(lat, lon);
     $('loadCity').textContent = name;
-    prog(.25, 'Surveying the streets…', 'downloading ' + (RADIUS * 2) + 'm of real map data');
+    prog(.25, 'Surveying the streets…', 'the streets around ' + name.split(',')[0]);
     const els = await fetchStreets(lat, lon,
       m => { $('loadMsg').textContent = m; },
       b => { LOAD.bytes = b; });
@@ -2292,21 +2586,40 @@ async function startGame(query, lat, lon, label) {
     // than adding its wait on top — two independent waits stacked is how a loading
     // screen quietly becomes half a minute.
     const sweep = sweepLandmarks();
+
+    /* The wide city comes first, because it is the one thing that cannot arrive
+       later: everything downstream of it — the grid, the fence, the radar window
+       — is sized from its rectangle, and growing all of that mid-drive is a
+       stutter. The ring is detail, and takes whatever budget is left. */
+    prog(.84, 'Mapping the whole city…', 'roads out to ' + (SKELETON_RADII[0] / 1000) + ' km');
+    const t0 = Date.now();
+    const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
+    if (gen !== loadGen) return;
+    const skelMs = Date.now() - t0;
+    // Note, don't act on it: the ring that follows is full street detail and still
+    // needs the streets query. Scenery-only mode starts when play does.
+    if (skel) prog(.88, 'Wiring the neon…',
+                   skel.roads.toLocaleString() + ' more roads across ' + Math.round(skel.radius / 1000) + ' km');
+
     // Raced, not just deadlined between tiles: one slow district would otherwise
     // run to the streets budget and hold the loading screen for a minute. What is
     // still in flight when the race ends simply lands while you're driving.
     await Promise.race([
-      preloadRing(openingMs,
-                  (g, n) => prog(.85 + .05 * (g / Math.max(n, 1)), 'Extending the city…', g + ' of ' + n + ' districts')),
+      preloadRing(openingMs + skelMs,
+                  (g, n) => prog(.89 + .03 * (g / Math.max(n, 1)), 'Filling in the streets…', g + ' of ' + n + ' districts')),
       new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
     ]);
-    prog(.92, 'Finding the hospitals…');
+    prog(.94, 'Finding the hospitals…');
     await Promise.race([sweep, new Promise(r => setTimeout(r, 2500))]);
     if (gen !== loadGen) return;
   }
 
   prog(.95, 'Starting the engine…');
   await new Promise(r => setTimeout(r, 60));
+  // Every road the world will ever have is in by now. From here tiles carry
+  // scenery and nothing else — unless no skeleton landed, in which case the old
+  // streaming is all that stands between the player and a fence 900 m away.
+  SCENERY_ONLY = !!W.skelRect;
   resetRun();
 
   prog(1, 'Ready.');
@@ -2632,6 +2945,7 @@ function update(dt) {
 
   updateNav(dt);
   updateChunks();
+  updateMapWindow();
 
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
 }
@@ -2755,7 +3069,7 @@ function render() {
     for (let i = 1; i < r.pts.length; i++) ctx.lineTo(r.pts[i].x, r.pts[i].y);
     ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke();
   };
-  const visRoads = W.roads.filter(vis);
+  const visRoads = roadsIn(cam.x - viewR, cam.y - viewR, cam.x + viewR, cam.y + viewR);
   for (const r of visRoads) stroke(r, r.w + 3.4, PAL.case);            // shadow under the kerb
   for (const r of visRoads) stroke(r, r.w + 1.8, PAL.kerb);            // pavement
   for (const r of visRoads) stroke(r, r.w, r.w >= 11 ? PAL.roadBig : PAL.road);
@@ -3072,7 +3386,7 @@ function drawMini() {
   const showM = 230;                                  // metres across the radius
   const z = (r / showM) / W.mapScale;
   mctx.translate(r, r); mctx.rotate(rot); mctx.scale(z, z);
-  mctx.translate(-(P.car.x - W.minX) * W.mapScale, -(P.car.y - W.minY) * W.mapScale);
+  mctx.translate(-(P.car.x - W.mapOrigin.x) * W.mapScale, -(P.car.y - W.mapOrigin.y) * W.mapScale);
   mctx.drawImage(W.map, 0, 0);
   mctx.restore();
 
@@ -3170,7 +3484,12 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   note: CHUNK.note, tiles: [...W.tiles.entries()],
   bounds: { x0: W.minX, y0: W.minY, x1: W.maxX, y1: W.maxY },
   roads: W.roads.length, buildings: W.buildings.length, drive: W.driveRoads.length,
-  grid: W.gw + 'x' + W.gh });
+  grid: W.gw + 'x' + W.gh,
+  skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2 }, sceneryOnly: SCENERY_ONLY,
+  fixed: [...W.fixed], roadIds: W.roadIds.size,
+  mapScale: +W.mapScale.toFixed(4), mapWhole: !!W.mapWhole,
+  mapOrigin: { x: Math.round(W.mapOrigin.x), y: Math.round(W.mapOrigin.y) },
+  vbuckets: W.vbuckets.size, dbuckets: W.dbuckets.size, lights: (W.lights || []).length });
 window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
@@ -3186,6 +3505,14 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, wate
   streetsOuts: (overpassQL(0,0,0,0,'streets').match(/out /g) || []).length,
   streetsHasRelation: /relation/.test(overpassQL(0,0,0,0,'streets')),
   streetsClauses: (overpassQL(0,0,0,0,'streets').match(/\b(?:way|node|nwr|relation)\[/g) || []),
+  // The wide skeleton. Deliberately not the full drivable set: residential lanes
+  // are most of a city's ways and would make this query the one that fails.
+  arterials: ARTERIALS, skeletonRadii: SKELETON_RADII, skeletonMs: SKELETON_MS,
+  skeletonWait: SKELETON_WAIT,
+  arterialsQueryTimeout: +(overpassQL(0,0,0,0,'arterials').match(/timeout:(\d+)/)||[])[1],
+  arterialsClauses: (overpassQL(0,0,0,0,'arterials').match(/\b(?:way|node|nwr|relation)\[/g) || []),
+  arterialsHasResidential: /residential|service|unclassified|living_street/.test(overpassQL(0,0,0,0,'arterials')),
+  mapWin: MAP_WIN, mapPx: MAP_PX, mapRedraw: MAP_REDRAW,
   slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,
   loadSweepWait: LOAD_SWEEP_WAIT });
 window.__pal = () => PAL;
