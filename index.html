@@ -104,7 +104,7 @@
     text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
   #timer{color:var(--pink)}
 
-  #hpWrap{position:absolute;left:14px;bottom:14px;width:min(210px,42vw)}
+  #hpWrap{position:absolute;left:14px;bottom:14px;width:min(105px,21vw)}
   #hpLbl{font-family:var(--ui);font-weight:700;font-size:10.5px;letter-spacing:.22em;
     color:rgba(255,255,255,.65);margin-bottom:5px}
   #hpBar{height:13px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.55);
@@ -211,7 +211,7 @@
     #tH{right:16px;left:auto;bottom:calc(var(--pad) + 30px)}
     #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
     /* armor is capped so a wide landscape phone can't run it under the car */
-    #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(44vw,calc(50vw - 60px))}
+    #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(22vw,calc(25vw - 30px))}
     /* speedo moves up under the star row so the accelerator can't cover it */
     #speed{top:calc(16px + 12vw);right:14px;bottom:auto}
     #spdN{font-size:clamp(30px,7.5vw,46px)}
@@ -231,7 +231,7 @@
     #hudTL{gap:6px;max-width:calc(50vw - 56px)}
     #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
     #tN{bottom:calc(var(--pad) + 26px)}
-    #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(30vw,calc(50vw - 130px))}
+    #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(15vw,calc(25vw - 65px))}
   }
 </style>
 </head>
@@ -668,7 +668,7 @@ const W = {
   minX: 0, minY: 0, maxX: 0, maxY: 0,
   places: [],                            // named districts / neighbourhoods
   pois: [],                              // police stations, hospitals, repair shops
-  wideSearched: false,                   // the one-shot wide landmark sweep has run
+  sweptTo: 0, sweeping: false,           // how many rungs of the landmark sweep have run
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   bcell: 90, buckets: new Map(),         // building spatial hash
   rbuckets: new Map(),                   // road spatial hash (named roads only)
@@ -993,6 +993,23 @@ function markPassable(roads) {
   }
 }
 
+/* Landmarks you're meant to drive into, so they go transparent and stop colliding
+   exactly like a building with a road through it. Both tagging styles land here:
+   the way form, where the hospital IS the building, and the node form, where a
+   garage node sits inside someone else's footprint. */
+function markPOIBuildings() {
+  for (const p of W.pois) {
+    const arr = W.buckets.get(Math.floor(p.x / W.bcell) + ',' + Math.floor(p.y / W.bcell));
+    if (!arr) continue;
+    for (const bi of arr) {
+      const b = W.buildings[bi];
+      if (b.passable) continue;
+      if (p.x < b.bb.x0 || p.x > b.bb.x1 || p.y < b.bb.y0 || p.y > b.bb.y1) continue;
+      if (pointInPoly(b.pts, p.x, p.y)) b.passable = true;
+    }
+  }
+}
+
 function featureBounds(sets) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const arr of sets) for (const f of arr) {
@@ -1007,7 +1024,7 @@ function buildWorld(data, name, procedural) {
   W.water = data.water; W.parks = data.parks;
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
-  W.name = name; W.procedural = procedural; W.wideSearched = false;
+  W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.buckets.clear(); W.rbuckets.clear(); W.lights = [];
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
   W.tiles = new Map();
@@ -1021,6 +1038,7 @@ function buildWorld(data, name, procedural) {
   markRoads(W.roads);
   indexBuildings(0);
   markPassable(W.roads);
+  markPOIBuildings();
   W.driveRoads = W.roads.filter(r => r.drive && r.pts.length >= 2);
   indexRoads(W.roads);
   addLights(W.roads);
@@ -1079,6 +1097,7 @@ async function loadTile(i, j) {
     W.tiles.set(key, 'loaded');
     CHUNK.loaded++;
     CHUNK.note = '';
+    checkTileLandmarks();     // a new district with still no station or hospital widens the search
 
     // then its buildings, which are the bulk of the bytes and purely scenery
     const bs = newSession();
@@ -1133,6 +1152,7 @@ function mergeChunk(data) {
   // ways crossing the seam matter both ways, so test every road touching this tile
   markPassable(W.roads.filter(r => r.bb.x1 >= b.x0 && r.bb.x0 <= b.x1 &&
                                    r.bb.y1 >= b.y0 && r.bb.y0 <= b.y1));
+  markPOIBuildings();               // buildings arrive here too, opening ones included
   indexRoads(data.roads);
   addLights(data.roads);
   for (const r of data.roads) if (r.drive && r.pts.length >= 2) W.driveRoads.push(r);
@@ -1222,7 +1242,11 @@ function zoneAt(x, y) {
   return best;
 }
 
-const POI_SEARCH_R = 18000;   // metres, half-width of the wide landmark sweep
+const REPAIR_COST = 1000;
+// Half-widths for the landmark sweep, tried in order. Each rung runs at most once
+// per city; when the first still turns up no station and no hospital, the next
+// one goes wider rather than giving up.
+const POI_RADII = [18000, 45000];
 /* How far a bust or a wasting may move you. The world grid and the pre-rendered
    map both span everything loaded, so a long teleport bloats the collision mask
    and zooms the radar out until it's useless. A landmark further out than this
@@ -1238,20 +1262,33 @@ const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k)
    request — and fold whatever turns up into the world already being played. */
 async function widenLandmarkSearch() {
   const missing = missingKinds();
-  if (!missing.length || W.procedural || W.wideSearched) return null;
-  W.wideSearched = true;
-  const R = POI_SEARCH_R;
+  if (!missing.length || W.procedural || W.sweeping) return null;
+  if (W.sweptTo >= POI_RADII.length) return null;      // gone as wide as we go
+  const R = POI_RADII[W.sweptTo];
+  W.sweptTo++;
+  W.sweeping = true;
   const s = unprojLat(R), w = unprojLon(-R), n = unprojLat(-R), e = unprojLon(R);
   try {
     const els = await overpassArea(s, w, n, e, newSession(), { kind: 'pois' });
     const before = W.pois.length;
     addPOIs(parsePOIs(els));
     const found = W.pois.length - before;
-    if (found) prerenderMap();          // the radar picks up anything in range
-    return { missing, found };
+    if (found) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
+    return { radius: R, missing, found, stillMissing: missingKinds() };
   } catch (err) {
-    return { missing, found: 0, err: err.message };   // the start point still covers us
+    return { radius: R, missing, found: 0, err: err.message };   // the start point covers us
+  } finally {
+    W.sweeping = false;
   }
+}
+
+/* Every tile that lands is a chance to notice we still have no station and no
+   hospital anywhere. When that's so, go a rung wider — a burst of merges can't
+   fire a burst of requests, since a sweep in flight blocks the next. */
+function checkTileLandmarks() {
+  if (W.procedural || W.sweeping) return;
+  if (!missingKinds().some(k => k === 'police' || k === 'hospital')) return;
+  widenLandmarkSearch();
 }
 
 /* Overpass hands the same landmark back more than once: a hospital is matched by
@@ -2058,12 +2095,19 @@ function addWanted(n) {
 /* A repair shop puts the armor back and resprays you on the way out. The new
    colour excludes the current one, so it always visibly changes. */
 function repairAt(p) {
+  if (P.cash < REPAIR_COST) {
+    p.cool = 2;                                // just long enough not to spam the toast
+    toast('REPAIRS COST $' + REPAIR_COST, 1600);
+    return;
+  }
   p.cool = 6;                                  // parked on it shouldn't re-fire
+  P.cash -= REPAIR_COST;
+  store.set('vm_cash', P.cash);
   P.car.hp = 100;
   const others = PAL.carBody.filter(c => c !== P.car.color);
   P.car.color = pick(others.length ? others : PAL.carBody);
   SFX.pickup();
-  toast(p.name ? p.name.toUpperCase() + ' · REPAIRED' : 'REPAIRED · NEW PAINT', 1600);
+  toast((p.name ? p.name.toUpperCase() + ' · ' : '') + 'REPAIRED · −$' + REPAIR_COST, 1800);
 }
 
 function busted() {
@@ -2328,9 +2372,22 @@ function updateCop(k, dt) {
   const df = angDiff(k.h, want);
   const steer = clamp(df * 2.0, -1, 1);
   const d = dist(k.x, k.y, c.x, c.y);
-  const gas = (Math.abs(df) < 1.5 || d > 30) ? 1 : 0;
-  const brake = (Math.abs(df) > 2.2 && d < 20) ? 1 : 0;
+  // Once it has you cornered it pulls up and stops. Without this it keeps the
+  // throttle down against a stopped car, never drops below the arrest threshold,
+  // and the bust can never fire. Brake is released near zero because drive()
+  // turns sustained braking into reverse under 0.8 m/s — hold it and the cop
+  // backs away from the arrest it just made.
+  const pspd = Math.hypot(c.vx, c.vy);
+  const holding = d < 9 && pspd < 4;
+  const kspd = Math.hypot(k.vx, k.vy);
+  const gas = holding ? 0 : (Math.abs(df) < 1.5 || d > 30) ? 1 : 0;
+  const brake = holding ? (kspd > 1.2 ? 1 : 0) : (Math.abs(df) > 2.2 && d < 20) ? 1 : 0;
   k.maxSpeed = 46 + P.wanted * 7.5;      // higher stars, faster units — 5 stars keeps up at 300
+  // Closing on someone who has already given up, they come in slowly. At five
+  // stars a unit does 80 m/s, and arriving at that speed simply destroys the car
+  // — you get wasted where you should have been arrested. The clamp in drive()
+  // is hard, so dropping maxSpeed here brakes them on the spot.
+  if (pspd < 4 && d < 50) k.maxSpeed = Math.max(7, d * .45);
   drive(k, gas, brake, steer, 0, dt);
   fence(k);
   buildingCollide(k);
@@ -2802,7 +2859,7 @@ window.__mission = () => ({ state: MISSION.state,
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
-  searchRadius: POI_SEARCH_R, recoverMax: RECOVER_MAX,
+  searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
   buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
   poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1] });
@@ -2839,7 +2896,10 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
 };
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
 window.__missingKinds = () => missingKinds();
-window.__wideSearch = () => { W.wideSearched = false; return widenLandmarkSearch(); };
+window.__wideSearch = () => widenLandmarkSearch();
+window.__sweep = () => ({ sweptTo: W.sweptTo, sweeping: W.sweeping, radii: POI_RADII });
+window.__copSpeed = () => cops[0] ? Math.hypot(cops[0].vx, cops[0].vy) : null;
+window.__bustT = () => P.bustT;
 window.__recover = kind => { const r = recoverPoint(kind); return { x: +r.x.toFixed(1), y: +r.y.toFixed(1) }; };
 window.__cash = () => P.cash;
 window.__setCash = n => { P.cash = n; store.set('vm_cash', n); };
@@ -2851,6 +2911,11 @@ window.__byColour = (r, g, b_) => {
   return b ? { roof: b.roof, wall: b.wall, mRoof: b.mRoof, mWall: b.mWall } : null;
 };
 window.__inside = (x, y) => W.buildings.some(b => pointInPoly(b.pts, x, y));
+// null when no building covers the point, else whether you can drive through it
+window.__passableAt = (x, y) => {
+  const b = W.buildings.find(q => pointInPoly(q.pts, x, y));
+  return b ? !!b.passable : null;
+};
 
 resize();
 </script>
