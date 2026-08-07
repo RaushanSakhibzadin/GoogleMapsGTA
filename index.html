@@ -91,7 +91,14 @@
   #stars{position:absolute;top:calc(12px + clamp(30px,6vw,46px));right:14px;font-size:clamp(19px,3.9vw,27px);
     letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 16px rgba(255,180,60,.85)}
   #stars .off{color:rgba(255,255,255,.16);text-shadow:none}
-  #obj{position:absolute;bottom:56px;left:14px;max-width:min(48vw,420px);
+  /* Top-left column: objective, radar, street name. The camera parks the car at
+     60% of the viewport height, and anything anchored to the bottom edge has to
+     clear the thumb pads on the way up — which is how the objective ended up
+     sitting on the car. Up here it can't. The max-width keeps the column left of
+     the car's screen column no matter how tall it grows. */
+  #hudTL{position:absolute;left:14px;top:12px;display:flex;flex-direction:column;
+    align-items:flex-start;gap:9px;max-width:min(420px,48vw)}
+  #obj{max-width:100%;min-height:2.6em;
     font-size:clamp(15px,2.5vw,21px);color:#fff;line-height:1.25}
   #obj small{display:block;font-family:var(--ui);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
@@ -105,13 +112,11 @@
   #hpIn{height:100%;width:100%;transition:width .18s;
     background:linear-gradient(90deg,#48ff9e,#33e6ff);box-shadow:0 0 14px rgba(51,230,255,.6)}
 
-  #mini{position:absolute;left:14px;top:14px;
-    width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
+  #mini{width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
     border:3px solid rgba(255,79,216,.75);box-shadow:0 0 26px rgba(255,79,216,.4),inset 0 0 30px rgba(0,0,0,.65);
     background:#0a0614}
   /* street name: appears when you turn onto a new road, then fades (GTA V style) */
-  #street{position:absolute;left:14px;top:calc(14px + clamp(120px,21vw,178px) + 10px);
-    max-width:min(38vw,300px);font-family:var(--ui);font-weight:700;font-size:13px;
+  #street{max-width:100%;font-family:var(--ui);font-weight:700;font-size:13px;
     letter-spacing:.13em;text-transform:uppercase;color:var(--cyan);
     text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
     opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
@@ -199,21 +204,32 @@
   .credit a{color:rgba(51,230,255,.75)}
   /* Phones: everything has to clear the thumb pads along the bottom edge. */
   @media (max-width:760px),(pointer:coarse){
-    /* radar pinned top-left; the left column below stacks pads → armor → objective */
-    #mini{top:14px;bottom:auto;left:14px;
-      width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
+    #hudTL{max-width:56vw}
+    #mini{width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
     #tH{right:16px;left:auto;bottom:calc(var(--pad) + 74px)}
     #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
-    #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:44vw}
+    /* armor is capped so a wide landscape phone can't run it under the car */
+    #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(44vw,calc(50vw - 60px))}
     /* speedo moves up under the star row so the accelerator can't cover it */
     #speed{top:calc(16px + 12vw);right:14px;bottom:auto}
     #spdN{font-size:clamp(30px,7.5vw,46px)}
-    /* left column bottom-up: pads, armor, day/night, objective */
-    #obj{max-width:56vw;bottom:calc(var(--pad) + 128px)}
+    /* left column bottom-up: pads, armor, day/night */
     #toast{top:30%}
-    #street{top:calc(14px + clamp(96px,25vw,150px) + 8px);bottom:auto;left:14px;max-width:52vw}
     /* DRIFT now shares the right-hand side, so the district name lifts clear of it */
     #zone{bottom:calc(var(--pad) + 132px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+  }
+  /* Landscape phones. There is barely any height here — a top-left column, the
+     armor bar, the day/night button and a row of thumb pads do not all fit down
+     the left edge stacked. So the radar sizes off the short axis, and armor and
+     day/night share one row instead of taking two. */
+  @media (max-height:520px){
+    #mini{width:min(25vw,18vh);height:min(25vw,18vh)}
+    /* the only case where the column is tall enough to matter, so this is the
+       only case that has to be kept out of the car's screen column */
+    #hudTL{gap:6px;max-width:calc(50vw - 56px)}
+    #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
+    #tN{bottom:calc(var(--pad) + 26px)}
+    #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(30vw,calc(50vw - 130px))}
   }
 </style>
 </head>
@@ -224,12 +240,15 @@
 
 <!-- ===================== HUD ===================== -->
 <div id="hud">
-  <div id="obj" class="hudTxt"><small>Objective</small><span id="objT">Free roam</span> <span id="timer"></span></div>
+  <!-- one stacked column, so nothing has to guess anyone else's height -->
+  <div id="hudTL">
+    <div id="obj" class="hudTxt"><small>Objective</small><span id="objT">Free roam</span> <span id="timer"></span></div>
+    <canvas id="mini"></canvas>
+    <div id="street"></div>
+  </div>
   <div id="cash" class="hudTxt">$0</div>
   <div id="stars"></div>
-  <canvas id="mini"></canvas>
   <div id="hpWrap"><div id="hpLbl">ARMOR</div><div id="hpBar"><div id="hpIn"></div></div></div>
-  <div id="street"></div>
   <div id="chunk"></div>
   <div id="zone" class="hudTxt"></div>
   <div id="speed"><div id="spdN">0</div><div id="spdU">KM/H</div></div>
@@ -1875,7 +1894,12 @@ function failDelivery() {
   setObjective('Free roam');
   setTimeout(newMission, 1600);
 }
-function setObjective(t) { $('objT').textContent = t; }
+// The radar sits under the objective now, so a longer objective that wraps to an
+// extra line shifts it down — re-cache the rect the edge arrow dodges against.
+function setObjective(t) {
+  $('objT').textContent = t;
+  miniRect = mini.getBoundingClientRect();
+}
 
 /* ------------------------------ 11. wanted level ------------------------------ */
 function addWanted(n) {
