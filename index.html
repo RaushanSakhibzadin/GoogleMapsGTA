@@ -482,16 +482,24 @@ const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk reques
    them means a slow or refused building fetch costs you scenery, not the city. */
 function overpassQL(s, w, n, e, kind) {
   const bb = `${s},${w},${n},${e}`;
+  // Buildings, and the green stuff that goes under them. Both are decoration, and
+  // decoration belongs off the request the game cannot start without.
   if (kind === 'buildings') {
-    return `[out:json][timeout:60];(way["building"](${bb}););out geom qt;`;
+    return `[out:json][timeout:60];(` +
+      `way["building"](${bb});` +
+      `way["leisure"~"^(park|garden|golf_course)$"](${bb});` +
+      `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
+      `);out geom qt;`;
   }
-  // Big rivers, harbours and bays are multipolygons rather than ways, so without
-  // this you drive across the Danube as if it were tarmac. Deliberately its OWN
-  // request rather than a clause on the streets query: that one has to succeed for
-  // the city to exist at all, and river polygons are a nicety. `out geom(bbox)`
-  // clips, so a relation spanning a country returns just the slice over this tile.
+  // Every way OSM maps water: areas as ways, and the big rivers, harbours and bays
+  // that are multipolygons. Its OWN request, because the streets query has to
+  // succeed for the city to exist at all and none of this is needed to drive.
+  // `out geom(bbox)` clips, so a relation spanning a country returns just this tile.
   if (kind === 'water') {
-    return `[out:json][timeout:25];relation["natural"="water"](${bb});out geom(${bb}) qt;`;
+    return `[out:json][timeout:25];(` +
+      `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
+      `);out geom qt;` +
+      `relation["natural"="water"](${bb});out geom(${bb}) qt;`;
   }
   // Landmarks over a much wider area than we could ever load streets for. These
   // are sparse and tag-indexed, so the area costs little — and `out center`
@@ -502,17 +510,13 @@ function overpassQL(s, w, n, e, kind) {
       `nwr["shop"="car_repair"](${bb});` +
       `);out center qt;`;
   }
+  // THE CRITICAL PATH. Nothing optional may live here: if this request fails you
+  // get a generated grid instead of the place you asked for, and every extra
+  // clause is more work between pressing DRIVE and driving. Roads to drive on,
+  // and the place names for the district banner. That is all.
   return `[out:json][timeout:25];(` +
     `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](${bb});` +
-    `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
-    `way["leisure"~"^(park|garden|golf_course)$"](${bb});` +
-    `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
-    // district names for the GTA-style zone banner
     `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
-    // where you wake up after a bust or a wasting, and where you get patched up.
-    // nwr, because a station is a node in one city and a building way in the next
-    `nwr["amenity"~"^(police|hospital)$"](${bb});` +
-    `nwr["shop"="car_repair"](${bb});` +
     `);out geom qt;`;
 }
 
@@ -1456,6 +1460,8 @@ const RECOVER_MAX = 6000;
 const LOAD_SWEEP_WAIT = 6000;
 // how long loading will wait on the opening ring before starting with what landed
 const LOAD_RING_WAIT = 12000;
+// an opening fetch slower than this means a heavy area — take less of the ring
+const SLOW_AREA_MS = 7000;
 
 const POI_KINDS = ['police', 'hospital', 'repair'];
 const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k));
@@ -1494,10 +1500,15 @@ async function widenLandmarkSearch() {
    up so you start in a 5.4 km city rather than a 1.8 km one. Sequential, because
    Overpass gives roughly two slots per IP and a burst just earns 429s, and bounded
    by a deadline so a slow city starts with whatever landed rather than not at all. */
-async function preloadRing(onEach) {
-  const ring = [];
+async function preloadRing(openingMs, onEach) {
+  let ring = [];
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (i || j) ring.push([i, j]);
   ring.sort((a, b) => (Math.abs(a[0]) + Math.abs(a[1])) - (Math.abs(b[0]) + Math.abs(b[1])));
+  // How long the FIRST tile took is the best read we get on how heavy this area
+  // is. Somewhere dense enough to make you wait is exactly where eight more street
+  // requests hurt most, so ask for less: the four sides only, or nothing at all.
+  if (openingMs > SLOW_AREA_MS * 2) ring = [];
+  else if (openingMs > SLOW_AREA_MS) ring = ring.filter(([i, j]) => !i || !j);
   const until = Date.now() + LOAD_RING_WAIT;
   let got = 0;
   for (const [i, j] of ring) {
@@ -2208,7 +2219,7 @@ async function startGame(query, lat, lon, label) {
   showLoad('Locating…', query || label || '');
   prog(.08);
   let name = label || query || 'Somewhere';
-  let procedural = false, data = null, why = '', geoFailed = false;
+  let procedural = false, data = null, why = '', geoFailed = false, openingMs = 0;
 
   // 1. where is it? Presets already know, so only typed searches ask Nominatim.
   if (lat == null) {
@@ -2242,6 +2253,7 @@ async function startGame(query, lat, lon, label) {
       m => { $('loadMsg').textContent = m; },
       b => { LOAD.bytes = b; });
     if (gen !== loadGen) return;
+    openingMs = Date.now() - LOAD.t0;      // how heavy this area is, measured
     prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
     data = parseOSM(els);
     // a quiet village is still a real place — only invent a city if there's nothing
@@ -2284,7 +2296,8 @@ async function startGame(query, lat, lon, label) {
     // run to the streets budget and hold the loading screen for a minute. What is
     // still in flight when the race ends simply lands while you're driving.
     await Promise.race([
-      preloadRing(g => prog(.85 + .05 * (g / 8), 'Extending the city…', g + ' of 8 districts')),
+      preloadRing(openingMs,
+                  (g, n) => prog(.85 + .05 * (g / Math.max(n, 1)), 'Extending the city…', g + ' of ' + n + ' districts')),
       new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
     ]);
     prog(.92, 'Finding the hospitals…');
@@ -3168,9 +3181,12 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, wate
   buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
   poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1],
   waterQueryTimeout: +(overpassQL(0,0,0,0,'water').match(/timeout:(\d+)/)||[])[1],
-  // the streets query is the one the whole game depends on — nothing optional rides on it
+  // The streets query is the one the whole game depends on. Nothing optional may
+  // ride on it: roads to drive and place names, and that is the whole list.
   streetsOuts: (overpassQL(0,0,0,0,'streets').match(/out /g) || []).length,
   streetsHasRelation: /relation/.test(overpassQL(0,0,0,0,'streets')),
+  streetsClauses: (overpassQL(0,0,0,0,'streets').match(/\b(?:way|node|nwr|relation)\[/g) || []),
+  slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,
   loadSweepWait: LOAD_SWEEP_WAIT });
 window.__pal = () => PAL;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground

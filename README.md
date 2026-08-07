@@ -108,8 +108,8 @@ is the whole game.
 | Concern | Approach |
 |---|---|
 | Geocoding | [Nominatim](https://nominatim.openstreetmap.org) — turns "Ocean Drive, Miami Beach" into a lat/lon |
-| Geometry | [Overpass API](https://overpass-api.de) `out geom qt;` over a 1.8 km box, so coordinates come inline. Streets and buildings are fetched separately: streets are small and start the game, buildings are the bulk of the bytes and merge in afterwards |
-| Resilience | Client timeouts outlast the server's own `[timeout:N]`, transient 429/5xx are retried with backoff honouring `Retry-After`, mirrors are hedged on silence rather than on a stopwatch, and preset cities carry their own coordinates so the common path never touches the geocoder |
+| Geometry | [Overpass API](https://overpass-api.de) `out geom qt;` over a 1.8 km box, so coordinates come inline. Split by what the game cannot start without: the **streets** request carries roads and place names and nothing else, because if it fails you get a generated grid instead of the place you asked for and every extra clause is more time between pressing DRIVE and driving. Buildings and parks, water, and landmarks each ride their own request and land when they land |
+| Resilience | Client timeouts outlast the server's own `[timeout:N]`, transient 429/5xx are retried with backoff honouring `Retry-After`, mirrors are hedged on silence rather than on a stopwatch, and preset cities carry their own coordinates so the common path never touches the geocoder. How long the opening request took is also a read on how heavy the area is: somewhere slow enough to make you wait is where eight more street requests hurt most, so the opening ring shrinks to the four sides, or is skipped entirely |
 | Projection | Local equirectangular — `x = (lon−lon₀)·111320·cos(lat₀)`, metres are the world unit |
 | Rendering | Canvas 2D. Camera rotates so the car points up; buildings fake 3D by pushing the roof polygon away from screen centre and filling the wall quads |
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
