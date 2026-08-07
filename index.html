@@ -505,7 +505,13 @@ function overpassQL(s, w, n, e, kind) {
     // nwr, because a station is a node in one city and a building way in the next
     `nwr["amenity"~"^(police|hospital)$"](${bb});` +
     `nwr["shop"="car_repair"](${bb});` +
-    `);out geom qt;`;
+    `);out geom qt;` +
+    // Big rivers, harbours and bays are multipolygons rather than ways, so without
+    // this you drive across the Danube as if it were tarmac. Its own out statement
+    // with the bbox form, which CLIPS the geometry — a relation spanning a country
+    // returns just the slice over this tile. Clipping the union above instead would
+    // also trim roads at the seam, which the continuity handling relies on.
+    `relation["natural"="water"](${bb});out geom(${bb}) qt;`;
 }
 
 /* Overpass queues heavy queries instead of refusing them, so a mirror can accept
@@ -754,6 +760,19 @@ function parseOSM(els) {
       }
       const pk = POI_KIND(t);
       if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
+      continue;
+    }
+    // A water multipolygon: each outer ring is a body of water in its own right.
+    // Inner rings are holes — an island in a lake stays dry, so they're skipped.
+    if (el.type === 'relation') {
+      if (t.natural !== 'water') continue;
+      const outers = [], holes = [];
+      for (const m of el.members || []) {
+        if (!m.geometry || m.geometry.length < 3) continue;
+        const pts = m.geometry.map(g => ({ x: projX(g.lon), y: projY(g.lat) }));
+        (m.role === 'inner' ? holes : outers).push(pts);
+      }
+      for (const pts of outers) water.push({ pts, bb: bbox(pts), holes });
       continue;
     }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
@@ -1227,6 +1246,23 @@ function markDrivable(x, y, r) {
     W.grid[cy * W.gw + cx] = 1;
   }
 }
+/* Deep enough to go under. A bridge over a river is geometrically inside the
+   river, so the road mask is what separates the two — the deck is rasterized into
+   it like any other carriageway, and drowning on a bridge would be plain wrong.
+   The bounding boxes reject nearly every polygon before the point test, which is
+   what keeps this cheap for every car, every frame. */
+function inWater(x, y) {
+  for (const f of W.water) {
+    if (x < f.bb.x0 || x > f.bb.x1 || y < f.bb.y0 || y > f.bb.y1) continue;
+    if (!pointInPoly(f.pts, x, y)) continue;
+    // an island in the lake is dry land, so keep looking rather than answering yes
+    if (f.holes && f.holes.some(h => pointInPoly(h, x, y))) continue;
+    return true;
+  }
+  return false;
+}
+const inDeepWater = (x, y) => inWater(x, y) && !onRoad(x, y);
+
 function onRoad(x, y) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
@@ -1457,7 +1493,7 @@ function makeCar(x, y, h, kind) {
     accel: isCop ? 28 : (kind === 'player' ? 28 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
-    steer: 0, road: true, dead: false, hitCd: 0,
+    steer: 0, road: true, dead: false, hitCd: 0, sink: 0,
     // traffic path state
     road_: null, idx: 0, dir: 1, blink: 0
   };
@@ -1523,7 +1559,8 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   let vl = -c.vx * sn + c.vy * cs;
 
   c.road = onRoad(c.x, c.y);
-  const grip = c.road ? 1 : .58;
+  // a car going under bogs down rather than skating on across the river
+  const grip = (c.road ? 1 : .58) * (1 - (c.sink || 0) * .85);
   // a wrecked car limps — the player's own top speed stays honest
   const wear = c.kind === 'player' ? 1 : lerp(.32, 1, clamp(c.hp / 100, 0, 1));
   const top = c.maxSpeed * grip * wear;
@@ -1679,10 +1716,42 @@ function wreck(c) {
   explode(c.x, c.y);
 }
 
+const SINK_SECS = 1.5;      // clip the bank and you can back out; commit and you're gone
+
+function splash(c, n) {
+  for (let i = 0; i < n; i++)
+    parts.push({ x: c.x + rand(-1.6, 1.6), y: c.y + rand(-1.6, 1.6),
+      vx: rand(-4, 4), vy: rand(-4, 4), life: rand(.25, .7), r: rand(.25, .7),
+      col: pick(['#cfe9ff', '#9fd2f2', '#ffffff', '#7fb8dd']) });
+}
+
+/* Water swallows a car whole — no fireball, nothing left to burn. Marked dead so
+   the list filters that already run drop it. */
+function sinkAway(c) {
+  if (c.dead) return;
+  c.dead = true;
+  splash(c, 16);
+  SFX.crash(4);
+}
+
+/* Rises while a car is in water and off the road, falls back when it isn't, so
+   clipping the edge of a river is survivable and driving in is not. */
+function updateSink(c, dt) {
+  if (inDeepWater(c.x, c.y)) {
+    if (c.sink === 0) splash(c, 12);        // the moment it goes in
+    c.sink = Math.min(1, c.sink + dt / SINK_SECS);
+    if (Math.random() < dt * 22) splash(c, 1);
+  } else {
+    c.sink = Math.max(0, c.sink - dt / (SINK_SECS * .7));
+  }
+  return c.sink >= 1;
+}
+
 // One place that decides whether a car is still with us, run once per car per frame.
 function checkWreck(c, dt) {
   c.hitCd -= dt;
   if (c.dead) return;
+  if (updateSink(c, dt)) { sinkAway(c); return; }
   if (c.hp <= 0) { wreck(c); return; }
   if (c.hp < 45) { c.smokeT = (c.smokeT || 0) - dt; if (c.smokeT <= 0) { c.smokeT = rand(.05, .18); smoke(c); } }
 }
@@ -2176,10 +2245,12 @@ function busted() {
   bigMsg('BUSTED', '#33e6ff', `−$${lost} · booked at the station`);
   respawn('police');
 }
-function wasted() {
+function wasted(how) {
   P.cash = 0;
   store.set('vm_cash', P.cash);
-  bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
+  bigMsg('WASTED', '#ff4fd8', how === 'water'
+    ? 'sank like a stone · fished out at the hospital'
+    : 'cleaned out · patched up at the hospital');
   respawn('hospital');
 }
 function respawn(kind) {
@@ -2344,6 +2415,9 @@ function update(dt) {
     if (p.kind !== 'repair' || p.cool > 0 || P.dead) continue;
     if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
   }
+
+  // --- deep water
+  if (!P.dead && updateSink(c, dt)) { splash(c, 16); wasted('water'); }
 
   // --- health / death
   if (c.hp <= 0 && !P.dead) { c.hp = 0; wasted(); }
@@ -2688,6 +2762,8 @@ function drawCar(c, isPlayer) {
   const spd = Math.hypot(c.vx, c.vy);
   ctx.save();
   ctx.translate(c.x, c.y); ctx.rotate(c.h);
+  // going under: shrinks away and fades into the water
+  if (c.sink > 0) { ctx.globalAlpha = 1 - c.sink * .85; ctx.scale(1 - c.sink * .4, 1 - c.sink * .4); }
   const L = c.l, Wd = c.w;
 
   // headlight cone — barely visible in daylight
@@ -2891,7 +2967,8 @@ window.__w = () => ({ name: W.name, procedural: W.procedural, roads: W.roads.len
 window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.h.toFixed(2),
   spd: +Math.hypot(P.car.vx, P.car.vy).toFixed(2), hp: +P.car.hp.toFixed(1), onRoad: P.car.road,
   wanted: +P.wanted.toFixed(2), cops: cops.length, traffic: traffic.length, peds: peds.length,
-  cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
+  cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color,
+  sink: +P.car.sink.toFixed(2), inWater: inWater(P.car.x, P.car.y) });
 window.__addWanted = n => addWanted(n);
 window.__hurt = () => { P.car.hp = 0; };
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;
@@ -2930,7 +3007,7 @@ window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,
   spd: Math.hypot(t.vx, t.vy), road: t.road_ ? t.road_.pts.length : 0, idx: t.idx, dir: t.dir }));
 window.__cars = () => ({
   traffic: traffic.map(t => ({ id: t.id, x: +t.x.toFixed(1), y: +t.y.toFixed(1), hp: +t.hp.toFixed(1),
-                               spd: +Math.hypot(t.vx, t.vy).toFixed(2), dead: !!t.dead })),
+                               spd: +Math.hypot(t.vx, t.vy).toFixed(2), dead: !!t.dead, sink: +t.sink.toFixed(2) })),
   cops: cops.map(k => ({ id: k.id, x: +k.x.toFixed(1), y: +k.y.toFixed(1), hp: +k.hp.toFixed(1), dead: !!k.dead })),
   blasts: blasts.length, parts: parts.length, playerHp: +P.car.hp.toFixed(1)
 });
@@ -2971,6 +3048,9 @@ window.__byColour = (r, g, b_) => {
   return b ? { roof: b.roof, wall: b.wall, mRoof: b.mRoof, mWall: b.mWall } : null;
 };
 window.__inside = (x, y) => W.buildings.some(b => pointInPoly(b.pts, x, y));
+window.__inWater = (x, y) => inWater(x, y);
+window.__deepWater = (x, y) => inDeepWater(x, y);
+window.__water = () => W.water.length;
 // null when no building covers the point, else whether you can drive through it
 window.__passableAt = (x, y) => {
   const b = W.buildings.find(q => pointInPoly(q.pts, x, y));

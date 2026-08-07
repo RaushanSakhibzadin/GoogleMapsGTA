@@ -71,6 +71,11 @@ is the whole game.
   Buildings that merely sit beside the road stay as solid as ever.
 - **Off-road handling.** An 8 m drivable grid rasterized from the road network — leave the
   tarmac and you lose top speed, gain drag, and the camera starts shaking.
+- **Deep water drowns you.** Rivers, lakes, docks and harbours are real geometry, and driving into
+  one bogs the car down and takes it under in about a second and a half — you, traffic and police
+  alike. Clip the bank and you can reverse out; commit and you're fished out at the hospital with
+  nothing. Cars that go under sink rather than explode. Bridges are safe: the deck is part of the
+  road network, and being *on a road* is what tells a crossing apart from the river beneath it.
 - **Traffic and pedestrians.** Cars drive the real ways node by node. Pedestrians keep to the
   pavement and turn back at the kerb, so you have to work to hit one.
 - **Five-star wanted level.** Ramming cars, hitting cops, and running people down raises it.
@@ -110,6 +115,7 @@ is the whole game.
 | Culling | Per-feature bounding boxes against a view circle; a spatial hash over 90 m cells for collision |
 | Minimap | The whole city is pre-rendered once to an offscreen canvas, so the minimap costs a single rotated `drawImage` per frame |
 | Street lookup | A road spatial hash over 90 m cells — naming the street you're on is a handful of segment tests, debounced so junctions don't strobe |
+| Water | Areas from `natural=water` / `waterway=riverbank`, plus `natural=water` **relations** — big rivers, harbours and bays are multipolygons, so without them you'd cross the Danube as if it were tarmac. Relations get their own `out geom(bbox)` statement, which clips the geometry so one spanning a country returns just the slice over this tile; clipping the main union instead would trim roads at the tile seam. Inner rings are holes, so an island in a lake stays dry |
 | Landmarks | `amenity=police`, `amenity=hospital` and `shop=car_repair`, pulled with the streets query as `nwr` so a station tagged as a bare node and one tagged as a building both land. Overpass returns the same landmark more than once — a hospital matches the amenity query and again as a building, and anything on a tile seam arrives with both tiles — so they're deduped by kind within 30 m |
 | Wide sweep | When a kind is missing, one landmark-only query over a 36 km box, four seconds after play starts so the scenery gets the bandwidth first. Sparse tag-indexed features make the area cheap, and `out center` returns a point per hit instead of a whole building outline. Every tile that lands re-checks, and with still no station and no hospital it climbs the next rung, out to a 90 km box. Each rung runs at most once and a sweep in flight blocks the next, so a burst of merges can't become a burst of requests. Failing costs nothing — the start point is still there |
 | Drive-through landmarks | The `passable` flag the tunnel handling already uses: skipped in collision, drawn at 45% alpha. Marked on any footprint a landmark falls inside, which covers both tagging styles — the way form where the hospital *is* the building, and the node form where a garage node sits in someone else's outline |
