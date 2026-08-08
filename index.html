@@ -349,6 +349,10 @@ const lerp  = (a, b, t) => a + (b - a) * t;
 const rand  = (a, b) => a + Math.random() * (b - a);
 const randi = (a, b) => Math.floor(rand(a, b));
 const pick  = a => a[Math.floor(Math.random() * a.length)];
+// Fisher-Yates, in place and returned, so a list can be shuffled where it's declared
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = randi(0, i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+// "https://overpass.kumi.systems/api/interpreter" -> "kumi.systems", for messages
+const host = u => { try { return new URL(u).hostname.replace(/^(www\.|overpass[-.])/, ''); } catch (e) { return 'map server'; } };
 const dist2 = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1; return dx * dx + dy * dy; };
 const dist  = (x1, y1, x2, y2) => Math.sqrt(dist2(x1, y1, x2, y2));
 // shortest signed angle from a to b
@@ -489,11 +493,20 @@ const ROADW = {
 };
 const DRIVABLE = c => c !== 'pedestrian' && c !== 'track';
 
-const OVERPASS = [
+/* Public Overpass instances. SIX, and shuffled per session, because three was not
+   enough and everybody's first pick was the same one: when the head of the list
+   is unreachable from your network it fails in about a second, burns its retries,
+   and the healthy mirrors don't get a look in until seven and fourteen seconds
+   later. Shuffling also stops every player in the world hammering the same host,
+   and means a reload genuinely re-rolls rather than repeating the same failure. */
+const OVERPASS = shuffle([
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter'
-];
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.osm.jp/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+]);
 const TOP_SPEED = 83.3;   // m/s — 300 km/h on the clock
 const RADIUS = 900;   // metres fetched around the centre point
 /* The map streams in. Tile (i,j) covers a RADIUS*2 square centred on
@@ -564,12 +577,27 @@ function overpassQL(s, w, n, e, kind) {
    hard deadline, and the whole load can be cancelled from the UI. */
 /* Timeouts have to be longer than the [timeout:N] in the query they carry, or we
    kill the server mid-answer and never see a dense city at all. */
-const HEDGE = 7000;      // start another mirror if the current one is still silent
+/* Start another mirror if the current one is still silent. Was 7s, which meant a
+   mirror that fails in a second left the next one un-started for another six —
+   the whole first ten seconds of a load could be spent retrying one dead host.
+   Overpass is not hammered by this: whoever answers first cancels the rest, and
+   `sess.streaming` stops a new one starting once a body is on the way. */
+const HEDGE = 2200;
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
 const ARTERIALS = { mirrorMs: 40000, totalMs: 45000 };  // query says timeout:90, big box
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
+
+/* Which mirrors are actually answering, learned as we go. Every request used to
+   start at the head of the list and rediscover the same dead host for itself:
+   with the streets query, the buildings, the skeleton and eight ring tiles all
+   doing that, one unreachable mirror soaked up THIRTY connection attempts in a
+   single load. Learn it once, and everything after goes to a host that works. */
+const MIRROR_MISS = new Map();
+const mirrorNote = (url, ok) => MIRROR_MISS.set(url, ok ? 0 : (MIRROR_MISS.get(url) || 0) + 1);
+const mirrorsByHealth = () =>
+  OVERPASS.slice().sort((a, b) => (MIRROR_MISS.get(a) || 0) - (MIRROR_MISS.get(b) || 0));
 // Overpass says these when it's busy, not when the query is wrong
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const LOAD = { cancelled: false, streaming: false, controllers: [], timers: [], bytes: 0, t0: 0, cancelP: null, cancel: null };
@@ -577,6 +605,7 @@ const LOAD = { cancelled: false, streaming: false, controllers: [], timers: [], 
 function loadReset() {
   loadAbort();
   LOAD.cancelled = false; LOAD.streaming = false; LOAD.bytes = 0; LOAD.t0 = Date.now();
+  LOAD.lastErr = '';                 // or the last run's refusal haunts this one
   LOAD.cancelP = new Promise((_, rej) => { LOAD.cancel = () => { LOAD.cancelled = true; rej(new Error('cancelled')); }; });
   LOAD.cancelP.catch(() => {});   // the race handles it; don't warn if nobody's listening
 }
@@ -667,6 +696,7 @@ function overpassArea(s, w, n, e, sess, opt) {
           throw e;
         }
         sess.streaming = true;             // headers in hand: stop hedging
+        mirrorNote(url, true);             // this one answers; keep it at the front
         const j = JSON.parse(await readBody(r, onBytes));
         if (!j || !j.elements) throw new Error('empty response');
         resolve(j.elements);
@@ -675,6 +705,11 @@ function overpassArea(s, w, n, e, sess, opt) {
         // is wrong and will never work. Our own timeout is left to the other mirrors.
         const aborted = err && err.name === 'AbortError';
         const retryable = !aborted && (err.status == null || TRANSIENT.has(err.status));
+        // note who said no and what they said, for the loading screen to show
+        mirrorNote(url, false);            // and this one goes to the back of the queue
+        LOAD.lastErr = host(url) + ': ' +
+          (aborted ? 'too slow' : err.status ? err.status
+           : err.status == null ? 'unreachable' : err.message);
         if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled) {
           const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
           onMsg('Map server busy — retrying…');
@@ -687,7 +722,7 @@ function overpassArea(s, w, n, e, sess, opt) {
     sess.timers.push(t);
   });
 
-  const tries = OVERPASS.map((u, i) => attempt(u, i * HEDGE));
+  const tries = mirrorsByHealth().map((u, i) => attempt(u, i * HEDGE));
   const deadline = new Promise((_, rej) => {
     const t = setTimeout(() => rej(new Error('timed out')), opt.totalMs || tune.totalMs);
     sess.timers.push(t);
@@ -2421,6 +2456,11 @@ function paintProgress() {
   if (mb > .05) parts.push(mb.toFixed(1) + ' MB');
   else if (subNote) parts.push(subNote);
   if (secs > 2) parts.push(secs + 's');
+  /* Say WHY when a mirror turns us away. "Asking 5 map servers" tells you
+     something is wrong but not what, and the difference between a rate limit, a
+     timeout and a host that simply isn't reachable from your network is the
+     difference between waiting and giving up. */
+  if (LOAD.lastErr && mb <= .05) parts.push(LOAD.lastErr);
   $('loadSub').textContent = parts.join(' · ');
   // creep on bytes *and* on time, so a slow server still looks like progress
   const p = .25 + .35 * (1 - Math.exp(-(mb / 3 + secs / 40)));
