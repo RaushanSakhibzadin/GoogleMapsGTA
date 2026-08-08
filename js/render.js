@@ -1,0 +1,414 @@
+"use strict";
+/* VICE MAPS — Everything that draws: the world, the cars, the HUD and the radar.
+
+   Part of a set of plain <script> files sharing one global scope. They are NOT
+   modules on purpose: ES modules are blocked over file://, and opening
+   index.html straight off disk with no build step is the point of this thing.
+   Load order is fixed in index.html and matters. */
+
+/* ------------------------------ 13. render ------------------------------ */
+let rot = 0, cs = 1, sn = 0, HX = 0, HY = 0;
+function toScreen(wx, wy) {
+  const dx = (wx - cam.x) * cam.s, dy = (wy - cam.y) * cam.s;
+  return [HX + dx * cs - dy * sn, HY + dx * sn + dy * cs];
+}
+
+function render() {
+  const c = P.car;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = PAL.ground;
+  ctx.fillRect(0, 0, VW, VH);
+
+  HX = VW / 2; HY = VH * .60;                       // camera sits low: more road ahead
+  if (cam.shake > 0) {
+    HX += rand(-1, 1) * cam.shake * 9;
+    HY += rand(-1, 1) * cam.shake * 9;
+  }
+  rot = -Math.PI / 2 - c.h;
+  cs = Math.cos(rot); sn = Math.sin(rot);
+
+  const viewR = Math.hypot(VW, VH) / 2 / cam.s + 60;   // cull radius, in metres
+  const vis = f => !(f.bb.x1 < cam.x - viewR || f.bb.x0 > cam.x + viewR ||
+                     f.bb.y1 < cam.y - viewR || f.bb.y0 > cam.y + viewR);
+
+  /* ---- ground layers, drawn in world space ---- */
+  ctx.save();
+  ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+
+  const fillPoly = (f, col, edge) => {
+    ctx.beginPath(); ctx.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
+    ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+    if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = .7; ctx.stroke(); }
+  };
+  for (const f of W.parks) if (vis(f)) fillPoly(f, PAL.park, PAL.parkEdge);
+
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const stroke = (r, w, col) => {
+    ctx.beginPath(); ctx.moveTo(r.pts[0].x, r.pts[0].y);
+    for (let i = 1; i < r.pts.length; i++) ctx.lineTo(r.pts[i].x, r.pts[i].y);
+    ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke();
+  };
+  const visRoads = roadsIn(cam.x - viewR, cam.y - viewR, cam.x + viewR, cam.y + viewR);
+  for (const r of visRoads) stroke(r, r.w + 3.4, PAL.case);            // shadow under the kerb
+  for (const r of visRoads) stroke(r, r.w + 1.8, PAL.kerb);            // pavement
+  for (const r of visRoads) stroke(r, r.w, r.w >= 11 ? PAL.roadBig : PAL.road);
+  ctx.setLineDash([3.2, 5.4]);
+  for (const r of visRoads) if (r.w >= 9) stroke(r, .55, PAL.line);    // centre line
+  ctx.setLineDash([]);
+
+  /* Tyre lines, batched. Each mark used to be its own beginPath+stroke, so a full
+     buffer was several hundred draw calls a frame and halved the frame rate in a
+     chase. They only differ by how far they have faded, so they are gathered into
+     a handful of alpha buckets and stroked once each — same picture, five calls.
+     Off-screen ones are skipped first: most of a long arc is out of frame. */
+  ctx.strokeStyle = 'rgba(10,4,16,.62)'; ctx.lineWidth = .72;
+  const FADES = 5, lanes = [];
+  for (const m of marks) {
+    if (Math.abs(m.x - cam.x) > viewR || Math.abs(m.y - cam.y) > viewR) continue;
+    const a = clamp(m.life / MARK_LIFE, 0, 1);
+    const bi = Math.min(FADES - 1, Math.floor(a * FADES));
+    const path = lanes[bi] || (lanes[bi] = new Path2D());
+    const o = m.w * .35, dx = Math.cos(m.h) * 1.1, dy = Math.sin(m.h) * 1.1;
+    const px = -Math.sin(m.h) * o, py = Math.cos(m.h) * o;
+    path.moveTo(m.x + px - dx, m.y + py - dy); path.lineTo(m.x + px + dx, m.y + py + dy);
+    path.moveTo(m.x - px - dx, m.y - py - dy); path.lineTo(m.x - px + dx, m.y - py + dy);
+  }
+  for (let i = 0; i < FADES; i++) {
+    if (!lanes[i]) continue;
+    ctx.globalAlpha = ((i + .5) / FADES) * .85;
+    ctx.stroke(lanes[i]);
+  }
+  ctx.globalAlpha = 1;
+
+  // street lights — additive blits of a pre-tinted sprite
+  if (W.lights && PAL.lights) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = .5;
+    const R = 8.5;
+    for (const L of W.lights) {
+      if (Math.abs(L.x - cam.x) > viewR || Math.abs(L.y - cam.y) > viewR) continue;
+      ctx.drawImage(glowFor(L.c), L.x - R, L.y - R, R * 2, R * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.restore();
+
+  /* ---- traffic and pedestrians go UNDER the buildings, or they look like
+         they're driving across the rooftops ---- */
+  ctx.save();
+  ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+  for (const p of peds) drawPed(p);
+  for (const t of traffic) drawCar(t);
+  for (const k of cops) drawCar(k);
+  ctx.restore();
+
+  /* ---- buildings: fake 3D by pushing the roof away from screen centre ---- */
+  const visB = [];
+  for (const b of W.buildings) if (vis(b)) visB.push(b);
+  // far buildings first so near ones overlap them correctly
+  visB.sort((a, z) => dist2(z.cx, z.cy, cam.x, cam.y) - dist2(a.cx, a.cy, cam.x, cam.y));
+  for (const b of visB) drawBuilding(b);
+
+  /* ---- the player alone goes on top of the buildings, so you can never lose
+         your own car behind a tower or under an archway ---- */
+  ctx.save();
+  ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+
+  // landmarks first, so a mission marker on top of one still reads
+  for (const p of W.pois) {
+    if (Math.abs(p.x - cam.x) > viewR || Math.abs(p.y - cam.y) > viewR) continue;
+    marker(p, POI_COL[p.kind]);
+  }
+  if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8');
+  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, '#ffe36a');
+
+  if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
+
+  for (const p of parts) {
+    const a = clamp(p.life * 2, 0, 1);
+    ctx.fillStyle = p.col;
+    if (p.soft) {
+      // Tyre smoke: round, and it swells and thins as it lifts off the road.
+      // Sparks stay square — at a third of a metre nobody can tell, and it is
+      // one fillRect — but a smoke puff drawn square reads as a white brick.
+      ctx.globalAlpha = a * .42;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (1 + (1 - p.life / p.life0) * 1.9), 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.globalAlpha = a;
+      const r = p.r || .28;
+      ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // fireballs, blitted additively off the tinted glow sprite the street lights use
+  if (blasts.length) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of blasts) {
+      const t = clamp(b.life / .55, 0, 1);
+      // Additive light adds up: a bright core over a bright body pushes green to
+      // full and the whole thing turns yellow. So the body is a deep red-orange
+      // and the white-hot core is small and gone quickly — it stays orange.
+      ctx.globalAlpha = t;
+      ctx.drawImage(glowFor('#ff4d00'), b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+      ctx.globalAlpha = t * t * t * .7;
+      const c2 = b.r * .34;
+      ctx.drawImage(glowFor('#ffc26a'), b.x - c2, b.y - c2, c2 * 2, c2 * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.restore();
+
+  drawArrow();
+  drawHUD();
+  drawMini();
+}
+
+function drawBuilding(b) {
+  const n = b.pts.length;
+  const sx = new Array(n), sy = new Array(n), tx = new Array(n), ty = new Array(n);
+  const f = Math.min(b.h, 110) * 0.026;     // extrusion strength ~ height, capped
+  let minSX = Infinity, maxSX = -Infinity, minSY = Infinity, maxSY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const p = toScreen(b.pts[i].x, b.pts[i].y);
+    sx[i] = p[0]; sy[i] = p[1];
+    tx[i] = p[0] + (p[0] - HX) * f; ty[i] = p[1] + (p[1] - HY) * f;
+    if (p[0] < minSX) minSX = p[0]; if (p[0] > maxSX) maxSX = p[0];
+    if (p[1] < minSY) minSY = p[1]; if (p[1] > maxSY) maxSY = p[1];
+  }
+  if (maxSX < -60 || minSX > VW + 60 || maxSY < -60 || minSY > VH + 60) return;
+
+  // a building you can drive under is drawn back so the street shows through
+  if (b.passable) ctx.globalAlpha = .45;
+
+  // footprint shadow — grounds the block so it doesn't float
+  ctx.beginPath(); ctx.moveTo(sx[0] - 3, sy[0] + 3);
+  for (let i = 1; i < n; i++) ctx.lineTo(sx[i] - 3, sy[i] + 3);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill();
+
+  // Footprint, filled — this closes the near side, where the walls below are
+  // deliberately culled away.
+  ctx.fillStyle = b.wall;
+  ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
+  for (let i = 1; i < n; i++) ctx.lineTo(sx[i], sy[i]);
+  ctx.closePath();
+  ctx.fill();
+
+  // Only the silhouette walls: the edges whose outward normal points away from
+  // the extrusion origin. Drawing the hidden ones too puts opposite windings in
+  // the same path, and where they overlap the nonzero rule cancels them to
+  // nothing — which is what tore the roofs off their footprints.
+  let area2 = 0;
+  for (let i = 0, j = n - 1; i < n; j = i++) area2 += sx[j] * sy[i] - sx[i] * sy[j];
+  const wind = area2 >= 0 ? 1 : -1;
+  ctx.beginPath();
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const ex = sx[i] - sx[j], ey = sy[i] - sy[j];
+    const nx = wind * ey, ny = -wind * ex;                  // outward normal
+    const mx = (sx[i] + sx[j]) * .5 - HX, my = (sy[i] + sy[j]) * .5 - HY;
+    if (nx * mx + ny * my <= 0) continue;                   // faces the camera: hidden
+    ctx.moveTo(sx[j], sy[j]); ctx.lineTo(sx[i], sy[i]);
+    ctx.lineTo(tx[i], ty[i]); ctx.lineTo(tx[j], ty[j]); ctx.closePath();
+  }
+  ctx.fill();
+
+  // a lit edge where wall meets ground, so the mass reads
+  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
+  for (let i = 1; i < n; i++) ctx.lineTo(sx[i], sy[i]);
+  ctx.closePath(); ctx.stroke();
+
+  // roof
+  ctx.beginPath(); ctx.moveTo(tx[0], ty[0]);
+  for (let i = 1; i < n; i++) ctx.lineTo(tx[i], ty[i]);
+  ctx.closePath();
+  ctx.fillStyle = b.roof; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.stroke();
+
+  if (b.neon && PAL.showNeon) {             // neon trim, the whole point of the decade
+    ctx.strokeStyle = b.neon; ctx.lineWidth = 1.6;
+    ctx.globalAlpha = .85;
+    ctx.shadowColor = b.neon; ctx.shadowBlur = 11;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+}
+
+function marker(m, col) {
+  const t = performance.now() / 1000;
+  const r = 4.2 + Math.sin(t * 3) * .5;
+  ctx.save(); ctx.translate(m.x, m.y);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, col + 'cc'); g.addColorStop(.6, col + '44'); g.addColorStop(1, col + '00');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  ctx.strokeStyle = col; ctx.lineWidth = .5;
+  ctx.beginPath(); ctx.arc(0, 0, r * (.5 + (t % 1) * .5), 0, TAU); ctx.globalAlpha = 1 - (t % 1); ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawCar(c, isPlayer) {
+  const spd = Math.hypot(c.vx, c.vy);
+  ctx.save();
+  ctx.translate(c.x, c.y); ctx.rotate(c.h);
+  const L = c.l, Wd = c.w;
+
+  // headlight cone — barely visible in daylight
+  if ((isPlayer || c.kind === 'cop' || spd > 1) && PAL.lights) {
+    const g = ctx.createLinearGradient(L / 2, 0, L / 2 + 24, 0);
+    g.addColorStop(0, 'rgba(255,245,200,.20)'); g.addColorStop(1, 'rgba(255,245,200,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(L / 2 - .2, -Wd / 2);
+    ctx.lineTo(L / 2 + 26, -8); ctx.lineTo(L / 2 + 26, 8); ctx.lineTo(L / 2 - .2, Wd / 2);
+    ctx.closePath(); ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,.4)';
+  rrect(-L / 2 + .25, -Wd / 2 + .25, L, Wd, .7); ctx.fill();
+
+  ctx.fillStyle = c.color;
+  rrect(-L / 2, -Wd / 2, L, Wd, .7); ctx.fill();
+
+  // roof + glass
+  ctx.fillStyle = 'rgba(0,0,0,.32)';
+  rrect(-L * .18, -Wd / 2 + .22, L * .46, Wd - .44, .3); ctx.fill();
+  ctx.fillStyle = 'rgba(160,240,255,.5)';
+  rrect(L * .12, -Wd / 2 + .3, L * .14, Wd - .6, .18); ctx.fill();
+
+  // lights
+  ctx.fillStyle = '#fff6cf'; ctx.fillRect(L / 2 - .35, -Wd / 2 + .18, .35, .5);
+  ctx.fillRect(L / 2 - .35, Wd / 2 - .68, .35, .5);
+  ctx.fillStyle = '#ff3355'; ctx.fillRect(-L / 2, -Wd / 2 + .18, .3, .5);
+  ctx.fillRect(-L / 2, Wd / 2 - .68, .3, .5);
+
+  if (c.kind === 'cop') {                    // light bar
+    const on = Math.floor(c.blink * 7) % 2 === 0;
+    ctx.fillStyle = on ? '#3fa2ff' : '#12305e'; ctx.fillRect(-L * .1, -Wd / 2 - .1, .55, Wd * .45);
+    ctx.fillStyle = on ? '#12305e' : '#ff3355'; ctx.fillRect(-L * .1, .05, .55, Wd * .45);
+    ctx.shadowBlur = 0;
+  }
+  if (isPlayer) {                            // subtle ring so you never lose yourself
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = .12;
+    ctx.beginPath(); ctx.arc(0, 0, L * .78, 0, TAU); ctx.stroke();
+  }
+  ctx.restore();
+}
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function drawPed(p) {
+  ctx.save(); ctx.translate(p.x, p.y);
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.arc(.15, .15, .48, 0, TAU); ctx.fill();
+  ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(0, 0, .45, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+/* off-screen objective arrow */
+function drawArrow() {
+  const tgt = MISSION.state === 'pickup' ? MISSION.pick : MISSION.state === 'deliver' ? MISSION.drop : null;
+  if (!tgt) return;
+  const s = toScreen(tgt.x, tgt.y);
+  const pad = 60;
+  if (s[0] > pad && s[0] < VW - pad && s[1] > pad && s[1] < VH - pad) return;
+  const dx = s[0] - VW / 2, dy = s[1] - VH / 2;
+  const a = Math.atan2(dy, dx);
+  const rx = VW / 2 - pad, ry = VH / 2 - pad;
+  const k = Math.min(rx / Math.abs(Math.cos(a) || 1e-6), ry / Math.abs(Math.sin(a) || 1e-6));
+  const x = VW / 2 + Math.cos(a) * k;
+  // keep it clear of the thumb pads when they're on screen
+  const botLimit = VH - (touchUI ? 190 : 92);   // clear the armor bar / speedo too
+  let y = Math.min(VH / 2 + Math.sin(a) * k, botLimit);
+  // and off the radar, which lives in the same left-hand strip. Now that the radar
+  // is in the top corner there's no room to dodge upwards, so go under it instead
+  // of shoving the arrow off the top of the screen.
+  if (miniRect && x < miniRect.right + 60 && y > miniRect.top - 26 && y < miniRect.bottom + 40) {
+    const above = miniRect.top - 26, below = miniRect.bottom + 40;
+    y = (above > 46 && y < (miniRect.top + miniRect.bottom) / 2) ? above : below;
+  }
+  y = clamp(y, 46, botLimit);
+  const col = MISSION.state === 'pickup' ? '#ff4fd8' : '#ffe36a';
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, -10); ctx.lineTo(-5, 0); ctx.lineTo(-10, 10);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // distance readout
+  const d = Math.round(dist(P.car.x, P.car.y, tgt.x, tgt.y));
+  ctx.save(); ctx.fillStyle = col; ctx.font = '600 13px system-ui,sans-serif';
+  ctx.textAlign = 'center'; ctx.shadowColor = '#000'; ctx.shadowBlur = 6;
+  ctx.fillText(d + ' m', x, y + 28); ctx.restore();
+}
+
+/* ---- HUD text is DOM; only the numbers change, and only ~12×/s ---- */
+let hudT = 0;
+function drawHUD() {
+  const c = P.car;
+  $('spdN').textContent = Math.round(Math.hypot(c.vx, c.vy) * 3.6);
+  hudT -= 1;
+  if (hudT > 0) return;
+  hudT = 5;
+  $('cash').textContent = '$' + P.cash.toLocaleString();
+  $('hpIn').style.width = clamp(c.hp, 0, 100) + '%';
+  $('hpIn').style.background = c.hp > 55 ? 'linear-gradient(90deg,#48ff9e,#33e6ff)'
+    : c.hp > 25 ? 'linear-gradient(90deg,#ffe36a,#ff9f5a)' : 'linear-gradient(90deg,#ff3355,#ff4fd8)';
+  const w = Math.ceil(P.wanted);
+  let s = '';
+  for (let i = 0; i < 5; i++) s += i < w ? '★' : '<span class="off">★</span>';
+  $('stars').innerHTML = s;
+  const ch = $('chunk');
+  if (CHUNK.note) { ch.textContent = CHUNK.note; ch.classList.add('on'); }
+  else ch.classList.remove('on');
+  if (MISSION.state === 'deliver') {
+    $('timer').textContent = Math.max(0, Math.ceil(MISSION.time)) + 's';
+  } else $('timer').textContent = '';
+}
+
+function drawMini() {
+  if (!W.map) return;
+  const w = mini.width, h = mini.height, r = w / 2;
+  mctx.setTransform(1, 0, 0, 1, 0, 0);
+  mctx.clearRect(0, 0, w, h);
+  mctx.save();
+  mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
+  mctx.fillStyle = PAL.mapBg; mctx.fillRect(0, 0, w, h);
+
+  const showM = 230;                                  // metres across the radius
+  const z = (r / showM) / W.mapScale;
+  mctx.translate(r, r); mctx.rotate(rot); mctx.scale(z, z);
+  mctx.translate(-(P.car.x - W.mapOrigin.x) * W.mapScale, -(P.car.y - W.mapOrigin.y) * W.mapScale);
+  mctx.drawImage(W.map, 0, 0);
+  mctx.restore();
+
+  // blips, drawn unrotated relative to the rotated map
+  const blip = (wx, wy, col, sz) => {
+    const dx = (wx - P.car.x), dy = (wy - P.car.y);
+    const px = r + (dx * cs - dy * sn) * (r / showM);
+    const py = r + (dx * sn + dy * cs) * (r / showM);
+    if (dist2(px, py, r, r) > r * r) return;
+    mctx.fillStyle = col;
+    mctx.beginPath(); mctx.arc(px, py, sz * DPR, 0, TAU); mctx.fill();
+  };
+  for (const t of traffic) blip(t.x, t.y, 'rgba(255,255,255,.45)', 1.6);
+  for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
+  if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
+  if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, '#ffe36a', 3.4);
+
+  // player triangle at centre, always pointing up
+  mctx.save(); mctx.translate(r, r);
+  mctx.fillStyle = '#fff'; mctx.strokeStyle = '#12061d'; mctx.lineWidth = 1.4 * DPR;
+  mctx.beginPath();
+  mctx.moveTo(0, -6 * DPR); mctx.lineTo(4.4 * DPR, 5 * DPR); mctx.lineTo(0, 2.6 * DPR); mctx.lineTo(-4.4 * DPR, 5 * DPR);
+  mctx.closePath(); mctx.fill(); mctx.stroke();
+  mctx.restore();
+}

@@ -1,0 +1,736 @@
+"use strict";
+/* VICE MAPS — Game state, missions, the wanted level, and the per-frame update.
+
+   Part of a set of plain <script> files sharing one global scope. They are NOT
+   modules on purpose: ES modules are blocked over file://, and opening
+   index.html straight off disk with no build step is the point of this thing.
+   Load order is fixed in index.html and matters. */
+
+/* ------------------------------ 9. game state ------------------------------ */
+let state = 'menu';    // menu | loading | play | pause | dead
+let touchUI = false;   // on-screen pads active (phones/tablets)
+let lastT = 0, acc = 0, raf = false;
+
+// localStorage is unavailable in some privacy modes — never let it break the game
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+
+// lat/lon baked in: the preset buttons never need the geocoder, which is the
+// flakiest hop in the chain and rate-limits browsers hard
+const PRESETS = [
+  ['Miami Beach 🌴', 'Ocean Drive, Miami Beach', 25.7809, -80.1300],
+  ['Manhattan', 'Times Square, New York', 40.7580, -73.9855],
+  ['Monaco', 'Monte Carlo, Monaco', 43.7404, 7.4269],
+  ['Tokyo', 'Shibuya, Tokyo', 35.6595, 139.7005],
+  ['London', 'Piccadilly Circus, London', 51.5100, -0.1340],
+  ['Paris', 'Arc de Triomphe, Paris', 48.8738, 2.2950],
+  ['Los Santos', 'Vinewood, Los Angeles', 34.1016, -118.3269],
+  ['Venice 🚤', 'Piazza San Marco, Venice', 45.4341, 12.3388],
+  ['📍 My location', '@geo']
+];
+(function fillPresets() {
+  const box = $('presets');
+  for (const [label, q, lat, lon] of PRESETS) {
+    const d = document.createElement('div');
+    d.className = 'chip'; d.textContent = label;
+    d.onclick = () => { audioStart(); q === '@geo' ? useGeo() : startGame(q, lat, lon, q); };
+    box.appendChild(d);
+  }
+})();
+
+function useGeo() {
+  if (!navigator.geolocation) { startGame('Miami Beach, Florida'); return; }
+  showLoad('Finding you…', 'waiting for the GPS satellites');
+  navigator.geolocation.getCurrentPosition(
+    p => startGame(null, p.coords.latitude, p.coords.longitude, 'Your neighbourhood'),
+    () => startGame('Miami Beach, Florida'),
+    { timeout: 8000, enableHighAccuracy: false }
+  );
+}
+
+let subNote = '', skipTimer = 0, tickTimer = 0;
+function showLoad(msg, sub) {
+  state = 'loading';
+  $('menu').classList.add('hide'); $('load').classList.remove('hide');
+  $('loadMsg').textContent = msg || ''; $('loadSub').textContent = sub || '';
+  subNote = sub || '';
+  loadReset();
+  // never leave anyone staring at a bar: offer the way out after a few seconds
+  $('skip').classList.remove('on');
+  clearTimeout(skipTimer);
+  skipTimer = setTimeout(() => $('skip').classList.add('on'), 6000);
+  clearInterval(tickTimer);
+  tickTimer = setInterval(paintProgress, 250);
+}
+function endLoad() {
+  clearTimeout(skipTimer); clearInterval(tickTimer);
+  $('skip').classList.remove('on');
+  loadAbort();
+}
+// bytes are unknown up front, so creep towards 60% asymptotically as they arrive
+function paintProgress() {
+  if (state !== 'loading') return;
+  const secs = Math.floor((Date.now() - LOAD.t0) / 1000);
+  const mb = LOAD.bytes / 1048576;
+  const parts = [];
+  if (mb > .05) parts.push(mb.toFixed(1) + ' MB');
+  else if (subNote) parts.push(subNote);
+  if (secs > 2) parts.push(secs + 's');
+  /* Say WHY when a mirror turns us away. "Asking 5 map servers" tells you
+     something is wrong but not what, and the difference between a rate limit, a
+     timeout and a host that simply isn't reachable from your network is the
+     difference between waiting and giving up. */
+  if (LOAD.lastErr && mb <= .05) parts.push(LOAD.lastErr);
+  $('loadSub').textContent = parts.join(' · ');
+  // creep on bytes *and* on time, so a slow server still looks like progress
+  const p = .25 + .35 * (1 - Math.exp(-(mb / 3 + secs / 40)));
+  $('barIn').style.width = (p * 100) + '%';
+}
+function prog(p, msg, sub) {
+  if (p >= .6) clearInterval(tickTimer);   // download's done; stop the byte ticker
+  $('barIn').style.width = (p * 100) + '%';
+  if (msg != null) $('loadMsg').textContent = msg;
+  if (sub != null) { $('loadSub').textContent = sub; subNote = sub; }
+}
+$('skip').onclick = () => { if (LOAD.cancel) LOAD.cancel(); };
+
+/* Buildings for the opening area arrive after you're already driving. Failing
+   here costs scenery, not the city — which is the whole point of the split. */
+async function loadOpeningBuildings(lat, lon, gen) {
+  const sess = newSession();
+  CHUNK.note = 'Raising the buildings…';
+  try {
+    const els = await fetchBuildings(lat, lon, sess);
+    if (gen !== loadGen || W.procedural) return;
+    mergeChunk(parseOSM(els), '0,0');
+  } catch (err) {
+    console.warn('buildings failed:', err && err.message);
+  } finally {
+    sessAbort(sess);
+    CHUNK.note = '';
+  }
+}
+
+let loadGen = 0;
+function backToMenu(msg) {
+  endLoad();
+  state = 'menu';
+  $('load').classList.add('hide');
+  $('menu').classList.remove('hide');
+  $('barIn').style.width = '0%';
+  const el = $('menuErr');
+  el.textContent = msg;
+  el.classList.add('on');
+}
+
+async function startGame(query, lat, lon, label) {
+  const gen = ++loadGen;                 // a second DRIVE press abandons this one
+  audioStart();
+  $('menuErr').classList.remove('on');
+  showLoad('Locating…', query || label || '');
+  prog(.08);
+  let name = label || query || 'Somewhere';
+  let procedural = false, data = null, why = '', geoFailed = false, openingMs = 0;
+
+  // 1. where is it? Presets already know, so only typed searches ask Nominatim.
+  if (lat == null) {
+    try {
+      const g = await geocode(query);
+      lat = g.lat; lon = g.lon; name = g.name;
+    } catch (err) {
+      if (gen !== loadGen) return;
+      console.warn('geocode failed:', err);
+      // A working geocoder saying "no such place" is an answer: a generated city
+      // would be actively wrong, so send them back to fix the spelling. A geocoder
+      // that never answered is different — we still don't know where they meant,
+      // but dead-ending an offline player helps nobody, so fall through and build
+      // the offline city with the reason on the label.
+      if (/no such place/i.test(err.message)) {
+        return backToMenu('Couldn’t find “' + query +
+          '”. Try a fuller name, like “Ocean Drive, Miami Beach”.');
+      }
+      geoFailed = true;
+    }
+  }
+  if (gen !== loadGen) return;
+
+  // 2. the streets — everything you need to start driving
+  try {
+    if (geoFailed) throw new Error('place search unreachable');
+    setOrigin(lat, lon);
+    $('loadCity').textContent = name;
+    prog(.25, 'Surveying the streets…', 'the streets around ' + name.split(',')[0]);
+    const els = await fetchStreets(lat, lon,
+      m => { $('loadMsg').textContent = m; },
+      b => { LOAD.bytes = b; });
+    if (gen !== loadGen) return;
+    openingMs = Date.now() - LOAD.t0;      // how heavy this area is, measured
+    prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
+    data = parseOSM(els);
+    // a quiet village is still a real place — only invent a city if there's nothing
+    if (!data.roads.length) {
+      procedural = true;
+      data = proceduralCity();
+      why = 'nothing mapped out there';
+      name = name + ' — no roads out here';
+    }
+  } catch (err) {
+    if (gen !== loadGen) return;
+    console.warn('map load failed:', err);
+    setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
+    procedural = true;
+    data = proceduralCity();
+    why = geoFailed ? 'couldn’t reach the place search'
+        : err && /cancel/i.test(err.message) ? 'skipped the download'
+        : err && /timed out/i.test(err.message) ? 'map servers were too slow'
+        : 'map servers unreachable';
+    name = 'Neon Grid City (offline)';
+  }
+  endLoad();
+
+  $('loadCity').textContent = name;
+  prog(.82, 'Wiring the neon…', procedural ? why + ' — generated a city instead' : '');
+  await new Promise(r => setTimeout(r, 40));
+  buildWorld(data, name, procedural);
+
+  // The city opens at 5.4 km rather than 1.8: the ring comes in here, before you
+  // ever take the wheel, and only its scenery trickles in afterwards. The tile you
+  // are standing in gets its scenery queued first, so it fills in before the rest.
+  if (!procedural) {
+    loadOpeningBuildings(lat, lon, gen);
+    // The landmark sweep doesn't depend on the ring, so it runs alongside rather
+    // than adding its wait on top — two independent waits stacked is how a loading
+    // screen quietly becomes half a minute.
+    const sweep = sweepLandmarks();
+
+    /* The wide city comes first, because it is the one thing that cannot arrive
+       later: everything downstream of it — the grid, the fence, the radar window
+       — is sized from its rectangle, and growing all of that mid-drive is a
+       stutter. The ring is detail, and takes whatever budget is left. */
+    prog(.84, 'Mapping the whole city…', 'roads out to ' + (SKELETON_RADII[0] / 1000) + ' km');
+    const t0 = Date.now();
+    const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
+    if (gen !== loadGen) return;
+    const skelMs = Date.now() - t0;
+    // Note, don't act on it: the ring that follows is full street detail and still
+    // needs the streets query. Scenery-only mode starts when play does.
+    // "0 more roads across 18 km" is a real outcome — a small town whose trunk
+    // roads the detailed centre already had — but it reads like a failure, so say
+    // how big the city is instead of how little the last request added to it.
+    if (skel) prog(.88, 'Wiring the neon…',
+                   skel.roads ? skel.roads.toLocaleString() + ' more roads across ' +
+                                Math.round(skel.radius / 1000) + ' km'
+                              : Math.round(skel.radius / 1000) + ' km of city');
+
+    // Raced, not just deadlined between tiles: one slow district would otherwise
+    // run to the streets budget and hold the loading screen for a minute. What is
+    // still in flight when the race ends simply lands while you're driving.
+    await Promise.race([
+      preloadRing(openingMs + skelMs,
+                  (g, n) => prog(.89 + .03 * (g / Math.max(n, 1)), 'Filling in the streets…', g + ' of ' + n + ' districts')),
+      new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
+    ]);
+    prog(.94, 'Finding the hospitals…');
+    await Promise.race([sweep, new Promise(r => setTimeout(r, 2500))]);
+    if (gen !== loadGen) return;
+  }
+
+  prog(.95, 'Starting the engine…');
+  await new Promise(r => setTimeout(r, 60));
+  // Every road the world will ever have is in by now. From here tiles carry
+  // scenery and nothing else — unless no skeleton landed, in which case the old
+  // streaming is all that stands between the player and a fence 900 m away.
+  SCENERY_ONLY = !!W.skelRect;
+  resetRun();
+
+  prog(1, 'Ready.');
+  await new Promise(r => setTimeout(r, 180));
+  $('load').classList.add('hide');
+  $('hud').classList.add('on');
+  touchUI = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (touchUI) $('touch').classList.add('on');
+  resize();                       // the minimap only has a size once the HUD is visible
+  state = 'play'; lastT = performance.now(); acc = 0;
+  toast(procedural ? 'WELCOME TO\nNEON GRID CITY' : 'WELCOME TO\n' + name.toUpperCase(), 2600);
+  if (!raf) { raf = true; requestAnimationFrame(loop); }
+}
+
+function resetRun() {
+  const sp = nearestRoadPoint(0, 0) || { x: 0, y: 0, h: 0 };
+  P.car = makeCar(sp.x, sp.y, sp.h, 'player');
+  P.spawn = { x: sp.x, y: sp.y, h: sp.h };
+  P.cash = +store.get('vm_cash', 0) || 0;
+  P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
+  traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
+  MISSION.state = 'none'; MISSION.done = 0;
+  // otherwise a new city opens still showing the last one's street and district
+  NAV.street = NAV.zone = NAV.cand = ''; NAV.candT = NAV.showT = 0;
+  $('street').textContent = ''; $('street').classList.remove('on');
+  $('zone').textContent = ''; $('zone').classList.remove('on');
+  cam.x = P.car.x; cam.y = P.car.y;
+  spawnTraffic(26); spawnPeds(34);
+  newMission();
+}
+
+/* ------------------------------ 10. missions ------------------------------ */
+// Contracts reach further as more of the map streams in, so packets turn up in
+// the new districts instead of clustering in the block you started on.
+const missionReach = base => Math.min(base * (1 + (CHUNK.loaded - 1) * .55), base * 3.2);
+
+function newMission() {
+  const p = roadPoint(P.car.x, P.car.y, 90, missionReach(480))
+         || roadPoint(P.car.x, P.car.y, null);
+  if (!p) { MISSION.state = 'none'; return; }
+  MISSION.pick = p; MISSION.drop = null;
+  MISSION.state = 'pickup';
+  const where = p.road && p.road.name;
+  setObjective(where ? 'Pick up on ' + where : 'Pick up the package');
+}
+function startDelivery() {
+  const d = roadPoint(P.car.x, P.car.y, 180, missionReach(700))
+         || roadPoint(P.car.x, P.car.y, null);
+  if (!d) { MISSION.state = 'none'; return; }
+  MISSION.drop = d;
+  MISSION.state = 'deliver';
+  const dd = dist(P.car.x, P.car.y, d.x, d.y);
+  MISSION.time = clamp(dd / 13 + 18, 22, 150);   // cross-district runs need the room
+  MISSION.reward = Math.round(120 + dd * 1.6 + MISSION.done * 45);
+  SFX.pickup();
+  toast('PACKAGE SECURED\n$' + MISSION.reward + ' ON DELIVERY', 1800);
+  // the drop point already knows which way it sits on, so name it
+  const where = d.road && d.road.name;
+  setObjective(where ? 'Deliver to ' + where : 'Deliver the package');
+}
+function completeDelivery() {
+  P.cash += MISSION.reward; P.score += MISSION.reward;
+  MISSION.done++;
+  store.set('vm_cash', P.cash);
+  SFX.cash();
+  toast('DELIVERED\n+$' + MISSION.reward, 2000);
+  MISSION.state = 'none';
+  setTimeout(newMission, 900);
+}
+function failDelivery() {
+  MISSION.state = 'none';
+  toast('TOO SLOW.\nPACKAGE LOST', 1800);
+  setObjective('Free roam');
+  setTimeout(newMission, 1600);
+}
+// The radar sits under the objective now, so a longer objective that wraps to an
+// extra line shifts it down — re-cache the rect the edge arrow dodges against.
+function setObjective(t) {
+  $('objT').textContent = t;
+  miniRect = mini.getBoundingClientRect();
+}
+
+/* ------------------------------ 11. wanted level ------------------------------ */
+function addWanted(n) {
+  const before = P.wanted;
+  P.wanted = clamp(P.wanted + n, 0, 5);
+  P.cool = 0;
+  if (P.wanted > before) {
+    SFX.star();
+    stockCops(Math.round(P.wanted * 1.6));
+    if (before === 0) toast('WANTED', 1200);
+  }
+}
+/* A repair shop puts the armor back and resprays you on the way out. The new
+   colour excludes the current one, so it always visibly changes. */
+function repairAt(p) {
+  if (P.cash < REPAIR_COST) {
+    p.cool = 2;                                // just long enough not to spam the toast
+    toast('REPAIRS COST $' + REPAIR_COST, 1600);
+    return;
+  }
+  p.cool = 6;                                  // parked on it shouldn't re-fire
+  P.cash -= REPAIR_COST;
+  store.set('vm_cash', P.cash);
+  P.car.hp = 100;
+  const others = PAL.carBody.filter(c => c !== P.car.color);
+  P.car.color = pick(others.length ? others : PAL.carBody);
+  SFX.pickup();
+  toast((p.name ? p.name.toUpperCase() + ' · ' : '') + 'REPAIRED · −$' + REPAIR_COST, 1800);
+}
+
+function busted() {
+  const lost = P.cash - Math.floor(P.cash / 2);
+  P.cash = Math.floor(P.cash / 2);
+  store.set('vm_cash', P.cash);
+  bigMsg('BUSTED', '#33e6ff', `−$${lost} · booked at the station`);
+  respawn('police');
+}
+function wasted() {
+  P.cash = 0;
+  store.set('vm_cash', P.cash);
+  bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
+  respawn('hospital');
+}
+function respawn(kind) {
+  P.dead = true; P.deadT = 2.2;
+  // resolved now, while the car is still where it went wrong — you come round at
+  // the station or hospital nearest to where it happened
+  P.recover = recoverPoint(kind);
+  SFX.bust();
+  if (MISSION.state === 'deliver') { MISSION.state = 'none'; setTimeout(newMission, 2600); }
+}
+function doRespawn() {
+  const sp = P.recover || P.spawn;
+  P.car.x = sp.x; P.car.y = sp.y; P.car.h = sp.h;
+  P.car.vx = P.car.vy = 0; P.car.hp = 100;
+  P.wanted = 0; P.cool = 0; cops = [];
+  cam.x = sp.x; cam.y = sp.y;
+  P.dead = false;
+  $('big').classList.remove('on');
+}
+function bigMsg(t, col, sub) {
+  $('bigT').textContent = t; $('bigT').style.color = col;
+  $('bigS').textContent = sub || '';
+  $('big').classList.add('on');
+}
+let toastT = 0;
+function toast(t, ms) {
+  $('toast').textContent = t; $('toast').classList.add('show'); toastT = (ms || 1600) / 1000;
+}
+
+/* ---- street & district announcements, GTA style ---- */
+const NAV = { street: '', zone: '', cand: '', candT: 0, showT: 0, lastX: 0, lastY: 0, tick: 0 };
+function updateNav(dt) {
+  const c = P.car;
+  if (NAV.showT > 0) { NAV.showT -= dt; if (NAV.showT <= 0) $('street').classList.remove('on'); }
+  // a signpost doesn't need 60 Hz — look it up ten times a second
+  NAV.tick -= dt;
+  if (NAV.tick > 0) return;
+  dt += .1 - NAV.tick;          // the interval actually elapsed, for the debounce
+  NAV.tick = .1;
+
+  // street: needs to hold briefly and needs real movement, or junctions strobe
+  const r = streetAt(c.x, c.y);
+  const nm = r ? r.name : '';
+  if (nm !== NAV.cand) { NAV.cand = nm; NAV.candT = 0; }
+  else NAV.candT += dt;
+  if (nm && nm !== NAV.street && NAV.candT > .35 &&
+      dist(c.x, c.y, NAV.lastX, NAV.lastY) > 12) {
+    NAV.street = nm; NAV.lastX = c.x; NAV.lastY = c.y; NAV.showT = 4;
+    $('street').textContent = nm;
+    $('street').classList.add('on');
+  }
+
+  // district: persistent, flashes when you cross into a new one
+  const z = zoneAt(c.x, c.y);
+  const zn = z ? z.name : '';
+  if (zn && zn !== NAV.zone) {
+    NAV.zone = zn;
+    const el = $('zone');
+    el.textContent = zn;
+    el.classList.remove('flash'); void el.offsetWidth;   // restart the animation
+    el.classList.add('on', 'flash');
+    SFX.blipZone();
+  }
+}
+
+/* ------------------------------ 12. update ------------------------------ */
+function update(dt) {
+  const c = P.car;
+  const inp = P.dead ? { steer: 0, gas: 0, brake: 1, hand: 0 } : readInput();
+
+  /* Pressing DRIFT commits to a whole 180 — every press, no steering needed, no
+     wrestling it round. It's armed on the PRESS rather than while held, so
+     leaning on the button doesn't spin you like a top: one press, one half turn,
+     press again for another. Steering only picks which way it goes. */
+  if (inp.hand && !P.handWas && !P.dead) {
+    /* THE TURN IS HALF THE SPEED. 90 km/h on the clock buys 45° of rotation,
+       180 buys 90°, and 360 — the top of the clock, which is why top speed is
+       exactly 100 m/s — buys a half turn. Crawl and you barely twitch; you have
+       to be carrying speed to get the car round, which is how it works. */
+    const deg = clamp(Math.hypot(c.vx, c.vy) * 3.6 * .5, 0, 360);
+    // Long turns take longer: a quarter turn should not take as long as a full
+    // circle. The rate is what stays constant, with a floor so a tiny flick at
+    // walking pace is still a movement you can see rather than a snap.
+    c.spin = { t: 0, from: c.h, rad: deg * Math.PI / 180,
+               secs: clamp(SPIN_SECS * deg / 180, .28, 1.7),
+               dir: inp.steer || c.lastSpinDir || 1 };
+    c.lastSpinDir = c.spin.dir;
+    if (deg > 8) SFX.skid();
+  }
+  P.handWas = inp.hand;
+
+  const v = drive(c, inp.gas, inp.brake, inp.steer, inp.hand, dt);
+  P.slip = v.vl;                        // how far the tail is out, for the HUD hooks
+  fence(c);
+
+  /* WEDGED. Plenty of things can pin a car at a standstill — a civilian stopped
+     across the lane, a corner between two footprints, an archway entered at the
+     wrong angle, a kerb caught just so — and from the driver's seat every one of
+     them is the same problem: the throttle is down and nothing is happening.
+     Rather than chase each cause, holding the throttle against a standstill for
+     a moment eases you out along the way you are pointing.
+
+     Gas only, deliberately. Sitting still on the BRAKE is how you surrender to
+     the police, and nudging the car there would break being arrested. */
+  if (!P.dead && inp.gas && Math.hypot(c.vx, c.vy) < 1.5) P.stuckT = (P.stuckT || 0) + dt;
+  else P.stuckT = 0;
+  if (P.stuckT > STUCK_SECS) {
+    P.stuckT = 0;
+    /* Forwards FIRST, since that is what the throttle asked for, but only if
+       there is somewhere to go. Nudging blindly ahead when the thing pinning you
+       is a wall just drives you into it again and again — it took the car from
+       40% armour to nothing against a building that had merely stopped it. */
+    const dirs = [0, -.6, .6, Math.PI];
+    for (const off of dirs) {
+      const a = c.h + off, s = Math.cos(a), t = Math.sin(a);
+      if (solidAt(c.x + s * 2.4, c.y + t * 2.4)) continue;
+      c.x += s * 1.2; c.y += t * 1.2;       // out of whatever the overlap is
+      c.vx += s * 4.5; c.vy += t * 4.5;     // and moving, so it does not re-settle
+      break;
+    }
+  }
+
+  /* --- building impact. Rate-limited the same way car-to-car already is: this
+     ran every frame the car was overlapping, so LEANING on a wall was sixty
+     damage events a second. It only stayed survivable because the old engine
+     couldn't sustain the push; at accel 40 holding the throttle against a
+     building took a healthy car to nothing in about a second. Hitting a wall
+     should hurt — resting against one should not keep hurting. */
+  const impact = buildingCollide(c);
+  P.bldCd = Math.max(0, (P.bldCd || 0) - dt);
+  if (impact > 4 && P.bldCd <= 0) {
+    P.bldCd = .45;
+    const dmg = clamp((impact - 4) * 1.5, 0, 45);
+    c.hp -= dmg; cam.shake = Math.min(1, cam.shake + dmg / 45);
+    SFX.crash(impact);
+    for (let i = 0; i < 6; i++) parts.push(sparks(c.x, c.y));
+  }
+
+  const spd = Math.hypot(c.vx, c.vy);
+
+  // --- traffic
+  for (const t of traffic) updateTraffic(t, dt);
+  // anything out of health goes up; the list filters below drop the wreckage
+  for (const o of traffic) checkWreck(o, dt);
+  for (const o of cops) checkWreck(o, dt);
+  for (const t of traffic) {
+    const rel = carsCollide(c, t);
+    if (rel > 6 && P.hitCd <= 0) {
+      P.hitCd = .6;
+      c.hp -= clamp(rel * .7, 0, 22);
+      cam.shake = Math.min(1, cam.shake + .35);
+      SFX.crash(rel);
+      for (let i = 0; i < 5; i++) parts.push(sparks((c.x + t.x) / 2, (c.y + t.y) / 2));
+      if (rel > 13) addWanted(.34);
+      damageCar(t, rel);
+      t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
+    }
+  }
+  P.hitCd -= dt;
+
+  // --- pedestrians
+  for (const p of peds) {
+    if (p.dead) continue;
+    p.t -= dt;
+    if (p.t <= 0) { p.t = rand(2, 7); p.h += rand(-1.4, 1.4); }
+    const nx = p.x + Math.cos(p.h) * p.spd * dt, ny = p.y + Math.sin(p.h) * p.spd * dt;
+    // they stick to the pavement — stepping into the carriageway turns them around
+    if (onRoad(nx, ny) && !onRoad(p.x, p.y)) p.h += Math.PI * rand(.6, 1.4);
+    else { p.x = nx; p.y = ny; }
+    if (dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
+      p.dead = true; addWanted(1);
+      SFX.crash(8); toast('HEY! WATCH IT', 900);
+      for (let i = 0; i < 5; i++) parts.push(sparks(p.x, p.y, '#ff4f6d'));
+    }
+  }
+
+  // --- police
+  let nearCop = false;
+  for (const k of cops) {
+    updateCop(k, dt);
+    const d = dist(k.x, k.y, c.x, c.y);
+    if (d < 130) nearCop = true;
+    const rel = carsCollide(c, k);
+    if (rel > 5) { c.hp -= clamp(rel * .5, 0, 14); damageCar(k, rel); addWanted(.22); SFX.crash(rel); }
+    // busted: you stopped, a cop pulled up alongside and stopped too, for a beat.
+    // The cop has to be stationary as well — one blowing past at speed is a near
+    // miss, not an arrest.
+    const copSpd = Math.hypot(k.vx, k.vy);
+    if (d < 8 && spd < 3 && copSpd < 3 && P.wanted >= 1) {
+      P.bustT += dt;
+      if (P.bustT > 1.6 && !P.dead) busted();
+    }
+  }
+  if (!nearCop || P.wanted === 0) P.bustT = 0;
+
+  if (P.wanted > 0) {
+    if (!nearCop) {
+      P.cool += dt;
+      if (P.cool > 8) { P.cool = 0; P.wanted = Math.max(0, P.wanted - 1); if (P.wanted === 0) { cops = []; toast('YOU LOST THEM', 1400); } }
+    } else P.cool = 0;
+    // despawn units that fell hopelessly behind, then top the pursuit back up
+    cops = cops.filter(k => !k.dead && dist(k.x, k.y, c.x, c.y) < 700);
+    /* Topping the pursuit up is a search over the road index, and when the
+       player outruns the units chasing them the cull above empties the list
+       continuously — eight searches a frame for the length of the chase. But a
+       flat timer also delays refills that WOULD have worked, and a wanted level
+       with no police is worse than the cost. So it runs every frame and backs
+       off only when the search actually fails, which is the case that thrashes. */
+    P.copT = (P.copT || 0) - dt;
+    const want = Math.round(P.wanted * 1.6);
+    if (P.copT <= 0 && cops.length < want && !stockCops(want)) P.copT = .5;
+  }
+
+  // --- mission markers
+  if (MISSION.state === 'pickup' && MISSION.pick && dist(c.x, c.y, MISSION.pick.x, MISSION.pick.y) < 7) {
+    startDelivery();
+  } else if (MISSION.state === 'deliver') {
+    MISSION.time -= dt;
+    if (MISSION.time <= 0) failDelivery();
+    else if (MISSION.drop && dist(c.x, c.y, MISSION.drop.x, MISSION.drop.y) < 8 && spd < 14) completeDelivery();
+  }
+
+  // --- repair shops: drive in, leave with full armor and a new paint job
+  for (const p of W.pois) {
+    if (p.cool > 0) p.cool -= dt;
+    if (p.kind !== 'repair' || p.cool > 0 || P.dead) continue;
+    if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
+  }
+
+
+  // --- health / death
+  if (c.hp <= 0 && !P.dead) { c.hp = 0; wasted(); }
+  if (P.dead) { P.deadT -= dt; if (P.deadT <= 0) doRespawn(); }
+
+  // --- respawn thinning population near the player
+  traffic = traffic.filter(t => !t.dead && dist(t.x, t.y, c.x, c.y) < 780);
+  peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
+  /* Refilling the world is a search over the road index, so it is rate-limited
+     rather than run every frame. Traffic tops out at 17 m/s and you now do 100:
+     outrun it and both lists empty continuously, and topping them up one per
+     frame became sixty road searches a second, plus sixty more for the
+     pedestrians, for as long as you kept your foot down. That, not the drawing,
+     was what halved the frame rate at speed. */
+  P.popT = (P.popT || 0) - dt;
+  if (P.popT <= 0) {
+    P.popT = .25;
+    if (traffic.length < 26) spawnTraffic(Math.min(5, 26 - traffic.length));
+    if (peds.length < 34) spawnPeds(Math.min(6, 34 - peds.length));
+  }
+
+  // --- effects bookkeeping
+  for (const m of marks) m.life -= dt;
+  marks = marks.filter(m => m.life > 0);
+  for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .94; p.vy *= .94; p.life -= dt; }
+  parts = parts.filter(p => p.life > 0);
+  for (const b of blasts) { b.life -= dt; b.r += (b.max - b.r) * decay(9, dt); }
+  blasts = blasts.filter(b => b.life > 0);
+  cam.shake = Math.max(0, cam.shake - dt * 2.2);
+  if (!c.road && spd > 6) cam.shake = Math.min(.28, cam.shake + dt * .55);
+
+  // --- camera: follow with a little lead, pull back with speed
+  const lead = clamp(spd / 45, 0, 1) * 26;
+  const tx = c.x + Math.cos(c.h) * lead, ty = c.y + Math.sin(c.h) * lead;
+  const k = decay(6.5, dt);
+  cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
+  cam.s += (lerp(9.4, 4.6, clamp(spd / TOP_SPEED, 0, 1)) * zoomK - cam.s) * decay(2.4, dt);
+
+  // --- audio
+  SFX.engine(clamp(spd / 46, 0, 1), inp.gas ? 1 : .3);
+  SFX.siren(P.wanted >= 1 && cops.some(k => dist(k.x, k.y, c.x, c.y) < 170), dt);
+
+  updateNav(dt);
+  updateChunks();
+  updateMapWindow();
+
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
+}
+
+function sparks(x, y, col) {
+  const a = rand(0, TAU), s = rand(3, 16);
+  return { x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(.25, .7), col: col || pick(['#ffe36a', '#fff', '#ff9f5a']) };
+}
+
+function updateTraffic(t, dt) {
+  const r = t.road_;
+  if (!r || r.pts.length < 2) { rehome(t); return; }
+
+  // Walk past every node we've already reached. Turning round at a dead end has
+  // to step back TWO nodes, not one: stepping back one lands on the node the car
+  // is stood on, atan2 of a zero vector is noise, and the car spins on the spot
+  // for ever without escaping the arrival radius.
+  t.idx = clamp(t.idx, 0, r.pts.length - 1);
+  let guard = 0;
+  while (guard++ < 8 && dist(t.x, t.y, r.pts[t.idx].x, r.pts[t.idx].y) < 8) {
+    t.idx += t.dir;
+    if (t.idx < 0 || t.idx >= r.pts.length) {
+      t.dir *= -1;
+      t.idx = clamp(t.idx + 2 * t.dir, 0, r.pts.length - 1);
+      break;
+    }
+  }
+  const target = r.pts[t.idx];
+  const dx = target.x - t.x, dy = target.y - t.y;
+  if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast
+  const want = Math.atan2(dy, dx);
+  const steer = clamp(angDiff(t.h, want) * 2.2, -1, 1);
+
+  // slow down for whatever is directly in front (usually the player)
+  let brake = 0;
+  const ahead = { x: t.x + Math.cos(t.h) * 9, y: t.y + Math.sin(t.h) * 9 };
+  if (dist2(ahead.x, ahead.y, P.car.x, P.car.y) < 42) brake = 1;
+  /* Panic near a wanted player — but only if they are actually IN FRONT. Braking
+     for someone beside or behind you just parks a car across the road with no way
+     round it, which is how you end up nose to tail with a stationary civilian at
+     2 km/h. Ahead of you is a reason to stop; alongside is a reason to drive on. */
+  if (P.wanted > 0 && dist2(ahead.x, ahead.y, P.car.x, P.car.y) < 620) {
+    brake = Math.random() < .5 ? 1 : 0;
+  }
+
+  drive(t, brake ? 0 : 1, brake, steer, 0, dt);
+  fence(t);
+  for (const o of traffic) if (o !== t) {
+    const rel = carsCollide(t, o);
+    if (rel > 5.5) { damageCar(t, rel); damageCar(o, rel); SFX.crash(rel * .6); }
+  }
+}
+
+function updateCop(k, dt) {
+  const c = P.car;
+  const want = Math.atan2(c.y - k.y, c.x - k.x);
+  const df = angDiff(k.h, want);
+  const steer = clamp(df * 2.0, -1, 1);
+  const d = dist(k.x, k.y, c.x, c.y);
+  // Once it has you cornered it pulls up and stops. Without this it keeps the
+  // throttle down against a stopped car, never drops below the arrest threshold,
+  // and the bust can never fire. Brake is released near zero because drive()
+  // turns sustained braking into reverse under 0.8 m/s — hold it and the cop
+  // backs away from the arrest it just made.
+  const pspd = Math.hypot(c.vx, c.vy);
+  const holding = d < 9 && pspd < 4;
+  const kspd = Math.hypot(k.vx, k.vy);
+  const gas = holding ? 0 : (Math.abs(df) < 1.5 || d > 30) ? 1 : 0;
+  const brake = holding ? (kspd > 1.2 ? 1 : 0) : (Math.abs(df) > 2.2 && d < 20) ? 1 : 0;
+  /* Higher stars, faster units — and scaled off the player's own top speed, not
+     a number that happened to match it. At a fixed 83.5 m/s they were exactly a
+     match for the old 300 km/h car and hopelessly outrun by the 360 one: you
+     shed them instantly, they were culled at 700 m, and the pursuit respawned
+     eight units EVERY FRAME trying to catch up. Half the frame rate, no cops. */
+  k.maxSpeed = TOP_SPEED * (.52 + P.wanted * .096);   // 5 stars matches you
+  /* Bound the CLOSING speed by distance. Scaling units off the player's top speed
+     was necessary — at a fixed 83.5 they could never catch a 360 km/h car — but it
+     also put them at 80 m/s while converging on a target doing nothing, and they
+     arrived hot enough to wreck themselves and each other. Relative to the
+     player's own speed, so a chase at pace is untouched: only the approach is. */
+  k.maxSpeed = Math.min(k.maxSpeed, pspd + 12 + d * .55);
+  // Closing on someone who has already given up, they come in slowly. At five
+  // stars a unit does 80 m/s, and arriving at that speed simply destroys the car
+  // — you get wasted where you should have been arrested. The clamp in drive()
+  // is hard, so dropping maxSpeed here brakes them on the spot.
+  if (pspd < 4 && d < 50) k.maxSpeed = Math.max(7, d * .45);
+  drive(k, gas, brake, steer, 0, dt);
+  fence(k);
+  buildingCollide(k);
+  for (const o of cops) if (o !== k) {
+    const rel = carsCollide(k, o);
+    if (rel > 5.5) { damageCar(k, rel); damageCar(o, rel); }
+  }
+  k.blink += dt;
+}

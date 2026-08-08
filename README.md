@@ -8,7 +8,24 @@ A GTA: Vice City–flavoured driving sandbox that runs on **real streets, anywhe
 Type a place — your street, Miami Beach, Shibuya — and it pulls the actual road network and
 building footprints for that spot and turns them into a drivable neon city.
 
-One file. No build step, no dependencies, no API key. Open `index.html` and drive.
+No build step, no dependencies, no API key. Open `index.html` and drive.
+
+```
+index.html      markup only
+style.css       all of the styling
+js/util.js      utilities, palette, theme
+js/geo.js       projection, Overpass, Nominatim — everything that talks to the network
+js/world.js     parsing OSM, spatial indexes, tile streaming, landmarks
+js/entities.js  cars, traffic, police, pedestrians, and the driving physics
+js/io.js        input, audio, canvas
+js/game.js      game state, missions, wanted level, the per-frame update
+js/render.js    everything that draws
+js/main.js      the loop, the menus, the debug hooks
+```
+
+They are plain `<script>` files sharing one global scope, deliberately **not** ES
+modules: modules are blocked over `file://`, and opening the game straight off disk
+with nothing installed is the point. Load order is fixed in `index.html` and matters.
 
 ```
 git clone https://github.com/RaushanSakhibzadin/GoogleMapsGTA.git
@@ -16,7 +33,7 @@ cd GoogleMapsGTA && open index.html          # or: python3 -m http.server
 ```
 
 It also runs straight from GitHub Pages — enable Pages on the repo and the root `index.html`
-is the whole game.
+pulls in the rest.
 
 ## Controls
 
@@ -56,15 +73,20 @@ is the whole game.
 - **Dusk or daylight.** `N` switches the whole scene between the neon sunset and a bright
   daytime palette — asphalt roads, green parks, sunlit facades. Buildings store their
   material colour rather than a finished one, so the swap is instant.
-- **Arcade physics.** Velocity is split into forward and lateral components against the car's
-  heading. Steering authority falls off with speed and inverts in reverse. Constant engine force
-  against linear drag with a hard ceiling, so the 360 km/h on the clock is a speed you actually
-  reach rather than an asymptote — the engine deliberately out-pulls the drag, since constant force
-  against linear drag settles at `accel/0.32` and anything less makes the top number a lie. The
-  camera pulls back as you wind it out.
-- **The drift turns you as far as you're going fast.** The number on the clock is the number of
-  degrees: press DRIFT at 45 km/h and the car comes round 45°, at 180 it's a half turn, and at 360
-  — the top of the speedo, which is why top speed is exactly 100 m/s — it's a full circle. Crawl
+- **Arcade physics, with inertia.** Velocity is split into forward and lateral components against
+  the car's heading. Nothing happens the instant you ask for it: the engine takes a moment to come
+  on song and a moment to fall off it, the brakes bite rather than grab, and the wheels take a
+  moment to come round — and a shorter one to straighten, the way a real rack self-centres. Torque
+  and steering used to appear and vanish on the same frame as the key, which is what made the car
+  feel dragged around rather than driven; these are first-order lags, so they cost one number each
+  and the top speed is unchanged. Steering authority still falls off with speed and inverts in
+  reverse. Constant engine force against linear drag with a hard ceiling, so the 360 km/h on the
+  clock is a speed you actually reach rather than an asymptote — the engine deliberately out-pulls
+  the drag, since constant force against linear drag settles at `accel/0.32` and anything less makes
+  the top number a lie. The camera pulls back as you wind it out.
+- **The drift turns you half as far as you're going fast.** The turn in degrees is half the number
+  on the clock: press DRIFT at 90 km/h and the car comes round 45°, at 180 it's 90°, and at 360 —
+  the top of the speedo, which is why top speed is exactly 100 m/s — it's a half turn. Crawl
   and you barely twitch, so you have to carry speed to get the car round. The heading is driven
   along a smoothstep arc rather than nudged by a torque, which is why it lands on the number every
   single time instead of depending on how long you held the button; longer turns take longer, at a

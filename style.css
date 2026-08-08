@@ -1,0 +1,256 @@
+/* VICE MAPS — all of the styling. Loaded by index.html; no build step. */
+:root{
+  --pink:#ff4fd8; --cyan:#33e6ff; --gold:#ffe36a; --violet:#8a5cff;
+  --bg:#120a1e;
+  --hud:'Impact','Haettenschweiler','Arial Narrow Bold','Franklin Gothic Bold',sans-serif;
+  --ui:'Segoe UI',Roboto,-apple-system,system-ui,sans-serif;
+  --pad:clamp(72px,17vw,104px);   /* touch button size, referenced by the HUD layout */
+  /* The accelerator is held for basically the whole game, so it gets its own
+     larger size. Everything on the right-hand side positions off THIS, not
+     --pad, or the brake and DRIFT end up underneath it. */
+  --gas:clamp(96px,23vw,138px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:var(--ui);
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
+canvas{display:block}
+#game{position:fixed;inset:0;width:100%;height:100%}
+
+/* ---------- CRT / neon post overlay ---------- */
+#post{position:fixed;inset:0;pointer-events:none;z-index:40;
+  background:
+    repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0 1px,transparent 1px 3px),
+    radial-gradient(ellipse at 50% 45%,transparent 42%,rgba(20,0,40,.55) 92%,rgba(8,0,18,.9) 100%);
+  mix-blend-mode:multiply}
+#post::after{content:'';position:absolute;inset:0;mix-blend-mode:screen;
+  background:radial-gradient(ellipse at 50% 120%,rgba(255,79,216,.10),transparent 55%)}
+
+/* ---------- Overlays ---------- */
+.screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:22px;text-align:center;
+  background:
+    radial-gradient(ellipse at 50% 0%,#3a1552 0%,transparent 60%),
+    linear-gradient(180deg,#2a0f3f 0%,#160a26 45%,#0a0614 100%)}
+.screen.hide{display:none}
+.logo{font-family:var(--hud);font-size:clamp(44px,11vw,104px);line-height:.86;letter-spacing:2px;
+  background:linear-gradient(180deg,#fff 6%,var(--gold) 34%,var(--pink) 66%,var(--violet) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 18px rgba(255,79,216,.6));transform:skewX(-6deg)}
+.tag{font-size:12px;letter-spacing:.42em;text-transform:uppercase;color:var(--cyan);
+  margin-top:10px;text-shadow:0 0 12px rgba(51,230,255,.7)}
+.rule{width:min(560px,92vw);height:2px;margin:20px 0 22px;
+  background:linear-gradient(90deg,transparent,var(--pink),var(--cyan),transparent)}
+
+.row{display:flex;gap:8px;width:min(560px,92vw)}
+input[type=text]{flex:1;min-width:0;padding:14px 16px;font-size:16px;font-family:var(--ui);
+  color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(51,230,255,.45);
+  border-radius:10px;outline:none}
+input[type=text]:focus{border-color:var(--pink);box-shadow:0 0 0 3px rgba(255,79,216,.18)}
+input[type=text]::placeholder{color:rgba(255,255,255,.4)}
+
+button{font-family:var(--ui);font-weight:700;font-size:15px;color:#12061d;cursor:pointer;
+  padding:14px 20px;border:0;border-radius:10px;
+  background:linear-gradient(180deg,var(--cyan),#12a9cc);
+  box-shadow:0 4px 0 #0a6d84,0 8px 22px rgba(51,230,255,.32);transition:transform .07s}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #0a6d84}
+button.pink{background:linear-gradient(180deg,var(--pink),#c01c94);box-shadow:0 4px 0 #7d0f5f,0 8px 22px rgba(255,79,216,.32)}
+button.ghost{background:rgba(255,255,255,.09);color:#fff;box-shadow:none;border:1px solid rgba(255,255,255,.22);font-weight:600}
+
+.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:min(620px,94vw);margin-top:16px}
+.chip{padding:9px 14px;font-size:13px;font-weight:600;border-radius:999px;cursor:pointer;
+  color:var(--gold);background:rgba(255,227,106,.08);border:1px solid rgba(255,227,106,.35);transition:.15s}
+.chip:hover{background:rgba(255,227,106,.2);transform:translateY(-1px)}
+#menuErr{display:none;margin-top:16px;max-width:min(560px,92vw);padding:11px 15px;
+  border-radius:10px;font-size:13px;line-height:1.6;color:#ffd2a0;
+  background:rgba(255,120,80,.10);border:1px solid rgba(255,120,80,.4)}
+#menuErr.on{display:block}
+.hint{margin-top:24px;font-size:12.5px;line-height:1.85;color:rgba(255,255,255,.62);max-width:640px}
+.hint b{color:var(--cyan);font-weight:700}
+kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600 11px var(--ui);
+  color:#fff;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.25)}
+
+/* loading */
+#bar{width:min(560px,92vw);height:12px;border-radius:999px;overflow:hidden;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);margin-top:26px}
+#barIn{height:100%;width:0%;transition:width .32s ease;
+  background:linear-gradient(90deg,var(--cyan),var(--pink),var(--gold));box-shadow:0 0 18px rgba(255,79,216,.75)}
+#loadMsg{margin-top:14px;font-size:13.5px;color:var(--cyan);letter-spacing:.06em;min-height:20px}
+#loadSub{margin-top:6px;font-size:12px;color:rgba(255,255,255,.5);min-height:18px;padding:0 14px}
+/* the way out when a map server is having a bad day */
+#skip{display:none;margin-top:24px;font-size:13px;padding:11px 18px}
+#skip.on{display:inline-block}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;z-index:30;pointer-events:none;display:none}
+#hud.on{display:block}
+.hudTxt{font-family:var(--hud);letter-spacing:1px;
+  text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 22px rgba(255,79,216,.45)}
+#cash{position:absolute;top:12px;right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
+/* The offset has to clear the cash line's rendered HEIGHT, not its font size —
+   a 42px figure occupies about 48px once line-height is in, so 6vw left the
+   stars sitting 3px inside it on a landscape phone. */
+#stars{position:absolute;top:calc(12px + clamp(32px,6.6vw,50px));right:14px;font-size:clamp(19px,3.9vw,27px);
+  letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 16px rgba(255,180,60,.85)}
+#stars .off{color:rgba(255,255,255,.16);text-shadow:none}
+/* Top-left column: objective, radar, street name. The camera parks the car at
+   60% of the viewport height, and anything anchored to the bottom edge has to
+   clear the thumb pads on the way up — which is how the objective ended up
+   sitting on the car. Up here it can't. The max-width keeps the column left of
+   the car's screen column no matter how tall it grows. */
+#hudTL{position:absolute;left:14px;top:12px;display:flex;flex-direction:column;
+  align-items:flex-start;gap:9px;max-width:min(420px,48vw)}
+#obj{max-width:100%;min-height:2.6em;
+  font-size:clamp(15px,2.5vw,21px);color:#fff;line-height:1.25}
+#obj small{display:block;font-family:var(--ui);font-weight:600;font-size:12px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
+#timer{color:var(--pink)}
+
+#hpWrap{position:absolute;left:14px;bottom:14px;width:min(105px,21vw)}
+#hpLbl{font-family:var(--ui);font-weight:700;font-size:10.5px;letter-spacing:.22em;
+  color:rgba(255,255,255,.65);margin-bottom:5px}
+#hpBar{height:13px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.55);
+  border:1px solid rgba(255,255,255,.28)}
+#hpIn{height:100%;width:100%;transition:width .18s;
+  background:linear-gradient(90deg,#48ff9e,#33e6ff);box-shadow:0 0 14px rgba(51,230,255,.6)}
+
+#mini{width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
+  border:3px solid rgba(255,79,216,.75);box-shadow:0 0 26px rgba(255,79,216,.4),inset 0 0 30px rgba(0,0,0,.65);
+  background:#0a0614}
+/* street name: appears when you turn onto a new road, then fades (GTA V style) */
+#street{max-width:100%;font-family:var(--ui);font-weight:700;font-size:13px;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--cyan);
+  text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
+  opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
+#street.on{opacity:1;transform:none}
+/* quiet note while the next district streams in */
+#chunk{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+  font-family:var(--ui);font-weight:600;font-size:11.5px;letter-spacing:.18em;
+  text-transform:uppercase;color:rgba(255,255,255,.62);opacity:0;transition:opacity .4s;
+  text-shadow:0 2px 8px rgba(0,0,0,.9);white-space:nowrap}
+#chunk.on{opacity:1}
+body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,255,.9)}
+/* district name: persistent, flashes on entry (Vice City zone style) */
+#zone{position:absolute;right:14px;bottom:calc(12px + clamp(46px,10vw,74px));
+  max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
+  color:var(--gold);opacity:0;transition:opacity .5s}
+#zone.on{opacity:.95}
+#zone.flash{animation:zoneIn .85s ease-out}
+@keyframes zoneIn{
+  0%{opacity:0;transform:translateX(26px) scale(1.14)}
+  35%{opacity:1;transform:none}
+  100%{opacity:.95}
+}
+#speed{position:absolute;right:14px;bottom:12px;text-align:right}
+#spdN{font-family:var(--hud);font-size:clamp(38px,8.5vw,62px);line-height:.9;color:#fff;
+  text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 24px rgba(51,230,255,.6)}
+#spdU{font-family:var(--ui);font-weight:700;font-size:11px;letter-spacing:.3em;color:var(--cyan)}
+
+#toast{position:absolute;left:50%;top:20%;transform:translate(-50%,-50%) scale(.9);
+  font-family:var(--hud);font-size:clamp(24px,5.5vw,44px);text-align:center;opacity:0;
+  transition:opacity .3s,transform .3s;color:var(--gold);
+  text-shadow:3px 4px 0 rgba(0,0,0,.8),0 0 30px rgba(255,227,106,.8);white-space:pre-line}
+#toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+
+/* big centred status: WASTED / BUSTED */
+#big{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+  flex-direction:column;background:rgba(20,0,30,.55);backdrop-filter:blur(3px)}
+#big.on{display:flex}
+#bigT{font-family:var(--hud);font-size:clamp(52px,15vw,150px);line-height:.9;transform:skewX(-6deg)}
+#bigS{margin-top:14px;font-size:15px;color:rgba(255,255,255,.8)}
+
+/* pause */
+#pause .card{background:rgba(12,6,22,.86);border:1px solid rgba(51,230,255,.35);
+  border-radius:16px;padding:30px 34px;display:flex;flex-direction:column;gap:10px;align-items:center}
+
+/* ---------- touch ---------- */
+#touch{position:fixed;inset:0;z-index:35;display:none;pointer-events:none}
+#touch.on{display:block}
+.pad{position:absolute;bottom:18px;width:var(--pad);height:var(--pad);
+  border-radius:50%;pointer-events:auto;display:flex;align-items:center;justify-content:center;
+  font-family:var(--hud);font-size:26px;color:#fff;background:rgba(255,255,255,.13);
+  border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px)}
+.pad.act{background:rgba(255,79,216,.5);border-color:var(--pink)}
+#tL{left:16px} #tR{left:calc(32px + var(--pad))}
+#tB{right:calc(32px + var(--gas))}
+#tA{right:16px;background:rgba(51,230,255,.22);
+  width:var(--gas);height:var(--gas);font-size:34px}
+#tH{right:16px;bottom:calc(32px + var(--gas));width:auto;height:auto;
+  padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
+/* day/night, reachable without a keyboard */
+#tN{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+  padding:9px 15px;border-radius:12px;font-size:20px;line-height:1}
+
+/* ---------- daylight: the HUD has to survive a light background ---------- */
+body.theme-day #post{
+  background:
+    repeating-linear-gradient(to bottom,rgba(0,0,0,.05) 0 1px,transparent 1px 3px),
+    radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(120,100,70,.22) 100%)}
+body.theme-day #post::after{background:none}
+body.theme-day .hudTxt{text-shadow:2px 2px 0 rgba(255,255,255,.8),0 0 18px rgba(255,255,255,.95)}
+body.theme-day #cash{color:#7d4a00}
+body.theme-day #stars{color:#9c6000;text-shadow:2px 2px 0 rgba(255,255,255,.85)}
+body.theme-day #stars .off{color:rgba(0,0,0,.22)}
+body.theme-day #obj{color:#1b1626}
+body.theme-day #obj small,body.theme-day #spdU{color:#0a6478;text-shadow:0 0 8px rgba(255,255,255,.95)}
+body.theme-day #timer{color:#a3186f}
+body.theme-day #spdN{color:#241f2e}
+body.theme-day #zone{color:#7d4a00}
+body.theme-day #street{color:#07596b;text-shadow:0 2px 5px rgba(255,255,255,.95)}
+body.theme-day #hpLbl{color:rgba(0,0,0,.55)}
+body.theme-day #hpBar{background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.35)}
+body.theme-day #mini{border-color:rgba(60,45,85,.6);
+  box-shadow:0 0 18px rgba(0,0,0,.18),inset 0 0 22px rgba(0,0,0,.15)}
+body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color:#22202a}
+
+.credit{position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:10.5px;
+  color:rgba(255,255,255,.42);z-index:61}
+.credit a{color:rgba(51,230,255,.75)}
+/* Phones: everything has to clear the thumb pads along the bottom edge. */
+@media (max-width:760px),(pointer:coarse){
+  #hudTL{max-width:56vw}
+  #mini{width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
+  /* DRIFT sits just above the accelerator — it's held mid-corner, so it has to
+     fall under the same thumb rather than up the screen away from it, but with
+     enough of a gap that reaching for one doesn't catch the other. */
+  #tH{right:16px;left:auto;bottom:calc(var(--gas) + 52px)}
+  #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
+  /* armor is capped so a wide landscape phone can't run it under the car */
+  #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(22vw,calc(25vw - 30px))}
+  /* Speedo moves up under the star row so the accelerator can't cover it. Its
+     offset is built from the two things above it — the cash line's height and
+     the star row's — rather than a separately-tuned number, because three
+     independently-chosen offsets in one corner is exactly how they end up
+     3px inside each other. */
+  #speed{top:calc(20px + clamp(32px,6.6vw,50px) + clamp(22px,4.6vw,32px));
+    right:14px;bottom:auto}
+  #spdN{font-size:clamp(30px,7.5vw,46px)}
+  /* left column bottom-up: pads, armor, day/night */
+  #toast{top:30%}
+  /* DRIFT shares the right-hand side, so the district name lifts clear of it */
+  #zone{bottom:calc(var(--gas) + 112px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+}
+/* Landscape phones. There is barely any height here — a top-left column, the
+   armor bar, the day/night button and a row of thumb pads do not all fit down
+   the left edge stacked. So the radar sizes off the short axis, and armor and
+   day/night share one row instead of taking two. */
+@media (max-height:520px){
+  /* A 138px pedal is a third of the screen when the screen is 390px tall, and
+     DRIFT still has to fit above it. Sized off the short axis here instead. */
+  :root{--gas:clamp(84px,30vh,116px)}
+  #mini{width:min(25vw,18vh);height:min(25vw,18vh)}
+  /* the only case where the column is tall enough to matter, so this is the
+     only case that has to be kept out of the car's screen column */
+  #hudTL{gap:6px;max-width:calc(50vw - 56px)}
+  #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
+  #tN{bottom:calc(var(--pad) + 26px)}
+  #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(15vw,calc(25vw - 65px))}
+  /* The right edge cannot hold cash, stars, the district name, the speedo AND
+     DRIFT once the pedal is this size — there is 342px of screen. So DRIFT
+     clears the pedal, the speedo tucks under the star row, and the district
+     name moves to the left column beneath the street name, which is the same
+     kind of information and where the space actually is. */
+  #tH{bottom:calc(var(--gas) + 42px)}
+  #speed{top:calc(16px + 22vh);right:14px;bottom:auto}
+  #zone{left:14px;right:auto;top:calc(14px + 40vh);bottom:auto;
+    text-align:left;max-width:38vw;font-size:clamp(15px,3.6vh,20px)}
+}
