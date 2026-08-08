@@ -458,7 +458,21 @@ function update(dt) {
 
   const v = drive(c, inp.gas, inp.brake, inp.steer, inp.hand, dt);
   P.slip = v.vl;                        // how far the tail is out, for the HUD hooks
-  fence(c);
+  /* The edge of the streamed world stops the car dead, and it used to do it in
+     silence — throttle down, speedo reading walking pace, open ground ahead.
+     Say which it is, once, rather than leaving it looking like a broken game. */
+  const atEdge = fence(c);
+  P.edgeCd = Math.max(0, (P.edgeCd || 0) - dt);
+  /* Contact is intermittent, not continuous: the fence hands back 30% of the
+     velocity, so the car bounces just inside and is clamped again a few frames
+     later. Zeroing this on any frame that didn't clamp meant it never reached
+     the threshold no matter how long you leaned on the edge — so it leaks away
+     slowly instead, and repeated contact still adds up. */
+  if (atEdge && !P.dead) P.edgeT = Math.min(1.2, (P.edgeT || 0) + dt);
+  else P.edgeT = Math.max(0, (P.edgeT || 0) - dt * .6);
+  if (P.edgeT > .35 && P.edgeCd <= 0 && !P.dead) {
+    P.edgeCd = 6; toast('EDGE OF THE MAP\nTURN BACK', 1700);
+  }
 
   /* WEDGED. Plenty of things can pin a car at a standstill — a civilian stopped
      across the lane, a corner between two footprints, an archway entered at the
@@ -469,7 +483,9 @@ function update(dt) {
 
      Gas only, deliberately. Sitting still on the BRAKE is how you surrender to
      the police, and nudging the car there would break being arrested. */
-  if (!P.dead && inp.gas && Math.hypot(c.vx, c.vy) < 1.5) P.stuckT = (P.stuckT || 0) + dt;
+  // Not at the fence, though: nudging forward there just re-runs you into it,
+  // and the edge is a place to turn round rather than a wedge to work out of.
+  if (!P.dead && !atEdge && inp.gas && Math.hypot(c.vx, c.vy) < 1.5) P.stuckT = (P.stuckT || 0) + dt;
   else P.stuckT = 0;
   if (P.stuckT > STUCK_SECS) {
     P.stuckT = 0;

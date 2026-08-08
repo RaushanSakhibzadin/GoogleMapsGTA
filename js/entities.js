@@ -207,13 +207,18 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   return { vf, vl };
 }
 
-// keep entities inside the fetched patch of world
+/* Keep entities inside the fetched patch of world. Returns whether it actually
+   had to clamp, because being held here is indistinguishable from being broken:
+   the throttle is down, the speedo reads walking pace, and there is nothing in
+   front of the car to explain it. The caller says so out loud. */
 function fence(c) {
   const m = 25;
-  if (c.x < W.minX + m) { c.x = W.minX + m; c.vx = Math.abs(c.vx) * .3; }
-  if (c.x > W.maxX - m) { c.x = W.maxX - m; c.vx = -Math.abs(c.vx) * .3; }
-  if (c.y < W.minY + m) { c.y = W.minY + m; c.vy = Math.abs(c.vy) * .3; }
-  if (c.y > W.maxY - m) { c.y = W.maxY - m; c.vy = -Math.abs(c.vy) * .3; }
+  let hit = false;
+  if (c.x < W.minX + m) { c.x = W.minX + m; c.vx = Math.abs(c.vx) * .3; hit = true; }
+  if (c.x > W.maxX - m) { c.x = W.maxX - m; c.vx = -Math.abs(c.vx) * .3; hit = true; }
+  if (c.y < W.minY + m) { c.y = W.minY + m; c.vy = Math.abs(c.vy) * .3; hit = true; }
+  if (c.y > W.maxY - m) { c.y = W.maxY - m; c.vy = -Math.abs(c.vy) * .3; hit = true; }
+  return hit;
 }
 
 /* Is this spot inside a building you would actually hit? Bucketed, so it costs a

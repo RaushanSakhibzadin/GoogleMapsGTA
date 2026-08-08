@@ -9,9 +9,21 @@
      larger size. Everything on the right-hand side positions off THIS, not
      --pad, or the brake and DRIFT end up underneath it. */
   --gas:clamp(96px,23vw,138px);
+  /* KEEP THE THUMB PADS OFF THE EDGES. A phone reserves the outer strip of the
+     screen for its own gestures — swipe-back down each side, home and app-switch
+     along the bottom — and a touch that starts in there can be taken away from
+     the page mid-press as a system gesture. The pedal used to sit 16px from the
+     right edge and 18px from the bottom, i.e. inside both, so holding the
+     throttle was a coin flip on whether iOS confiscated the finger. These clear
+     the gesture strip and the home indicator with the safe-area insets on top,
+     and everything along the bottom of the HUD is positioned from them. */
+  --edgeL:max(24px,calc(env(safe-area-inset-left) + 8px));
+  --edgeR:max(24px,calc(env(safe-area-inset-right) + 8px));
+  --edgeB:max(26px,calc(env(safe-area-inset-bottom) + 6px));
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:var(--ui);
+  overscroll-behavior:none;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
 canvas{display:block}
 #game{position:fixed;inset:0;width:100%;height:100%}
@@ -165,19 +177,23 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
 /* ---------- touch ---------- */
 #touch{position:fixed;inset:0;z-index:35;display:none;pointer-events:none}
 #touch.on{display:block}
-.pad{position:absolute;bottom:18px;width:var(--pad);height:var(--pad);
+/* touch-action does not inherit, so it is set here as well as on body — leaving
+   the pads on the default lets the browser treat a press as the start of a pan
+   and cancel it, which is the throttle dying mid-corner. */
+.pad{position:absolute;bottom:var(--edgeB);width:var(--pad);height:var(--pad);
   border-radius:50%;pointer-events:auto;display:flex;align-items:center;justify-content:center;
   font-family:var(--hud);font-size:26px;color:#fff;background:rgba(255,255,255,.13);
-  border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px)}
+  border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px);
+  touch-action:none;-webkit-touch-callout:none}
 .pad.act{background:rgba(255,79,216,.5);border-color:var(--pink)}
-#tL{left:16px} #tR{left:calc(32px + var(--pad))}
-#tB{right:calc(32px + var(--gas))}
-#tA{right:16px;background:rgba(51,230,255,.22);
+#tL{left:var(--edgeL)} #tR{left:calc(var(--edgeL) + 16px + var(--pad))}
+#tB{right:calc(var(--edgeR) + 16px + var(--gas))}
+#tA{right:var(--edgeR);background:rgba(51,230,255,.22);
   width:var(--gas);height:var(--gas);font-size:34px}
-#tH{right:16px;bottom:calc(32px + var(--gas));width:auto;height:auto;
+#tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;
   padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
 /* day/night, reachable without a keyboard */
-#tN{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+#tN{left:var(--edgeL);bottom:calc(var(--edgeB) + 14px + var(--pad));width:auto;height:auto;
   padding:9px 15px;border-radius:12px;font-size:20px;line-height:1}
 
 /* ---------- daylight: the HUD has to survive a light background ---------- */
@@ -212,10 +228,10 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
   /* DRIFT sits just above the accelerator — it's held mid-corner, so it has to
      fall under the same thumb rather than up the screen away from it, but with
      enough of a gap that reaching for one doesn't catch the other. */
-  #tH{right:16px;left:auto;bottom:calc(var(--gas) + 52px)}
-  #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
+  #tH{right:var(--edgeR);left:auto;bottom:calc(var(--edgeB) + 34px + var(--gas))}
+  #tN{left:var(--edgeL);right:auto;bottom:calc(var(--edgeB) + 56px + var(--pad))}
   /* armor is capped so a wide landscape phone can't run it under the car */
-  #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(22vw,calc(25vw - 30px))}
+  #hpWrap{left:14px;bottom:calc(var(--edgeB) + 8px + var(--pad));width:min(22vw,calc(25vw - 30px))}
   /* Speedo moves up under the star row so the accelerator can't cover it. Its
      offset is built from the two things above it — the cash line's height and
      the star row's — rather than a separately-tuned number, because three
@@ -227,7 +243,7 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
   /* left column bottom-up: pads, armor, day/night */
   #toast{top:30%}
   /* DRIFT shares the right-hand side, so the district name lifts clear of it */
-  #zone{bottom:calc(var(--gas) + 112px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+  #zone{bottom:calc(var(--edgeB) + 94px + var(--gas));max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
 }
 /* Landscape phones. There is barely any height here — a top-left column, the
    armor bar, the day/night button and a row of thumb pads do not all fit down
@@ -236,20 +252,24 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
 @media (max-height:520px){
   /* A 138px pedal is a third of the screen when the screen is 390px tall, and
      DRIFT still has to fit above it. Sized off the short axis here instead. */
-  :root{--gas:clamp(84px,30vh,116px)}
+  /* Both pad sizes come off the short axis here. Lifting everything clear of the
+     home-indicator strip costs vertical room, and on a 342px-tall screen there
+     was none spare — a full-size steering pad pushed day/night up into the
+     district name. --gas already sized this way for the same reason. */
+  :root{--gas:clamp(84px,30vh,116px);--pad:clamp(64px,22vh,92px)}
   #mini{width:min(25vw,18vh);height:min(25vw,18vh)}
   /* the only case where the column is tall enough to matter, so this is the
      only case that has to be kept out of the car's screen column */
   #hudTL{gap:6px;max-width:calc(50vw - 56px)}
   #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
-  #tN{bottom:calc(var(--pad) + 26px)}
-  #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(15vw,calc(25vw - 65px))}
+  #tN{bottom:calc(var(--edgeB) + 8px + var(--pad))}
+  #hpWrap{left:80px;bottom:calc(var(--edgeB) + 12px + var(--pad));width:min(15vw,calc(25vw - 65px))}
   /* The right edge cannot hold cash, stars, the district name, the speedo AND
      DRIFT once the pedal is this size — there is 342px of screen. So DRIFT
      clears the pedal, the speedo tucks under the star row, and the district
      name moves to the left column beneath the street name, which is the same
      kind of information and where the space actually is. */
-  #tH{bottom:calc(var(--gas) + 42px)}
+  #tH{bottom:calc(var(--edgeB) + 24px + var(--gas))}
   #speed{top:calc(16px + 22vh);right:14px;bottom:auto}
   #zone{left:14px;right:auto;top:calc(14px + 40vh);bottom:auto;
     text-align:left;max-width:38vw;font-size:clamp(15px,3.6vh,20px)}

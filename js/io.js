@@ -34,16 +34,80 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = 0; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = 0; });
 
-function bindPad(el, prop) {
-  const on = e => { e.preventDefault(); touch[prop] = 1; el.classList.add('act'); audioStart(); };
-  const off = e => { e.preventDefault(); touch[prop] = 0; el.classList.remove('act'); };
-  el.addEventListener('touchstart', on, { passive: false });
-  el.addEventListener('touchend', off, { passive: false });
-  el.addEventListener('touchcancel', off, { passive: false });
-  el.addEventListener('mousedown', on);
-  addEventListener('mouseup', off);
+/* THE PADS ARE READ FROM THE LIVE TOUCH LIST, not latched by paired
+   touchstart/touchend, because on a phone those pairs do not reliably arrive.
+
+   iOS cancels a touch the moment it decides the finger belongs to a system
+   gesture — an edge swipe, the home indicator, a notification, the address bar.
+   The old handlers treated that cancel as "thumb lifted": the throttle latched
+   off with the thumb still on the glass, and no further event was ever coming
+   to put it back, because a cancelled touch is gone. From the driver's seat the
+   car simply stops pulling and coasts down to walking pace while the pedal is
+   still held. That is the reported fault, and it stays broken until you notice
+   and lift your thumb.
+
+   Rebuilding the whole state from e.touches on every touch event makes it
+   self-healing instead. A dropped touchend, a doubled touchstart, a cancel that
+   takes one finger of three, a thumb sliding off the brake and onto the
+   accelerator: each is just a fresh reading, and the next event corrects
+   whatever the last one got wrong. It cannot resurrect a finger the browser has
+   taken away — nothing can — but it no longer loses the other fingers with it,
+   and re-pressing always works. */
+const PADS = [['tL', 'l'], ['tR', 'r'], ['tA', 'a'], ['tB', 'b'], ['tH', 'h']];
+/* Measured per layout, not per touch: touchmove runs at frame rate and
+   getBoundingClientRect forces a reflow. Cleared on resize, and never trusted
+   while the pads are hidden — a display:none pad measures as a zero-size box at
+   the origin, which would swallow every touch in the top-left corner. */
+let padBoxes = null;
+const measurePads = () =>
+  (padBoxes = PADS.map(([id, prop]) => ({ prop, el: $(id), r: $(id).getBoundingClientRect() })));
+function padAt(x, y) {
+  for (const p of padBoxes || measurePads()) {
+    const r = p.r;
+    if (r.width < 1) continue;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return p;
+  }
+  return null;
 }
-bindPad($('tL'), 'l'); bindPad($('tR'), 'r'); bindPad($('tA'), 'a'); bindPad($('tB'), 'b'); bindPad($('tH'), 'h');
+function syncTouches(e) {
+  // measured up front: an event with no touches at all — a cancel that took the
+  // last finger — would otherwise never reach padAt, and the loop below would
+  // run on a null cache
+  const boxes = padBoxes || measurePads();
+  let ours = false;
+  const next = { l: 0, r: 0, a: 0, b: 0, h: 0 };
+  for (const t of e.touches) {
+    const p = padAt(t.clientX, t.clientY);
+    if (p) { next[p.prop] = 1; ours = true; }
+  }
+  // the touch being lifted has already left e.touches, so check it separately or
+  // the event that releases a pad wouldn't count as ours
+  for (const t of e.changedTouches) if (padAt(t.clientX, t.clientY)) ours = true;
+  // a non-cancelable touch is one the browser has already committed to a gesture;
+  // calling preventDefault there only earns a console warning
+  if (ours && e.cancelable) e.preventDefault();
+  for (const p of boxes) {
+    if (touch[p.prop] === next[p.prop]) continue;
+    touch[p.prop] = next[p.prop];
+    p.el.classList.toggle('act', !!next[p.prop]);
+  }
+  return ours;
+}
+for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
+  document.addEventListener(ev, e => {
+    if (syncTouches(e) && ev === 'touchstart') audioStart();
+  }, { passive: false });
+
+// mouse, for driving it on a desktop
+for (const [id, prop] of PADS) {
+  const el = $(id);
+  el.addEventListener('mousedown', e => {
+    e.preventDefault(); touch[prop] = 1; el.classList.add('act'); audioStart();
+  });
+}
+addEventListener('mouseup', () => {
+  for (const [id, prop] of PADS) { touch[prop] = 0; $(id).classList.remove('act'); }
+});
 
 // the theme button is a tap, not a hold, so it doesn't go through bindPad
 let themeTap = 0;
@@ -186,6 +250,9 @@ function resize() {
   const mr = mini.getBoundingClientRect();
   mini.width = Math.floor(mr.width * DPR); mini.height = Math.floor(mr.height * DPR);
   miniRect = mr;                       // cached so the edge arrow can dodge the radar
+  // the pads move with the layout, and this is also the call that runs right
+  // after the touch UI is first shown — before that they measure as nothing
+  padBoxes = null;
 }
 addEventListener('resize', resize);
 

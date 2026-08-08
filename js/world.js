@@ -492,6 +492,7 @@ function buildWorld(data, name, procedural) {
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.tiles = new Map(); W.fixed = new Set();
   W.skelRect = null; SCENERY_ONLY = false;   // a new city starts with no wide map
+  RESERVED = '';                             // and reserves its own ground again
   // a real map streams; the generated city is a fixed island
   if (!procedural) { W.tiles.set('0,0', 'loaded'); W.fixed.add('0,0'); stampTile(data, '0,0'); }
 
@@ -706,9 +707,47 @@ function evictFarTiles(px, py, budget) {
   return true;
 }
 
+/* THE FENCE HAS TO COVER GROUND WE CAN STILL STREAM, not only ground that has
+   already arrived.
+
+   worldBounds() unions the tiles that are 'loaded', and fence() clamps the car
+   inside it every frame while reversing 30% of its velocity. So a tile still in
+   flight — or one whose request failed and is backing off — is an invisible
+   wall. Drive into it with the throttle down and the car is pinned at walking
+   pace against nothing, on a map that plainly continues ahead of you: no
+   collision, no message, just a car that will not move. Turning round frees it
+   instantly, which is the tell, and on a slow connection the opening ring can
+   leave that wall less than a kilometre from where you started.
+
+   Reserving the player's own tile and its eight neighbours puts the fence at
+   least a tile ahead of the car and carries it along with them. The grid grows
+   exactly as it always did, one tile at a time — just slightly ahead of the data
+   instead of behind it — and fitGrid only ever grows, so it settles as soon as
+   the car stops crossing into new tiles. Reserved ground with no roads on it yet
+   is simply off-road: you can drive on it, at off-road speed, until it arrives. */
+let RESERVED = '';                 // the tile we last reserved around; '' on a new city
+function reserveAhead(px, py) {
+  /* Only in the no-skeleton fallback. When the wide map landed it IS the world:
+     bounds are the skeleton rectangle from the first frame, symmetric and 18 km
+     out, the road network is already complete, and tiles bring nothing but
+     scenery. Reserving past it there would push the fence — and the drivable
+     mask with it, twenty million cells at 36 km — outwards forever as you drove. */
+  if (W.skelRect) return;
+  const [ci, cj] = tileOf(px, py);
+  const here = tileKey(ci, cj);
+  if (here === RESERVED) return;             // nothing to do until you cross a seam
+  RESERVED = here;
+  const a = tileRect(tileKey(ci - 1, cj - 1)), b = tileRect(tileKey(ci + 1, cj + 1));
+  if (fitGrid(a.x0, a.y0, b.x1, b.y1)) prerenderMap();   // the radar sizes off the bounds
+}
+
 // Called from the game loop; cheap, and does nothing most frames.
 function updateChunks() {
-  if (W.procedural || CHUNK.busy) return;
+  if (W.procedural) return;
+  // before the busy/cooldown guards: the fence must keep up with the car even
+  // while a request is in flight, which is precisely when it used to trap you
+  reserveAhead(P.car.x, P.car.y);
+  if (CHUNK.busy) return;
   if (Date.now() - CHUNK.last < TILE_COOLDOWN) return;
   const want = wantedTiles(P.car.x, P.car.y);
   if (!want.length) return;
