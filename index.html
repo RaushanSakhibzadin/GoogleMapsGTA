@@ -11,6 +11,10 @@
     --hud:'Impact','Haettenschweiler','Arial Narrow Bold','Franklin Gothic Bold',sans-serif;
     --ui:'Segoe UI',Roboto,-apple-system,system-ui,sans-serif;
     --pad:clamp(72px,17vw,104px);   /* touch button size, referenced by the HUD layout */
+    /* The accelerator is held for basically the whole game, so it gets its own
+       larger size. Everything on the right-hand side positions off THIS, not
+       --pad, or the brake and DRIFT end up underneath it. */
+    --gas:clamp(96px,23vw,138px);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:var(--ui);
@@ -88,7 +92,10 @@
   .hudTxt{font-family:var(--hud);letter-spacing:1px;
     text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 22px rgba(255,79,216,.45)}
   #cash{position:absolute;top:12px;right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
-  #stars{position:absolute;top:calc(12px + clamp(30px,6vw,46px));right:14px;font-size:clamp(19px,3.9vw,27px);
+  /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
+     a 42px figure occupies about 48px once line-height is in, so 6vw left the
+     stars sitting 3px inside it on a landscape phone. */
+  #stars{position:absolute;top:calc(12px + clamp(32px,6.6vw,50px));right:14px;font-size:clamp(19px,3.9vw,27px);
     letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 16px rgba(255,180,60,.85)}
   #stars .off{color:rgba(255,255,255,.16);text-shadow:none}
   /* Top-left column: objective, radar, street name. The camera parks the car at
@@ -170,8 +177,10 @@
     border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px)}
   .pad.act{background:rgba(255,79,216,.5);border-color:var(--pink)}
   #tL{left:16px} #tR{left:calc(32px + var(--pad))}
-  #tB{right:calc(32px + var(--pad))} #tA{right:16px;background:rgba(51,230,255,.22)}
-  #tH{right:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
+  #tB{right:calc(32px + var(--gas))}
+  #tA{right:16px;background:rgba(51,230,255,.22);
+    width:var(--gas);height:var(--gas);font-size:34px}
+  #tH{right:16px;bottom:calc(32px + var(--gas));width:auto;height:auto;
     padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
   /* day/night, reachable without a keyboard */
   #tN{left:16px;bottom:calc(32px + var(--pad));width:auto;height:auto;
@@ -206,25 +215,34 @@
   @media (max-width:760px),(pointer:coarse){
     #hudTL{max-width:56vw}
     #mini{width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
-    /* DRIFT tucks in just above the accelerator — it's held mid-corner, so it
-       has to fall under the same thumb, not sit up the screen away from it */
-    #tH{right:16px;left:auto;bottom:calc(var(--pad) + 30px)}
+    /* DRIFT sits just above the accelerator — it's held mid-corner, so it has to
+       fall under the same thumb rather than up the screen away from it, but with
+       enough of a gap that reaching for one doesn't catch the other. */
+    #tH{right:16px;left:auto;bottom:calc(var(--gas) + 52px)}
     #tN{left:16px;right:auto;bottom:calc(var(--pad) + 74px)}
     /* armor is capped so a wide landscape phone can't run it under the car */
     #hpWrap{left:14px;bottom:calc(var(--pad) + 26px);width:min(22vw,calc(25vw - 30px))}
-    /* speedo moves up under the star row so the accelerator can't cover it */
-    #speed{top:calc(16px + 12vw);right:14px;bottom:auto}
+    /* Speedo moves up under the star row so the accelerator can't cover it. Its
+       offset is built from the two things above it — the cash line's height and
+       the star row's — rather than a separately-tuned number, because three
+       independently-chosen offsets in one corner is exactly how they end up
+       3px inside each other. */
+    #speed{top:calc(20px + clamp(32px,6.6vw,50px) + clamp(22px,4.6vw,32px));
+      right:14px;bottom:auto}
     #spdN{font-size:clamp(30px,7.5vw,46px)}
     /* left column bottom-up: pads, armor, day/night */
     #toast{top:30%}
-    /* DRIFT now shares the right-hand side, so the district name lifts clear of it */
-    #zone{bottom:calc(var(--pad) + 132px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+    /* DRIFT shares the right-hand side, so the district name lifts clear of it */
+    #zone{bottom:calc(var(--gas) + 112px);max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
   }
   /* Landscape phones. There is barely any height here — a top-left column, the
      armor bar, the day/night button and a row of thumb pads do not all fit down
      the left edge stacked. So the radar sizes off the short axis, and armor and
      day/night share one row instead of taking two. */
   @media (max-height:520px){
+    /* A 138px pedal is a third of the screen when the screen is 390px tall, and
+       DRIFT still has to fit above it. Sized off the short axis here instead. */
+    :root{--gas:clamp(84px,30vh,116px)}
     #mini{width:min(25vw,18vh);height:min(25vw,18vh)}
     /* the only case where the column is tall enough to matter, so this is the
        only case that has to be kept out of the car's screen column */
@@ -232,6 +250,15 @@
     #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
     #tN{bottom:calc(var(--pad) + 26px)}
     #hpWrap{left:80px;bottom:calc(var(--pad) + 30px);width:min(15vw,calc(25vw - 65px))}
+    /* The right edge cannot hold cash, stars, the district name, the speedo AND
+       DRIFT once the pedal is this size — there is 342px of screen. So DRIFT
+       clears the pedal, the speedo tucks under the star row, and the district
+       name moves to the left column beneath the street name, which is the same
+       kind of information and where the space actually is. */
+    #tH{bottom:calc(var(--gas) + 42px)}
+    #speed{top:calc(16px + 22vh);right:14px;bottom:auto}
+    #zone{left:14px;right:auto;top:calc(14px + 40vh);bottom:auto;
+      text-align:left;max-width:38vw;font-size:clamp(15px,3.6vh,20px)}
   }
 </style>
 </head>
