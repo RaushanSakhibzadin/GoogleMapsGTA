@@ -384,10 +384,10 @@ const ROOFMAT = {
 /* Two complete looks. PAL is the live one; every draw call reads it. */
 const THEMES = {
   dusk: {
-    ground: '#0d0718', water: '#0b2d4a', waterEdge: '#1d5f86',
+    ground: '#0d0718',
     park: '#123a2a', parkEdge: '#2a7a52', kerb: '#2b2140', case: '#080512',
     road: '#2f2848', roadBig: '#382f54', line: 'rgba(255,227,106,.55)',
-    mapBg: '#0a0614', mapPark: '#17492f', mapWater: '#103f66',
+    mapBg: '#0a0614', mapPark: '#17492f',
     mapRoad: '#655488', mapRoadBig: '#9b81d8',
     lights: true, showNeon: true,
     // night: dim hard and pull towards the violet ambient, so brick still reads
@@ -396,10 +396,10 @@ const THEMES = {
     wallT: c => mixc(mul(c, .17), [38, 26, 58], .50)
   },
   day: {
-    ground: '#cfc9bd', water: '#7fb0cc', waterEdge: '#5f93b3',
+    ground: '#cfc9bd',
     park: '#9dbf86', parkEdge: '#7ba368', kerb: '#c2bcb1', case: '#8d887f',
     road: '#a6a29b', roadBig: '#b2aea6', line: 'rgba(250,240,190,.85)',
-    mapBg: '#e8e3d8', mapPark: '#b7d0a2', mapWater: '#9cc4dc',
+    mapBg: '#e8e3d8', mapPark: '#b7d0a2',
     mapRoad: '#ffffff', mapRoadBig: '#ffe9a8',
     lights: false, showNeon: false,
     // daylight: near-true colour on top, honest shading down the walls
@@ -503,16 +503,6 @@ function overpassQL(s, w, n, e, kind) {
       `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
       `);out geom qt;`;
   }
-  // Every way OSM maps water: areas as ways, and the big rivers, harbours and bays
-  // that are multipolygons. Its OWN request, because the streets query has to
-  // succeed for the city to exist at all and none of this is needed to drive.
-  // `out geom(bbox)` clips, so a relation spanning a country returns just this tile.
-  if (kind === 'water') {
-    return `[out:json][timeout:25];(` +
-      `way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});` +
-      `);out geom qt;` +
-      `relation["natural"="water"](${bb});out geom(${bb}) qt;`;
-  }
   // The wide skeleton: the roads you'd cross a city on, over an area 400x the
   // detailed one. Deliberately NOT the full drivable set — residential lanes are
   // the overwhelming majority of a city's ways, and including them here is the
@@ -551,7 +541,6 @@ const HEDGE = 7000;      // start another mirror if the current one is still sil
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
-const WATER = { mirrorMs: 30000, totalMs: 40000 };      // query says timeout:25
 const ARTERIALS = { mirrorMs: 40000, totalMs: 45000 };  // query says timeout:90, big box
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 // Overpass says these when it's busy, not when the query is wrong
@@ -620,7 +609,7 @@ function overpassArea(s, w, n, e, sess, opt) {
   opt = opt || {};
   const kind = opt.kind || 'streets';
   const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS
-              : kind === 'water' ? WATER : kind === 'arterials' ? ARTERIALS : STREETS;
+              : kind === 'arterials' ? ARTERIALS : STREETS;
   const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
@@ -701,7 +690,7 @@ function fetchBuildings(lat, lon, sess) {
 
 /* ------------------------------ 3. world ------------------------------ */
 const W = {
-  roads: [], buildings: [], water: [], parks: [],
+  roads: [], buildings: [], parks: [],
   minX: 0, minY: 0, maxX: 0, maxY: 0,
   places: [],                            // named districts / neighbourhoods
   pois: [],                              // police stations, hospitals, repair shops
@@ -786,7 +775,7 @@ const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.shop === 'car_repair' ? 'repair' : null;
 
 function parseOSM(els) {
-  const roads = [], buildings = [], water = [], parks = [], places = [], pois = [];
+  const roads = [], buildings = [], parks = [], places = [], pois = [];
   for (const el of els) {
     const t = el.tags || {};
 
@@ -797,19 +786,6 @@ function parseOSM(els) {
       }
       const pk = POI_KIND(t);
       if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
-      continue;
-    }
-    // A water multipolygon: each outer ring is a body of water in its own right.
-    // Inner rings are holes — an island in a lake stays dry, so they're skipped.
-    if (el.type === 'relation') {
-      if (t.natural !== 'water') continue;
-      const outers = [], holes = [];
-      for (const m of el.members || []) {
-        if (!m.geometry || m.geometry.length < 3) continue;
-        const pts = m.geometry.map(g => ({ x: projX(g.lon), y: projY(g.lat) }));
-        (m.role === 'inner' ? holes : outers).push(pts);
-      }
-      for (const pts of outers) water.push({ pts, bb: bbox(pts), holes });
       continue;
     }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
@@ -851,13 +827,11 @@ function parseOSM(els) {
       buildings.push({ id: el.id, pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
                        mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
                        neon: (signable && Math.random() < .22) ? pick(PAL.neon) : null });
-    } else if (t.natural === 'water' || t.waterway === 'riverbank') {
-      water.push({ pts, bb: bbox(pts) });
     } else if (t.leisure || t.landuse) {
       parks.push({ pts, bb: bbox(pts) });
     }
   }
-  return { roads, buildings, water, parks, places, pois };
+  return { roads, buildings, parks, places, pois };
 }
 
 /* The wide landmark sweep asks for `out center`, so a way arrives as a single
@@ -938,7 +912,7 @@ function proceduralCity() {
     { x: S, y: -2 * S, kind: 'repair', name: 'Pay ’n’ Spray', cool: 0 },
     { x: -3 * S, y: 2 * S, kind: 'repair', name: 'Chrome & Lights', cool: 0 },
   ];
-  return { roads, buildings, water: [], parks, places, pois };
+  return { roads, buildings, parks, places, pois };
 }
 
 /* ---- indexing, written so it can run over a whole world or just a new chunk ---- */
@@ -1149,11 +1123,11 @@ function markPOIBuildings() {
 
 /* The world is as big as the tiles we deliberately loaded — never as big as the
    geometry inside them. Overpass returns the FULL shape of anything that merely
-   touches the box it was asked for, and a riverbank way or a water multipolygon
-   runs for hundreds of kilometres: sizing the world off feature bounds let a
-   single river stretch it to ±150 km, which shrank the whole city to a speck on
-   the radar and blew the collision mask up to millions of cells. Overhanging
-   features are simply drawn and clipped; markDrivable already bounds-checks. */
+   touches the box it was asked for, and a motorway way can run for hundreds of
+   kilometres: sizing the world off feature bounds once let a single overhanging
+   way stretch it to ±150 km, which shrank the whole city to a speck on the radar
+   and blew the collision mask up to millions of cells. Overhanging features are
+   simply drawn as they are; markDrivable already bounds-checks. */
 const tileRect = key => {
   const [i, j] = key.split(',').map(Number);
   return { x0: i * TILE - RADIUS, y0: j * TILE - RADIUS,
@@ -1183,44 +1157,6 @@ function worldBounds() {
   return { x0, y0, x1, y1 };
 }
 
-/* Sutherland–Hodgman against an axis-aligned rectangle. The clip region is convex
-   so this is exact, and it's what keeps a river honest: returned whole it is
-   hundreds of kilometres long, and a bounding box that size passes the view cull
-   every single frame. Clipped to its tile it costs what it looks like. */
-function clipPoly(pts, r) {
-  const inside = (p, e) => e === 0 ? p.x >= r.x0 : e === 1 ? p.x <= r.x1
-                         : e === 2 ? p.y >= r.y0 : p.y <= r.y1;
-  const cut = (a, b, e) => {
-    const t = e === 0 ? (r.x0 - a.x) / (b.x - a.x) : e === 1 ? (r.x1 - a.x) / (b.x - a.x)
-            : e === 2 ? (r.y0 - a.y) / (b.y - a.y) : (r.y1 - a.y) / (b.y - a.y);
-    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-  };
-  let out = pts;
-  for (let e = 0; e < 4 && out.length; e++) {
-    const inp = out; out = [];
-    for (let i = 0; i < inp.length; i++) {
-      const a = inp[i], b = inp[(i + 1) % inp.length];
-      const ia = inside(a, e), ib = inside(b, e);
-      if (ia) out.push(a);
-      if (ia !== ib) out.push(cut(a, b, e));   // only when it crosses, so never /0
-    }
-  }
-  return out;
-}
-
-function clipWater(data, rect) {
-  const pad = 60;
-  const r = { x0: rect.x0 - pad, y0: rect.y0 - pad, x1: rect.x1 + pad, y1: rect.y1 + pad };
-  const out = [];
-  for (const f of data.water) {
-    const pts = clipPoly(f.pts, r);
-    if (pts.length < 3) continue;
-    const holes = (f.holes || []).map(h => clipPoly(h, r)).filter(h => h.length >= 3);
-    out.push({ pts, bb: bbox(pts), holes: holes.length ? holes : undefined });
-  }
-  data.water = out;
-}
-
 function featureBounds(sets) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const arr of sets) for (const f of arr) {
@@ -1231,9 +1167,8 @@ function featureBounds(sets) {
 }
 
 function buildWorld(data, name, procedural) {
-  if (!procedural) clipWater(data, tileRect('0,0'));
   W.roads = data.roads; W.buildings = data.buildings;
-  W.water = data.water; W.parks = data.parks;
+  W.parks = data.parks;
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
@@ -1248,7 +1183,7 @@ function buildWorld(data, name, procedural) {
 
 /* Which tile a feature came from, so recycling one can take its scenery with it. */
 function stampTile(data, key) {
-  for (const arr of [data.roads, data.buildings, data.water, data.parks, data.places || []])
+  for (const arr of [data.roads, data.buildings, data.parks, data.places || []])
     for (const f of arr) f.tile = key;
 }
 
@@ -1313,10 +1248,10 @@ function wantedTiles(px, py) {
   return out.sort((a, b) => a.d - b.d);
 }
 
-/* Scenery — buildings and water — queues through one worker. Opening the city on
-   nine tiles would otherwise put sixteen side requests in the air at once, and
-   Overpass hands out about two slots per IP: the streets request in flight plus
-   one of these is exactly the budget, and anything more just earns 429s. */
+/* Scenery queues through one worker. Opening the city on nine tiles would
+   otherwise put a pile of side requests in the air at once, and Overpass hands
+   out about two slots per IP: the streets request in flight plus one of these is
+   exactly the budget, and anything more just earns 429s. */
 const SIDE = { q: [], busy: false };
 function sideFetch(fn) { SIDE.q.push(fn); pumpSide(); }
 async function pumpSide() {
@@ -1324,23 +1259,6 @@ async function pumpSide() {
   SIDE.busy = true;
   while (SIDE.q.length) { try { await SIDE.q.shift()(); } catch (e) {} }
   SIDE.busy = false;
-}
-
-/* Rivers and harbours mapped as multipolygons, fetched on their own so a server
-   that dislikes the query costs you drownable water rather than the whole city.
-   Best-effort: land it if it arrives, shrug if it doesn't. */
-function loadWater(s, w, n, e, key) {
-  sideFetch(() => {
-    const ws = newSession();
-    return overpassArea(s, w, n, e, ws, { kind: 'water' })
-      .then(els => {
-        if (key !== '0,0' && W.tiles.get(key) !== 'loaded') return;
-        const data = parseOSM(els);
-        if (data.water.length) mergeChunk(data, key);
-      })
-      .catch(err => console.warn('water ' + key + ':', err && err.message))
-      .finally(() => sessAbort(ws));
-  });
 }
 
 async function loadTile(i, j) {
@@ -1356,8 +1274,8 @@ async function loadTile(i, j) {
 
     /* Once you're driving, the road network is finished — the skeleton covers
        everywhere you can reach and never has to be asked for again. All a tile
-       does from here is dress the place: buildings and water. Roads are only
-       fetched while the loading screen is still up. */
+       does from here is dress the place with buildings. Roads are only fetched
+       while the loading screen is still up. */
     if (SCENERY_ONLY) {
       const bels = await overpassArea(s, w, n, e, sess, { kind: 'buildings' });
       const bdata = parseOSM(bels);
@@ -1370,7 +1288,6 @@ async function loadTile(i, j) {
       W.tiles.set(key, 'loaded');
       CHUNK.loaded++;
       CHUNK.note = '';
-      loadWater(s, w, n, e, key);
       return true;
     }
 
@@ -1397,7 +1314,6 @@ async function loadTile(i, j) {
         .catch(err => console.warn('chunk ' + key + ' buildings:', err && err.message))
         .finally(() => sessAbort(bs));
     });
-    loadWater(s, w, n, e, key);
     return true;
   } catch (err) {
     console.warn('chunk ' + key + ' failed:', err && err.message);
@@ -1443,7 +1359,6 @@ function evictFarTiles(px, py, budget) {
   for (const arr of [W.roads, W.buildings])
     for (const f of arr) if (!keep(f) && f.id != null) W.roadIds.delete(f.id);
   W.buildings = W.buildings.filter(keep);
-  W.water = W.water.filter(keep);
   W.parks = W.parks.filter(keep);
   // landmarks stay: a handful of points, they never touch the grid bounds, and
   // dropping them would throw away the wide sweep and leave a bust nowhere to go
@@ -1497,7 +1412,6 @@ function mergeChunk(data, key) {
   const skel = tk === 'skel';
   // the tile's own rectangle, not what its features happen to span
   const r = rectFor(tk);
-  clipWater(data, r);
   /* Drop any way already in the world. Overlapping requests are now the norm, not
      the exception: the skeleton repeats every trunk road the detailed centre
      holds, the opening buildings cover the same ground as tile (0,0), and a way
@@ -1513,7 +1427,7 @@ function mergeChunk(data, key) {
   // Sized before the emptiness check: a skeleton that turned out to be all
   // duplicates still has to grow the world to its rectangle.
   const grew = fitGrid(r.x0, r.y0, r.x1, r.y1);
-  if (!(data.roads.length || data.buildings.length || data.water.length || data.parks.length)) return 0;
+  if (!(data.roads.length || data.buildings.length || data.parks.length)) return 0;
   stampTile(data, tk);
   // The GRID is sized by the tile, but passability is a geometry question — which
   // buildings a road actually runs through — so it works off where the features
@@ -1523,7 +1437,6 @@ function mergeChunk(data, key) {
 
   for (const r of data.roads) W.roads.push(r);
   for (const x of data.buildings) W.buildings.push(x);
-  for (const x of data.water) W.water.push(x);
   for (const x of data.parks) W.parks.push(x);
   for (const p of data.places || []) W.places.push(p);
   addPOIs(data.pois || []);
@@ -1560,23 +1473,6 @@ function markDrivable(x, y, r) {
     W.grid[cy * W.gw + cx] = 1;
   }
 }
-/* Deep enough to go under. A bridge over a river is geometrically inside the
-   river, so the road mask is what separates the two — the deck is rasterized into
-   it like any other carriageway, and drowning on a bridge would be plain wrong.
-   The bounding boxes reject nearly every polygon before the point test, which is
-   what keeps this cheap for every car, every frame. */
-function inWater(x, y) {
-  for (const f of W.water) {
-    if (x < f.bb.x0 || x > f.bb.x1 || y < f.bb.y0 || y > f.bb.y1) continue;
-    if (!pointInPoly(f.pts, x, y)) continue;
-    // an island in the lake is dry land, so keep looking rather than answering yes
-    if (f.holes && f.holes.some(h => pointInPoly(h, x, y))) continue;
-    return true;
-  }
-  return false;
-}
-const inDeepWater = (x, y) => inWater(x, y) && !onRoad(x, y);
-
 function onRoad(x, y) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
@@ -1908,7 +1804,6 @@ function prerenderMap(cx, cy) {
     g.closePath(); g.fillStyle = fill; g.fill();
   };
   for (const f of W.parks) if (inWin(f)) poly(f, PAL.mapPark);
-  for (const f of W.water) if (inWin(f)) poly(f, PAL.mapWater);
   g.lineCap = 'round'; g.lineJoin = 'round';
   const winRoads = roadsIn(x0, y0, x1, y1);
   // in a dense window, minor lanes just muddy the radar and cost redraw time
@@ -1944,7 +1839,7 @@ function makeCar(x, y, h, kind) {
     accel: isCop ? 28 : (kind === 'player' ? 28 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
-    steer: 0, road: true, dead: false, hitCd: 0, sink: 0,
+    steer: 0, road: true, dead: false, hitCd: 0,
     // traffic path state
     road_: null, idx: 0, dir: 1, blink: 0
   };
@@ -2010,8 +1905,7 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   let vl = -c.vx * sn + c.vy * cs;
 
   c.road = onRoad(c.x, c.y);
-  // a car going under bogs down rather than skating on across the river
-  const grip = (c.road ? 1 : .58) * (1 - (c.sink || 0) * .85);
+  const grip = c.road ? 1 : .58;
   // a wrecked car limps — the player's own top speed stays honest
   const wear = c.kind === 'player' ? 1 : lerp(.32, 1, clamp(c.hp / 100, 0, 1));
   const top = c.maxSpeed * grip * wear;
@@ -2167,42 +2061,10 @@ function wreck(c) {
   explode(c.x, c.y);
 }
 
-const SINK_SECS = 1.5;      // clip the bank and you can back out; commit and you're gone
-
-function splash(c, n) {
-  for (let i = 0; i < n; i++)
-    parts.push({ x: c.x + rand(-1.6, 1.6), y: c.y + rand(-1.6, 1.6),
-      vx: rand(-4, 4), vy: rand(-4, 4), life: rand(.25, .7), r: rand(.25, .7),
-      col: pick(['#cfe9ff', '#9fd2f2', '#ffffff', '#7fb8dd']) });
-}
-
-/* Water swallows a car whole — no fireball, nothing left to burn. Marked dead so
-   the list filters that already run drop it. */
-function sinkAway(c) {
-  if (c.dead) return;
-  c.dead = true;
-  splash(c, 16);
-  SFX.crash(4);
-}
-
-/* Rises while a car is in water and off the road, falls back when it isn't, so
-   clipping the edge of a river is survivable and driving in is not. */
-function updateSink(c, dt) {
-  if (inDeepWater(c.x, c.y)) {
-    if (c.sink === 0) splash(c, 12);        // the moment it goes in
-    c.sink = Math.min(1, c.sink + dt / SINK_SECS);
-    if (Math.random() < dt * 22) splash(c, 1);
-  } else {
-    c.sink = Math.max(0, c.sink - dt / (SINK_SECS * .7));
-  }
-  return c.sink >= 1;
-}
-
 // One place that decides whether a car is still with us, run once per car per frame.
 function checkWreck(c, dt) {
   c.hitCd -= dt;
   if (c.dead) return;
-  if (updateSink(c, dt)) { sinkAway(c); return; }
   if (c.hp <= 0) { wreck(c); return; }
   if (c.hp < 45) { c.smokeT = (c.smokeT || 0) - dt; if (c.smokeT <= 0) { c.smokeT = rand(.05, .18); smoke(c); } }
 }
@@ -2581,7 +2443,6 @@ async function startGame(query, lat, lon, label) {
   // are standing in gets its scenery queued first, so it fills in before the rest.
   if (!procedural) {
     loadOpeningBuildings(lat, lon, gen);
-    loadWater(...areaBox(lat, lon), '0,0');
     // The landmark sweep doesn't depend on the ring, so it runs alongside rather
     // than adding its wait on top — two independent waits stacked is how a loading
     // screen quietly becomes half a minute.
@@ -2743,12 +2604,10 @@ function busted() {
   bigMsg('BUSTED', '#33e6ff', `−$${lost} · booked at the station`);
   respawn('police');
 }
-function wasted(how) {
+function wasted() {
   P.cash = 0;
   store.set('vm_cash', P.cash);
-  bigMsg('WASTED', '#ff4fd8', how === 'water'
-    ? 'sank like a stone · fished out at the hospital'
-    : 'cleaned out · patched up at the hospital');
+  bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
   respawn('hospital');
 }
 function respawn(kind) {
@@ -2914,8 +2773,6 @@ function update(dt) {
     if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
   }
 
-  // --- deep water
-  if (!P.dead && updateSink(c, dt)) { splash(c, 16); wasted('water'); }
 
   // --- health / death
   if (c.hp <= 0 && !P.dead) { c.hp = 0; wasted(); }
@@ -3066,7 +2923,6 @@ function render() {
     if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = .7; ctx.stroke(); }
   };
   for (const f of W.parks) if (vis(f)) fillPoly(f, PAL.park, PAL.parkEdge);
-  for (const f of W.water) if (vis(f)) fillPoly(f, PAL.water, PAL.waterEdge);
 
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const stroke = (r, w, col) => {
@@ -3261,8 +3117,6 @@ function drawCar(c, isPlayer) {
   const spd = Math.hypot(c.vx, c.vy);
   ctx.save();
   ctx.translate(c.x, c.y); ctx.rotate(c.h);
-  // going under: shrinks away and fades into the water
-  if (c.sink > 0) { ctx.globalAlpha = 1 - c.sink * .85; ctx.scale(1 - c.sink * .4, 1 - c.sink * .4); }
   const L = c.l, Wd = c.w;
 
   // headlight cone — barely visible in daylight
@@ -3461,13 +3315,12 @@ $('q').addEventListener('keydown', e => { if (e.key === 'Enter') $('go').click()
 /* ---- debug hooks, used by the headless smoke test ---- */
 window.__s = () => state;
 window.__w = () => ({ name: W.name, procedural: W.procedural, roads: W.roads.length,
-  drive: W.driveRoads.length, buildings: W.buildings.length, water: W.water.length,
+  drive: W.driveRoads.length, buildings: W.buildings.length,
   parks: W.parks.length, grid: W.gw + 'x' + W.gh });
 window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.h.toFixed(2),
   spd: +Math.hypot(P.car.vx, P.car.vy).toFixed(2), hp: +P.car.hp.toFixed(1), onRoad: P.car.road,
   wanted: +P.wanted.toFixed(2), cops: cops.length, traffic: traffic.length, peds: peds.length,
-  cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color,
-  sink: +P.car.sink.toFixed(2), inWater: inWater(P.car.x, P.car.y) });
+  cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
 window.__addWanted = n => addWanted(n);
 window.__hurt = () => { P.car.hp = 0; };
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;
@@ -3499,12 +3352,11 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
-window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, water: WATER, hedge: HEDGE, maxTries: MAX_TRIES,
+window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
   buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
   poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1],
-  waterQueryTimeout: +(overpassQL(0,0,0,0,'water').match(/timeout:(\d+)/)||[])[1],
   // The streets query is the one the whole game depends on. Nothing optional may
   // ride on it: roads to drive and place names, and that is the whole list.
   streetsOuts: (overpassQL(0,0,0,0,'streets').match(/out /g) || []).length,
@@ -3527,7 +3379,7 @@ window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,
   spd: Math.hypot(t.vx, t.vy), road: t.road_ ? t.road_.pts.length : 0, idx: t.idx, dir: t.dir }));
 window.__cars = () => ({
   traffic: traffic.map(t => ({ id: t.id, x: +t.x.toFixed(1), y: +t.y.toFixed(1), hp: +t.hp.toFixed(1),
-                               spd: +Math.hypot(t.vx, t.vy).toFixed(2), dead: !!t.dead, sink: +t.sink.toFixed(2) })),
+                               spd: +Math.hypot(t.vx, t.vy).toFixed(2), dead: !!t.dead })),
   cops: cops.map(k => ({ id: k.id, x: +k.x.toFixed(1), y: +k.y.toFixed(1), hp: +k.hp.toFixed(1), dead: !!k.dead })),
   blasts: blasts.length, parts: parts.length, playerHp: +P.car.hp.toFixed(1)
 });
@@ -3555,8 +3407,6 @@ window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1),
 window.__missingKinds = () => missingKinds();
 window.__wideSearch = () => widenLandmarkSearch();
 window.__sweepLandmarks = () => sweepLandmarks();
-window.__loadWater = () => { try { loadWater(...areaBox(GEO.lat0, GEO.lon0), '0,0'); return 'called'; }
-                             catch (e) { return 'threw: ' + e.message; } };
 window.__sweep = () => ({ sweptTo: W.sweptTo, sweeping: W.sweeping, radii: POI_RADII });
 window.__copSpeed = () => cops[0] ? Math.hypot(cops[0].vx, cops[0].vy) : null;
 window.__bustT = () => P.bustT;
@@ -3571,9 +3421,6 @@ window.__byColour = (r, g, b_) => {
   return b ? { roof: b.roof, wall: b.wall, mRoof: b.mRoof, mWall: b.mWall } : null;
 };
 window.__inside = (x, y) => W.buildings.some(b => pointInPoly(b.pts, x, y));
-window.__inWater = (x, y) => inWater(x, y);
-window.__deepWater = (x, y) => inDeepWater(x, y);
-window.__water = () => W.water.length;
 // null when no building covers the point, else whether you can drive through it
 window.__passableAt = (x, y) => {
   const b = W.buildings.find(q => pointInPoly(q.pts, x, y));
