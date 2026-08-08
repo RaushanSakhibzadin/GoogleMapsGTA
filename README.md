@@ -60,12 +60,14 @@ is the whole game.
   heading. Steering authority falls off with speed and inverts in reverse. Constant engine force
   against linear drag with a hard ceiling, so the 300 km/h on the clock is a speed you actually
   reach rather than an asymptote. The camera pulls back as you wind it out.
-- **Handbrake turns that actually turn.** Pull DRIFT and the rear lets go — but the important half
-  is that steering *stops* fading with speed and gains authority instead, the way an unloaded rear
-  axle really behaves, and the slide then feeds the rotation so the tail keeps coming round. Hold
-  it with a bit of lock and the car is through 180° in about nine tenths of a second at 60 km/h,
-  still moving, laying rubber the whole way. Straight DRIFT with no steering just slides, so you
-  can hold a long drift through a bend instead of only ever spinning.
+- **DRIFT does a 180, every press.** Tap it and the car commits to a half turn — eased in, whipped
+  through the middle, settled on exactly 180° and stopped there, in 0.85 s from any speed, with the
+  rear hung out the whole way. No steering needed and no holding: steering only picks which way it
+  goes, and pressing again turns you back. The heading is driven along the arc rather than nudged
+  by a torque, which is why it lands on a half turn every single time instead of depending on how
+  long you happened to hold the button. Keep DRIFT held afterwards and the car carries on sliding
+  with the rear loose, so you can run it through a bend. It lays rubber for the whole arc and
+  throws tyre smoke off the back.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
 - **Every car is destructible.** Traffic and police take damage from any impact — including

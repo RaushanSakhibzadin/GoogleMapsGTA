@@ -1882,6 +1882,7 @@ let traffic = [], cops = [], peds = [], marks = [], parts = [], blasts = [];
    when you look back at it. Each mark is its own stroke, so the cap is a frame
    budget as much as a memory one — the draw loop culls to the view to earn it. */
 const MAX_MARKS = 760, MARK_LIFE = 9;
+const SPIN_SECS = .85;      // how long a committed 180 takes, eased in and out
 const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0 };
 
 function spawnTraffic(n) {
@@ -1952,33 +1953,41 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   if (hand) vf -= vf * decay(.5, dt);        // a locked rear axle scrubs speed
   vf = clamp(vf, -top * .45, top);                              // maxSpeed means maxSpeed
 
-  // lateral grip: the handbrake lets the back end go, which is half of a drift
-  const lat = hand ? 1.7 : (c.road ? 9.5 : 6.5);
+  /* Lateral grip: the handbrake lets the back end go, which is half of a drift.
+     Through a committed 180 it is released almost entirely, so the car keeps the
+     momentum it went in with and travels its original line while the nose comes
+     round — that is the difference between a drift and a pirouette. */
+  const lat = c.spin ? .3 : hand ? 1.7 : (c.road ? 9.5 : 6.5);
   vl -= vl * decay(lat, dt);
 
   const spd = Math.abs(vf);
   const rolling = clamp(spd / 4.5, 0, 1);      // nothing pivots from a standstill
 
-  /* The other half, and the half that was missing: ROTATION. Steering normally
-     fades with speed, down to a third of its authority — so pulling the handbrake
-     used to slide the car in a straight line at 0.92 rad/s, three and a half
-     seconds to come round, which is not a drift by any definition. Held, steering
-     stops fading and gains authority instead, the way an unloaded rear axle
-     actually behaves. */
-  const auth = hand ? lerp(.95, 1.35, clamp(spd / 26, 0, 1))
-                    : lerp(1, .34, clamp(spd / 30, 0, 1));
-  let yaw = steerIn * c.turn * auth * rolling;
-
-  /* Once the tail is out it keeps coming round, the way a real slide does — this
-     is what makes a 180 a flick rather than a wrestle. Keyed off the player's own
-     steering, NOT off the slip alone: slip alone is positive feedback, and any
-     stray knock would set the car spinning for ever with nothing to stop it. */
-  if (hand) yaw += steerIn * clamp(Math.abs(vl) / 10, 0, 1) * c.turn * .45 * rolling;
+  /* Steering normally fades with speed, down to a third of its authority. Held,
+     it stops fading — the rear is unloaded, so the nose still bites — but it is
+     deliberately NOT boosted beyond that: the 180 below is what comes round, and
+     stacking a boost on top of it just means holding the button spins you like a
+     top instead of giving you the half turn you asked for. What the handbrake
+     buys you here is the slide, and the freedom to hold one through a bend. */
+  const auth = hand ? .92 : lerp(1, .34, clamp(spd / 30, 0, 1));
+  const yaw = steerIn * c.turn * auth * rolling;
 
   /* Reversing inverts the steering — but a drift is not reversing. vf goes
      negative as the heading swings past 90° in a 180, and inverting there made
      the car rotate back and fight its own spin exactly halfway through it. */
   c.h += yaw * dt * (!hand && vf < -.5 ? -1 : 1);
+
+  /* THE 180. Once armed, the heading is driven straight to half a turn on a
+     smoothstep — eased in and eased out, so it loads up, whips through the
+     middle and settles rather than snapping to a stop. Driving the angle rather
+     than applying a torque is what makes it land on 180 exactly, every time,
+     from any speed, instead of depending on how long you happened to hold it. */
+  if (c.spin) {
+    c.spin.t += dt;
+    const u = clamp(c.spin.t / SPIN_SECS, 0, 1);
+    c.h = c.spin.from + c.spin.dir * Math.PI * (u * u * (3 - 2 * u));
+    if (u >= 1) c.spin = null;
+  }
 
   const cs2 = Math.cos(c.h), sn2 = Math.sin(c.h);
   c.vx = cs2 * vf - sn2 * vl;
@@ -1987,9 +1996,20 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
 
   /* Tyre lines. The old threshold wanted 5.5 m/s of lateral slip — more than the
      old handbrake could ever produce, so a drift laid no rubber at all. Held, the
-     rear is being dragged from the moment the tail steps out, so it marks. */
-  if (spd > 3 && (hand || Math.abs(vl) > 2.6) && marks.length < MAX_MARKS) {
+     rear is being dragged from the moment the tail steps out, so it marks; and a
+     committed 180 marks for its whole arc regardless, because that arc IS the
+     manoeuvre and it should be there on the road behind you afterwards. */
+  if ((c.spin || (spd > 3 && (hand || Math.abs(vl) > 2.6))) && marks.length < MAX_MARKS) {
     marks.push({ x: c.x, y: c.y, h: c.h, w: c.w, life: MARK_LIFE });
+    // rubber smoke off the rear, drifting out along the slide
+    if (c.kind === 'player' && parts.length < 300 && Math.random() < .42) {
+      const life = rand(.55, 1.15);
+      parts.push({ x: c.x - Math.cos(c.h) * c.l * .4 + rand(-.7, .7),
+                   y: c.y - Math.sin(c.h) * c.l * .4 + rand(-.7, .7),
+                   vx: -Math.sin(c.h) * vl * .1 + rand(-1, 1),
+                   vy: Math.cos(c.h) * vl * .1 + rand(-1, 1),
+                   life, life0: life, r: rand(.55, 1.1), soft: true, col: '#cdc6d6' });
+    }
   }
   return { vf, vl };
 }
@@ -2254,6 +2274,23 @@ const SFX = (() => {
     const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
     src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
   }
+  /* Tyre squeal: the same noise burst, but band-passed up where rubber lives and
+     swept downward, which is what a scrubbing tyre sounds like as it slows. */
+  function screech(dur) {
+    if (!ac) return;
+    const n = Math.floor(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      d[i] = (Math.random() * 2 - 1) * Math.min(1, t * 12) * (1 - t) * (1 - t);
+    }
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 5.5;
+    f.frequency.setValueAtTime(1750, ac.currentTime);
+    f.frequency.exponentialRampToValueAtTime(760, ac.currentTime + dur);
+    const g = ac.createGain(); g.gain.value = .1;
+    src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
+  }
   return {
     start, engine, siren,
     crash: v => { noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },
@@ -2261,6 +2298,7 @@ const SFX = (() => {
     cash: () => { blip(660, .08); setTimeout(() => blip(990, .09), 70); setTimeout(() => blip(1480, .16), 150); },
     star: () => { blip(300, .22, 'sawtooth', .07); },
     horn: () => { blip(370, .22, 'square', .05); },
+    skid: () => { screech(.85); },
     bust: () => { blip(200, .5, 'sawtooth', .08); },
     blipZone: () => { blip(520, .07, 'sine', .05); setTimeout(() => blip(780, .12, 'sine', .045), 70); },
     boom: () => { noise(.7, .5); blip(70, .5, 'sawtooth', .1); setTimeout(() => blip(45, .6, 'sine', .08), 60); }
@@ -2735,6 +2773,17 @@ function update(dt) {
   const c = P.car;
   const inp = P.dead ? { steer: 0, gas: 0, brake: 1, hand: 0 } : readInput();
 
+  /* Pressing DRIFT commits to a whole 180 — every press, no steering needed, no
+     wrestling it round. It's armed on the PRESS rather than while held, so
+     leaning on the button doesn't spin you like a top: one press, one half turn,
+     press again for another. Steering only picks which way it goes. */
+  if (inp.hand && !P.handWas && !P.dead) {
+    c.spin = { t: 0, from: c.h, dir: inp.steer || c.lastSpinDir || 1 };
+    c.lastSpinDir = c.spin.dir;
+    SFX.skid();
+  }
+  P.handWas = inp.hand;
+
   const v = drive(c, inp.gas, inp.brake, inp.steer, inp.hand, dt);
   P.slip = v.vl;                        // how far the tail is out, for the HUD hooks
   fence(c);
@@ -3057,10 +3106,21 @@ function render() {
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
 
   for (const p of parts) {
-    ctx.globalAlpha = clamp(p.life * 2, 0, 1);
+    const a = clamp(p.life * 2, 0, 1);
     ctx.fillStyle = p.col;
-    const r = p.r || .28;
-    ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+    if (p.soft) {
+      // Tyre smoke: round, and it swells and thins as it lifts off the road.
+      // Sparks stay square — at a third of a metre nobody can tell, and it is
+      // one fillRect — but a smoke puff drawn square reads as a white brick.
+      ctx.globalAlpha = a * .42;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (1 + (1 - p.life / p.life0) * 1.9), 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.globalAlpha = a;
+      const r = p.r || .28;
+      ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+    }
   }
   ctx.globalAlpha = 1;
 
@@ -3417,8 +3477,13 @@ window.__setInput = o => { inputOverride = o; };
 // paused, the loop stops drawing — this redraws the identical world on demand, so
 // a test can diff two frames that differ by exactly one thing
 window.__renderOnce = () => render();
+// render() jitters the camera by rand() while the shake is up, so two "identical"
+// frames are not identical — this stills it so a frame diff can isolate one thing
+window.__calm = () => { cam.shake = 0; };
 window.__slip = () => P.slip || 0;
 window.__marks = () => marks.length;
+// a committed 180 is the player's alone: the AI never touches the handbrake
+window.__aiSpins = () => traffic.concat(cops).filter(c => c.spin).length;
 window.__clearMarks = () => { marks = []; };
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
