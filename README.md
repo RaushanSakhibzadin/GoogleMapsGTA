@@ -22,7 +22,7 @@ is the whole game.
 
 | | |
 |---|---|
-| **W A S D** / arrow keys | drive, reverse, steer — up to 300 km/h |
+| **W A S D** / arrow keys | drive, reverse, steer — up to 360 km/h |
 | **Space** | handbrake — hold it into a corner and the back end steps out |
 | **H** | horn |
 | **N** | switch between dusk and daylight (or the ☀ button on touch devices) |
@@ -58,16 +58,19 @@ is the whole game.
   material colour rather than a finished one, so the swap is instant.
 - **Arcade physics.** Velocity is split into forward and lateral components against the car's
   heading. Steering authority falls off with speed and inverts in reverse. Constant engine force
-  against linear drag with a hard ceiling, so the 300 km/h on the clock is a speed you actually
-  reach rather than an asymptote. The camera pulls back as you wind it out.
-- **DRIFT does a 180, every press.** Tap it and the car commits to a half turn — eased in, whipped
-  through the middle, settled on exactly 180° and stopped there, in 0.85 s from any speed, with the
-  rear hung out the whole way. No steering needed and no holding: steering only picks which way it
-  goes, and pressing again turns you back. The heading is driven along the arc rather than nudged
-  by a torque, which is why it lands on a half turn every single time instead of depending on how
-  long you happened to hold the button. Keep DRIFT held afterwards and the car carries on sliding
-  with the rear loose, so you can run it through a bend. It lays rubber for the whole arc and
-  throws tyre smoke off the back.
+  against linear drag with a hard ceiling, so the 360 km/h on the clock is a speed you actually
+  reach rather than an asymptote — the engine deliberately out-pulls the drag, since constant force
+  against linear drag settles at `accel/0.32` and anything less makes the top number a lie. The
+  camera pulls back as you wind it out.
+- **The drift turns you as far as you're going fast.** The number on the clock is the number of
+  degrees: press DRIFT at 45 km/h and the car comes round 45°, at 180 it's a half turn, and at 360
+  — the top of the speedo, which is why top speed is exactly 100 m/s — it's a full circle. Crawl
+  and you barely twitch, so you have to carry speed to get the car round. The heading is driven
+  along a smoothstep arc rather than nudged by a torque, which is why it lands on the number every
+  single time instead of depending on how long you held the button; longer turns take longer, at a
+  roughly constant rate. No steering needed — that only picks the direction. Keep DRIFT held
+  afterwards and the car carries on sliding with the rear loose, so you can run it through a bend.
+  It lays rubber for the whole arc and throws tyre smoke off the back.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
 - **Every car is destructible.** Traffic and police take damage from any impact — including
@@ -129,7 +132,7 @@ is the whole game.
 | Streaming | Tile (i,j) is the 1.8 km square centred on (i·1800, j·1800) in local metres, so tile (0,0) is the opening area and neighbours abut it exactly. The eight around it are pulled during loading, so the detailed centre is 5.4 km. **World size comes from the tiles loaded and the skeleton's rectangle, never from the geometry inside them** — Overpass returns the full shape of anything merely touching the box it was asked for, and one overhanging way once stretched the world to ±150 km, which shrank the city to a speck on the radar and blew the collision mask up to millions of cells. Overhanging features are simply drawn and clipped. Once play starts, tiles carry **scenery only** — buildings, never roads — so the road network, the collision mask and every road index are fixed for the whole session and nothing can stutter mid-drive |
 | Deduplication | Every way carries its OSM id, and one already in the world is dropped. Overlapping requests are the norm rather than the exception: the skeleton repeats every trunk road the detailed centre holds, the opening buildings cover the same ground as tile (0,0), and a way lying on a seam arrives with both its tiles. Without it the same tarmac is drawn, marked and lit twice — and worse for buildings, only the first copy gets marked passable, so an archway you could drive through silently becomes a wall you cannot |
 | Recycling | Only scenery is ever recycled, and only from tiles that arrived after play started — the ones loaded before it are permanent, since their roads are part of the fixed network. The furthest behind you are dropped to make room, taking their ids with them so driving back finds them again. Just the building hash is rebuilt: re-indexing the world here used to be right, but re-marking an 18 km skeleton mid-drive is a visible stutter for no gain, because nothing it rebuilds can change any more |
-| Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes |
+| Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes, and a band-passed sweep for the tyre squeal. The context is **resumed on every gesture and whenever the page comes back**, not just when it is created: iOS hands back a suspended context routinely — opening the page from another app is the usual case — and resuming only at creation left one bad start silently mute for ever, with every later tap short-circuiting past the fix |
 
 Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all
 of them fail — or you pick a spot with no roads, like the middle of the ocean — it generates a

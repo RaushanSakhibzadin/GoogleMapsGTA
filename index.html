@@ -507,7 +507,9 @@ const OVERPASS = shuffle([
   'https://overpass.osm.ch/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
 ]);
-const TOP_SPEED = 83.3;   // m/s — 300 km/h on the clock
+// 100 m/s is exactly 360 km/h, which is what makes the drift arithmetic below
+// land on round numbers: the turn in degrees is the speed on the clock.
+const TOP_SPEED = 100;
 const RADIUS = 900;   // metres fetched around the centre point
 /* The map streams in. Tile (i,j) covers a RADIUS*2 square centred on
    (i*TILE, j*TILE), so tile (0,0) is exactly the area fetched at startup and
@@ -1897,8 +1899,12 @@ function makeCar(x, y, h, kind) {
     x, y, h, vx: 0, vy: 0, kind,
     w: isCop ? 2.05 : rand(1.85, 2.15),
     l: isCop ? 4.7 : rand(4.1, 4.9),
-    hp: 100, maxSpeed: isCop ? 60 : (kind === 'player' ? TOP_SPEED : rand(11, 17)),
-    accel: isCop ? 28 : (kind === 'player' ? 28 : 7),
+    hp: 100, maxSpeed: isCop ? TOP_SPEED * .6 : (kind === 'player' ? TOP_SPEED : rand(11, 17)),
+    /* The player's engine has to out-pull the drag, or the number on the clock is
+       a lie: constant force against linear drag settles at accel/0.32, and at 28
+       that is 87 m/s — 315 km/h — so the 360 ceiling was never reachable. At 40
+       the CLAMP is what limits top speed, which is what a top speed should be. */
+    accel: isCop ? 28 : (kind === 'player' ? 40 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
     steer: 0, road: true, dead: false, hitCd: 0,
@@ -1953,15 +1959,26 @@ function spawnPeds(n) {
 }
 // Returns false when there is nowhere to put a unit, so callers can stop asking.
 function spawnCop() {
-  const p = roadPoint(P.car.x, P.car.y, 150, 320) || roadPoint(P.car.x, P.car.y, null);
+  /* Widening bands, never "anywhere". The old fallback was roadPoint(x, y, null)
+     — a random road in the whole world — which in an 18 km city puts the unit
+     kilometres away, and the 700 m cull above deletes it on the next frame. It
+     looked like it worked only because the top-up ran sixty times a second and
+     eventually rolled a near one; rate-limiting that top-up made a latent bug
+     visible. Every band here is inside the cull radius. */
+  const p = roadPoint(P.car.x, P.car.y, 150, 320) ||
+            roadPoint(P.car.x, P.car.y, 90, 480) ||
+            roadPoint(P.car.x, P.car.y, 40, 660);
   if (!p) return false;
   cops.push(makeCar(p.x, p.y, p.h, 'cop'));
   return true;
 }
-// Top the pursuit up to the wanted level, never looping forever if spawning fails.
+/* Top the pursuit up to the wanted level, never looping forever if spawning
+   fails. Returns whether it managed to fill, so the caller can back off from a
+   search that is not going to succeed rather than repeat it every frame. */
 function stockCops(target) {
   let guard = 8;
-  while (cops.length < target && guard-- > 0) { if (!spawnCop()) break; }
+  while (cops.length < target && guard-- > 0) { if (!spawnCop()) return false; }
+  return true;
 }
 
 /* ------------------------------ 5. physics ------------------------------ */
@@ -2012,15 +2029,15 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      the car rotate back and fight its own spin exactly halfway through it. */
   c.h += yaw * dt * (!hand && vf < -.5 ? -1 : 1);
 
-  /* THE 180. Once armed, the heading is driven straight to half a turn on a
-     smoothstep — eased in and eased out, so it loads up, whips through the
+  /* THE TURN. Once armed, the heading is driven straight to its target angle on
+     a smoothstep — eased in and eased out, so it loads up, whips through the
      middle and settles rather than snapping to a stop. Driving the angle rather
-     than applying a torque is what makes it land on 180 exactly, every time,
-     from any speed, instead of depending on how long you happened to hold it. */
+     than applying a torque is what makes it land on the number exactly, every
+     time, instead of depending on how long you happened to hold the button. */
   if (c.spin) {
     c.spin.t += dt;
-    const u = clamp(c.spin.t / SPIN_SECS, 0, 1);
-    c.h = c.spin.from + c.spin.dir * Math.PI * (u * u * (3 - 2 * u));
+    const u = clamp(c.spin.t / c.spin.secs, 0, 1);
+    c.h = c.spin.from + c.spin.dir * c.spin.rad * (u * u * (3 - 2 * u));
     if (u >= 1) c.spin = null;
   }
 
@@ -2034,7 +2051,13 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      rear is being dragged from the moment the tail steps out, so it marks; and a
      committed 180 marks for its whole arc regardless, because that arc IS the
      manoeuvre and it should be there on the road behind you afterwards. */
-  if ((c.spin || (spd > 3 && (hand || Math.abs(vl) > 2.6))) && marks.length < MAX_MARKS) {
+  /* Traffic and police keep the old, much higher slip threshold. Dropping it to
+     2.6 for everyone meant a five-star scrum had thirty cars laying rubber at
+     once, which filled the buffer with other people's skids and cost half the
+     frame rate. Your own drift is the thing worth drawing. */
+  const slipMark = c.kind === 'player' ? 2.6 : 5.5;
+  if ((c.spin || (spd > 3 && ((hand && c.kind === 'player') || Math.abs(vl) > slipMark))) &&
+      marks.length < MAX_MARKS) {
     marks.push({ x: c.x, y: c.y, h: c.h, w: c.w, life: MARK_LIFE });
     // rubber smoke off the rear, drifting out along the slide
     if (c.kind === 'player' && parts.length < 300 && Math.random() < .42) {
@@ -2263,12 +2286,21 @@ const SFX = (() => {
   let ac = null, eng = null, engGain = null, engFilt = null, started = false;
   let sirenOsc = null, sirenGain = null, sirenT = 0;
 
+  /* iOS hands back a SUSPENDED AudioContext more often than not — opening the
+     page from another app is the classic case — and it suspends again whenever
+     the tab loses focus or another app takes the audio session. Resuming only at
+     creation, behind an `if (started) return`, meant one bad start left the game
+     silent for ever with every later tap short-circuiting past the fix. So
+     resume is its own thing, and every gesture retries it. */
+  function resume() {
+    if (ac && ac.state !== 'running') { try { ac.resume(); } catch (e) {} }
+  }
   function start() {
-    if (started) return;
+    if (started) { resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ac = new AC(); started = true;
-    if (ac.state === 'suspended') ac.resume();
+    resume();
     eng = ac.createOscillator(); eng.type = 'sawtooth'; eng.frequency.value = 55;
     engFilt = ac.createBiquadFilter(); engFilt.type = 'lowpass'; engFilt.frequency.value = 700;
     engGain = ac.createGain(); engGain.gain.value = 0;
@@ -2327,7 +2359,10 @@ const SFX = (() => {
     src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
   }
   return {
-    start, engine, siren,
+    start, resume, engine, siren,
+    // test hook: the OS suspending us is the failure mode, so it has to be reachable
+    suspend: () => ac ? ac.suspend() : Promise.resolve(),
+    state: () => ({ started, state: ac ? ac.state : 'none', now: ac ? ac.currentTime : 0 }),
     crash: v => { noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },
     pickup: () => { blip(880, .09); setTimeout(() => blip(1320, .13), 80); },
     cash: () => { blip(660, .08); setTimeout(() => blip(990, .09), 70); setTimeout(() => blip(1480, .16), 150); },
@@ -2340,6 +2375,11 @@ const SFX = (() => {
   };
 })();
 function audioStart() { SFX.start(); }
+/* Coming back from the home screen, another app, or a phone call leaves the
+   context suspended with no tap to hang a resume off. These are the events that
+   actually fire on iOS when the page returns. */
+for (const ev of ['visibilitychange', 'focus', 'pageshow'])
+  addEventListener(ev, () => { if (!document.hidden) SFX.resume(); });
 
 /* ------------------------------ 8. canvas ------------------------------ */
 const cv = $('game'), ctx = cv.getContext('2d');
@@ -2818,9 +2858,19 @@ function update(dt) {
      leaning on the button doesn't spin you like a top: one press, one half turn,
      press again for another. Steering only picks which way it goes. */
   if (inp.hand && !P.handWas && !P.dead) {
-    c.spin = { t: 0, from: c.h, dir: inp.steer || c.lastSpinDir || 1 };
+    /* THE TURN IS THE SPEED. 45 km/h on the clock buys 45° of rotation, 180
+       buys a half turn, and 360 — the top of the clock, which is why top speed
+       is exactly 100 m/s — buys a full circle. Crawl and you barely twitch; you
+       have to be carrying speed to get the car round, which is how it works. */
+    const deg = clamp(Math.hypot(c.vx, c.vy) * 3.6, 0, 360);
+    // Long turns take longer: a quarter turn should not take as long as a full
+    // circle. The rate is what stays constant, with a floor so a tiny flick at
+    // walking pace is still a movement you can see rather than a snap.
+    c.spin = { t: 0, from: c.h, rad: deg * Math.PI / 180,
+               secs: clamp(SPIN_SECS * deg / 180, .28, 1.7),
+               dir: inp.steer || c.lastSpinDir || 1 };
     c.lastSpinDir = c.spin.dir;
-    SFX.skid();
+    if (deg > 8) SFX.skid();
   }
   P.handWas = inp.hand;
 
@@ -2901,7 +2951,15 @@ function update(dt) {
     } else P.cool = 0;
     // despawn units that fell hopelessly behind, then top the pursuit back up
     cops = cops.filter(k => !k.dead && dist(k.x, k.y, c.x, c.y) < 700);
-    stockCops(Math.round(P.wanted * 1.6));
+    /* Topping the pursuit up is a search over the road index, and when the
+       player outruns the units chasing them the cull above empties the list
+       continuously — eight searches a frame for the length of the chase. But a
+       flat timer also delays refills that WOULD have worked, and a wanted level
+       with no police is worse than the cost. So it runs every frame and backs
+       off only when the search actually fails, which is the case that thrashes. */
+    P.copT = (P.copT || 0) - dt;
+    const want = Math.round(P.wanted * 1.6);
+    if (P.copT <= 0 && cops.length < want && !stockCops(want)) P.copT = .5;
   }
 
   // --- mission markers
@@ -2927,9 +2985,19 @@ function update(dt) {
 
   // --- respawn thinning population near the player
   traffic = traffic.filter(t => !t.dead && dist(t.x, t.y, c.x, c.y) < 780);
-  if (traffic.length < 26) spawnTraffic(1);
   peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
-  if (peds.length < 34) spawnPeds(1);
+  /* Refilling the world is a search over the road index, so it is rate-limited
+     rather than run every frame. Traffic tops out at 17 m/s and you now do 100:
+     outrun it and both lists empty continuously, and topping them up one per
+     frame became sixty road searches a second, plus sixty more for the
+     pedestrians, for as long as you kept your foot down. That, not the drawing,
+     was what halved the frame rate at speed. */
+  P.popT = (P.popT || 0) - dt;
+  if (P.popT <= 0) {
+    P.popT = .25;
+    if (traffic.length < 26) spawnTraffic(Math.min(5, 26 - traffic.length));
+    if (peds.length < 34) spawnPeds(Math.min(6, 34 - peds.length));
+  }
 
   // --- effects bookkeeping
   for (const m of marks) m.life -= dt;
@@ -3018,7 +3086,18 @@ function updateCop(k, dt) {
   const kspd = Math.hypot(k.vx, k.vy);
   const gas = holding ? 0 : (Math.abs(df) < 1.5 || d > 30) ? 1 : 0;
   const brake = holding ? (kspd > 1.2 ? 1 : 0) : (Math.abs(df) > 2.2 && d < 20) ? 1 : 0;
-  k.maxSpeed = 46 + P.wanted * 7.5;      // higher stars, faster units — 5 stars keeps up at 300
+  /* Higher stars, faster units — and scaled off the player's own top speed, not
+     a number that happened to match it. At a fixed 83.5 m/s they were exactly a
+     match for the old 300 km/h car and hopelessly outrun by the 360 one: you
+     shed them instantly, they were culled at 700 m, and the pursuit respawned
+     eight units EVERY FRAME trying to catch up. Half the frame rate, no cops. */
+  k.maxSpeed = TOP_SPEED * (.52 + P.wanted * .096);   // 5 stars matches you
+  /* Bound the CLOSING speed by distance. Scaling units off the player's top speed
+     was necessary — at a fixed 83.5 they could never catch a 360 km/h car — but it
+     also put them at 80 m/s while converging on a target doing nothing, and they
+     arrived hot enough to wreck themselves and each other. Relative to the
+     player's own speed, so a chase at pace is untouched: only the approach is. */
+  k.maxSpeed = Math.min(k.maxSpeed, pspd + 12 + d * .55);
   // Closing on someone who has already given up, they come in slowly. At five
   // stars a unit does 80 m/s, and arriving at that speed simply destroys the car
   // — you get wasted where you should have been arrested. The clamp in drive()
@@ -3085,18 +3164,27 @@ function render() {
   for (const r of visRoads) if (r.w >= 9) stroke(r, .55, PAL.line);    // centre line
   ctx.setLineDash([]);
 
-  // Tyre lines. One stroke each, so the ones behind you and off screen are worth
-  // skipping — most of a long drift's arc is out of frame at any moment.
+  /* Tyre lines, batched. Each mark used to be its own beginPath+stroke, so a full
+     buffer was several hundred draw calls a frame and halved the frame rate in a
+     chase. They only differ by how far they have faded, so they are gathered into
+     a handful of alpha buckets and stroked once each — same picture, five calls.
+     Off-screen ones are skipped first: most of a long arc is out of frame. */
   ctx.strokeStyle = 'rgba(10,4,16,.62)'; ctx.lineWidth = .72;
+  const FADES = 5, lanes = [];
   for (const m of marks) {
     if (Math.abs(m.x - cam.x) > viewR || Math.abs(m.y - cam.y) > viewR) continue;
+    const a = clamp(m.life / MARK_LIFE, 0, 1);
+    const bi = Math.min(FADES - 1, Math.floor(a * FADES));
+    const path = lanes[bi] || (lanes[bi] = new Path2D());
     const o = m.w * .35, dx = Math.cos(m.h) * 1.1, dy = Math.sin(m.h) * 1.1;
     const px = -Math.sin(m.h) * o, py = Math.cos(m.h) * o;
-    ctx.globalAlpha = clamp(m.life / MARK_LIFE, 0, 1) * .85;
-    ctx.beginPath();
-    ctx.moveTo(m.x + px - dx, m.y + py - dy); ctx.lineTo(m.x + px + dx, m.y + py + dy);
-    ctx.moveTo(m.x - px - dx, m.y - py - dy); ctx.lineTo(m.x - px + dx, m.y - py + dy);
-    ctx.stroke();
+    path.moveTo(m.x + px - dx, m.y + py - dy); path.lineTo(m.x + px + dx, m.y + py + dy);
+    path.moveTo(m.x - px - dx, m.y - py - dy); path.lineTo(m.x - px + dx, m.y - py + dy);
+  }
+  for (let i = 0; i < FADES; i++) {
+    if (!lanes[i]) continue;
+    ctx.globalAlpha = ((i + .5) / FADES) * .85;
+    ctx.stroke(lanes[i]);
   }
   ctx.globalAlpha = 1;
 
@@ -3443,9 +3531,17 @@ function loop(t) {
   acc += dt;
   const step = 1 / 60;
   let guard = 0;
-  while (acc >= step && guard++ < 5) { update(step); acc -= step; }
+  const tU = performance.now();
+  let steps = 0;
+  while (acc >= step && guard++ < 5) { update(step); acc -= step; steps++; }
+  const tR = performance.now();
   render();
+  // rolling averages, so a slow frame can be attributed rather than guessed at
+  PERF.upd += (tR - tU - PERF.upd) * .1;
+  PERF.ren += (performance.now() - tR - PERF.ren) * .1;
+  PERF.steps += (steps - PERF.steps) * .1;
 }
+const PERF = { upd: 0, ren: 0, steps: 0 };
 
 /* ------------------------------ 15. menus ------------------------------ */
 function togglePause() {
@@ -3524,6 +3620,18 @@ window.__slip = () => P.slip || 0;
 window.__marks = () => marks.length;
 // a committed 180 is the player's alone: the AI never touches the handbrake
 window.__aiSpins = () => traffic.concat(cops).filter(c => c.spin).length;
+// audio: is it actually running, does its clock advance, and can it come back
+window.__audio = () => SFX.state();
+window.__sfx = name => { SFX[name](); return true; };
+window.__sfxResume = () => SFX.resume();
+window.__audioSuspend = () => SFX.suspend();
+// how far the camera has pulled back, and how much world that puts on screen
+window.__perf = () => ({ upd: +PERF.upd.toFixed(2), ren: +PERF.ren.toFixed(2), steps: +PERF.steps.toFixed(2) });
+window.__cam = () => ({ s: cam.s, viewR: Math.hypot(VW, VH) / 2 / cam.s + 60 });
+window.__visRoads = () => {
+  const r = Math.hypot(VW, VH) / 2 / cam.s + 60;
+  return roadsIn(cam.x - r, cam.y - r, cam.x + r, cam.y + r).length;
+};
 window.__clearMarks = () => { marks = []; };
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
