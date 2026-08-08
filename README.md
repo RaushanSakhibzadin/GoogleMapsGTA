@@ -57,10 +57,15 @@ is the whole game.
   daytime palette — asphalt roads, green parks, sunlit facades. Buildings store their
   material colour rather than a finished one, so the swap is instant.
 - **Arcade physics.** Velocity is split into forward and lateral components against the car's
-  heading; lateral grip drops hard under the handbrake, which is what makes it drift. Steering
-  authority falls off with speed and inverts in reverse. Constant engine force against linear
-  drag with a hard ceiling, so the 300 km/h on the clock is a speed you actually reach rather
-  than an asymptote. The camera pulls back as you wind it out.
+  heading. Steering authority falls off with speed and inverts in reverse. Constant engine force
+  against linear drag with a hard ceiling, so the 300 km/h on the clock is a speed you actually
+  reach rather than an asymptote. The camera pulls back as you wind it out.
+- **Handbrake turns that actually turn.** Pull DRIFT and the rear lets go — but the important half
+  is that steering *stops* fading with speed and gains authority instead, the way an unloaded rear
+  axle really behaves, and the slide then feeds the rotation so the tail keeps coming round. Hold
+  it with a bit of lock and the car is through 180° in about nine tenths of a second at 60 km/h,
+  still moving, laying rubber the whole way. Straight DRIFT with no steering just slides, so you
+  can hold a long drift through a bend instead of only ever spinning.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
   damage you in proportion to closing speed. Cars exchange impulses and dent each other.
 - **Every car is destructible.** Traffic and police take damage from any impact — including

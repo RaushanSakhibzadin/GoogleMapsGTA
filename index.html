@@ -1878,6 +1878,10 @@ const P = {                       // player + run state
   hitCd: 0, horn: 0
 };
 let traffic = [], cops = [], peds = [], marks = [], parts = [], blasts = [];
+/* A full 180 lays rubber for most of a second, and the arc has to still be there
+   when you look back at it. Each mark is its own stroke, so the cap is a frame
+   budget as much as a memory one — the draw loop culls to the view to earn it. */
+const MAX_MARKS = 760, MARK_LIFE = 9;
 const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0 };
 
 function spawnTraffic(n) {
@@ -1945,26 +1949,47 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   if (!throttle && !brake) vf -= vf * decay(.9, dt);                 // engine braking
 
   vf -= vf * decay(c.road ? .32 : 1.5, dt);                     // drag / rough ground
+  if (hand) vf -= vf * decay(.5, dt);        // a locked rear axle scrubs speed
   vf = clamp(vf, -top * .45, top);                              // maxSpeed means maxSpeed
 
-  // lateral grip: the handbrake lets the back end go, which is the whole point
+  // lateral grip: the handbrake lets the back end go, which is half of a drift
   const lat = hand ? 1.7 : (c.road ? 9.5 : 6.5);
-  const lost = vl * decay(lat, dt);
-  vl -= lost;
+  vl -= vl * decay(lat, dt);
 
-  // steering authority falls off with speed, and reverses when reversing
   const spd = Math.abs(vf);
-  const auth = lerp(1, .34, clamp(spd / 30, 0, 1)) * clamp(spd / 4.5, 0, 1);
-  c.h += steerIn * c.turn * auth * dt * (vf < -.5 ? -1 : 1);
+  const rolling = clamp(spd / 4.5, 0, 1);      // nothing pivots from a standstill
+
+  /* The other half, and the half that was missing: ROTATION. Steering normally
+     fades with speed, down to a third of its authority — so pulling the handbrake
+     used to slide the car in a straight line at 0.92 rad/s, three and a half
+     seconds to come round, which is not a drift by any definition. Held, steering
+     stops fading and gains authority instead, the way an unloaded rear axle
+     actually behaves. */
+  const auth = hand ? lerp(.95, 1.35, clamp(spd / 26, 0, 1))
+                    : lerp(1, .34, clamp(spd / 30, 0, 1));
+  let yaw = steerIn * c.turn * auth * rolling;
+
+  /* Once the tail is out it keeps coming round, the way a real slide does — this
+     is what makes a 180 a flick rather than a wrestle. Keyed off the player's own
+     steering, NOT off the slip alone: slip alone is positive feedback, and any
+     stray knock would set the car spinning for ever with nothing to stop it. */
+  if (hand) yaw += steerIn * clamp(Math.abs(vl) / 10, 0, 1) * c.turn * .45 * rolling;
+
+  /* Reversing inverts the steering — but a drift is not reversing. vf goes
+     negative as the heading swings past 90° in a 180, and inverting there made
+     the car rotate back and fight its own spin exactly halfway through it. */
+  c.h += yaw * dt * (!hand && vf < -.5 ? -1 : 1);
 
   const cs2 = Math.cos(c.h), sn2 = Math.sin(c.h);
   c.vx = cs2 * vf - sn2 * vl;
   c.vy = sn2 * vf + cs2 * vl;
   c.x += c.vx * dt; c.y += c.vy * dt;
 
-  // skid marks when the tyres are sliding sideways
-  if (Math.abs(vl) > 5.5 && spd > 4 && marks.length < 520) {
-    marks.push({ x: c.x, y: c.y, h: c.h, w: c.w, life: 7 });
+  /* Tyre lines. The old threshold wanted 5.5 m/s of lateral slip — more than the
+     old handbrake could ever produce, so a drift laid no rubber at all. Held, the
+     rear is being dragged from the moment the tail steps out, so it marks. */
+  if (spd > 3 && (hand || Math.abs(vl) > 2.6) && marks.length < MAX_MARKS) {
+    marks.push({ x: c.x, y: c.y, h: c.h, w: c.w, life: MARK_LIFE });
   }
   return { vf, vl };
 }
@@ -2164,7 +2189,12 @@ const tapTheme = e => {
 $('tN').addEventListener('touchstart', tapTheme, { passive: false });
 $('tN').addEventListener('click', tapTheme);
 
+/* The headless handling test drives through this rather than through synthesized
+   key events: what it is measuring is how throttle, steering and the handbrake
+   combine over a second or two, and that needs the inputs held exactly. */
+let inputOverride = null;
 function readInput() {
+  if (inputOverride) return inputOverride;
   const L = keys['a'] || keys['arrowleft'] || touch.l;
   const R = keys['d'] || keys['arrowright'] || touch.r;
   const U = keys['w'] || keys['arrowup'] || touch.a;
@@ -2706,6 +2736,7 @@ function update(dt) {
   const inp = P.dead ? { steer: 0, gas: 0, brake: 1, hand: 0 } : readInput();
 
   const v = drive(c, inp.gas, inp.brake, inp.steer, inp.hand, dt);
+  P.slip = v.vl;                        // how far the tail is out, for the HUD hooks
   fence(c);
 
   // --- building impact
@@ -2965,12 +2996,14 @@ function render() {
   for (const r of visRoads) if (r.w >= 9) stroke(r, .55, PAL.line);    // centre line
   ctx.setLineDash([]);
 
-  // skid marks
-  ctx.strokeStyle = 'rgba(10,4,16,.5)'; ctx.lineWidth = .45;
+  // Tyre lines. One stroke each, so the ones behind you and off screen are worth
+  // skipping — most of a long drift's arc is out of frame at any moment.
+  ctx.strokeStyle = 'rgba(10,4,16,.62)'; ctx.lineWidth = .72;
   for (const m of marks) {
+    if (Math.abs(m.x - cam.x) > viewR || Math.abs(m.y - cam.y) > viewR) continue;
     const o = m.w * .35, dx = Math.cos(m.h) * 1.1, dy = Math.sin(m.h) * 1.1;
     const px = -Math.sin(m.h) * o, py = Math.cos(m.h) * o;
-    ctx.globalAlpha = clamp(m.life / 7, 0, 1) * .8;
+    ctx.globalAlpha = clamp(m.life / MARK_LIFE, 0, 1) * .85;
     ctx.beginPath();
     ctx.moveTo(m.x + px - dx, m.y + py - dy); ctx.lineTo(m.x + px + dx, m.y + py + dy);
     ctx.moveTo(m.x - px - dx, m.y - py - dy); ctx.lineTo(m.x - px + dx, m.y - py + dy);
@@ -3379,6 +3412,14 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
+// handling: hold the controls exactly, and read the slide back out
+window.__setInput = o => { inputOverride = o; };
+// paused, the loop stops drawing — this redraws the identical world on demand, so
+// a test can diff two frames that differ by exactly one thing
+window.__renderOnce = () => render();
+window.__slip = () => P.slip || 0;
+window.__marks = () => marks.length;
+window.__clearMarks = () => { marks = []; };
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
