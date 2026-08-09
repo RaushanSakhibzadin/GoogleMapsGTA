@@ -17,6 +17,49 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
 
+/* GHOST — the supporter perk. Off the road you keep your speed, and buildings
+   stop being solid. Normally the car is a road car: leave the tarmac and it
+   drops to walking pace and leans back towards it.
+
+   It is a switch, in the open, on trust. There is no server here — the whole
+   game is static files on GitHub Pages and the source is public — so any check
+   would be a line of JavaScript anyone could read and flip in half a minute.
+   Pretending otherwise would just be theatre that annoys honest players. So it
+   asks, links to the Patreon, and believes you. */
+let GHOST = store.get('vm_ghost', '0') === '1';
+function setGhost(on) {
+  GHOST = !!on;
+  store.set('vm_ghost', GHOST ? '1' : '0');
+  syncGhostUI();
+}
+// Both copies of the switch and the on-screen tag read off the one flag, so the
+// menu and the pause card can never disagree about what the car is doing.
+function syncGhostUI() {
+  for (const id of ['ghostM', 'ghostP']) {
+    const el = $(id); if (!el) continue;
+    el.setAttribute('aria-pressed', GHOST ? 'true' : 'false');
+  }
+  $('ghostTag').classList.toggle('on', GHOST);
+}
+function wirePatreon(url) {
+  const link = url == null ? PATREON : url;
+  for (const id of ['patM', 'patP', 'patL']) {
+    const el = $(id); if (!el) continue;
+    if (link) el.href = link;
+    el.classList.toggle('on', !!link);
+  }
+  // the perk block is the switch AND the ask; with no page to point at, the
+  // switch would be a naked cheat toggle, which is not what this is
+  for (const id of ['perkM', 'perkP']) $(id).classList.toggle('on', !!link);
+}
+for (const id of ['ghostM', 'ghostP'])
+  $(id).onclick = () => {
+    setGhost(!GHOST);
+    if (state === 'play') toast(GHOST ? 'GHOST MODE ON' : 'GHOST MODE OFF', 1400);
+  };
+wirePatreon();
+syncGhostUI();
+
 // lat/lon baked in: the preset buttons never need the geocoder, which is the
 // flakiest hop in the chain and rate-limits browsers hard
 const PRESETS = [
@@ -509,7 +552,9 @@ function update(dt) {
      couldn't sustain the push; at accel 40 holding the throttle against a
      building took a healthy car to nothing in about a second. Hitting a wall
      should hurt — resting against one should not keep hurting. */
-  const impact = buildingCollide(c);
+  // GHOST drives through them. Not skipped for traffic or police — they still
+  // have to respect the city, or a chase turns into cars swimming through walls.
+  const impact = GHOST ? 0 : buildingCollide(c);
   P.bldCd = Math.max(0, (P.bldCd || 0) - dt);
   if (impact > 4 && P.bldCd <= 0) {
     P.bldCd = .45;

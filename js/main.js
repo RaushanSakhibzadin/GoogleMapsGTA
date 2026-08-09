@@ -97,6 +97,9 @@ window.__onRoad = (x, y) => onRoad(x, y);
 // handling: hold the controls exactly, and read the slide back out
 window.__setInput = o => { inputOverride = o; };
 window.__touch = () => ({ ...touch });          // what the pads currently read
+window.__ghost = on => { if (on != null) setGhost(on); return GHOST; };
+window.__patreon = url => { wirePatreon(url); return PATREON; };
+window.__roadDataHere = (x, y) => roadDataHere(x, y);
 // paused, the loop stops drawing — this redraws the identical world on demand, so
 // a test can diff two frames that differ by exactly one thing
 window.__renderOnce = () => render();

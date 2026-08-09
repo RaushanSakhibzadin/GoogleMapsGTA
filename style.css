@@ -38,8 +38,24 @@ canvas{display:block}
   background:radial-gradient(ellipse at 50% 120%,rgba(255,79,216,.10),transparent 55%)}
 
 /* ---------- Overlays ---------- */
+/* Centred when it fits, scrollable when it doesn't. Plain justify-content:center
+   silently eats the overflow: content taller than the viewport spills off BOTH
+   ends, and a flex container will not scroll back past its own centring, so the
+   top is simply unreachable — the title was already 16px above the top edge on a
+   342px-tall landscape phone before the perk block existed.
+
+   `safe center` centres exactly as before and falls back to flex-start the
+   moment it would overflow, which puts the excess at the bottom where scrolling
+   can reach it. The plain value is declared first so a browser too old for
+   `safe` keeps the previous behaviour rather than dropping the rule entirely.
+
+   Auto margins on the first and last child do the same job and were the first
+   attempt — but .credit is position:fixed, so it takes :last-child while
+   contributing nothing to the flow, and the menu ended up bottom-aligned. */
 .screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;padding:22px;text-align:center;
+  align-items:center;padding:22px;text-align:center;
+  justify-content:center;justify-content:safe center;
+  overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;
   background:
     radial-gradient(ellipse at 50% 0%,#3a1552 0%,transparent 60%),
     linear-gradient(180deg,#2a0f3f 0%,#160a26 45%,#0a0614 100%)}
@@ -76,6 +92,34 @@ button.ghost{background:rgba(255,255,255,.09);color:#fff;box-shadow:none;border:
   border-radius:10px;font-size:13px;line-height:1.6;color:#ffd2a0;
   background:rgba(255,120,80,.10);border:1px solid rgba(255,120,80,.4)}
 #menuErr.on{display:block}
+/* ---------- supporter perk: the switch and the ask ---------- */
+/* Both hidden until the wiring finds a URL, so an empty PATREON renders nothing
+   rather than flashing a dead link on load. */
+.perk{display:none;flex-direction:column;align-items:center;gap:9px;margin-top:20px}
+.perk.on{display:flex}
+/* A toggle built out of button.ghost rather than a fourth button style — the
+   dot carries the state, so it reads as on/off instead of as another action. */
+button.tgl{display:inline-flex;align-items:center;gap:10px;font-size:13px;padding:11px 17px;
+  max-width:min(460px,92vw);line-height:1.35;text-align:left}
+button.tgl .dot{flex:none;width:11px;height:11px;border-radius:50%;
+  background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.4);transition:.18s}
+button.tgl[aria-pressed=true]{border-color:var(--gold);color:var(--gold);
+  background:rgba(255,227,106,.12)}
+button.tgl[aria-pressed=true] .dot{background:var(--gold);border-color:var(--gold);
+  box-shadow:0 0 10px rgba(255,227,106,.9)}
+/* Patreon coral, so the ask is legible as an ask without competing with DRIVE. */
+.pat{display:none;font-size:12.5px;font-weight:600;text-decoration:none;padding:8px 14px;
+  border-radius:999px;color:#ff8a90;background:rgba(255,66,77,.10);
+  border:1px solid rgba(255,66,77,.42);transition:.15s}
+.pat.on{display:inline-block}
+.pat:hover{background:rgba(255,66,77,.22);color:#ffb3b7;transform:translateY(-1px)}
+#patL{margin-top:18px}
+/* GHOST is a big change to how the car behaves, so it says so while it's on. */
+#ghostTag{position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:36;display:none;
+  font-family:var(--hud);font-size:13px;letter-spacing:.22em;color:var(--gold);
+  text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 14px rgba(255,227,106,.8);pointer-events:none}
+#ghostTag.on{display:block}
+
 .hint{margin-top:24px;font-size:12.5px;line-height:1.85;color:rgba(255,255,255,.62);max-width:640px}
 .hint b{color:var(--cyan);font-weight:700}
 kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600 11px var(--ui);
@@ -262,6 +306,16 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      only case that has to be kept out of the car's screen column */
   #hudTL{gap:6px;max-width:calc(50vw - 56px)}
   #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
+  /* There is no height to spare on a landscape phone, and the menu now carries
+     a perk block too. The keyboard hint is the first thing to go — the controls
+     on this screen are thumb pads. */
+  #menu .hint{display:none}
+  #menu .logo{font-size:clamp(30px,7.5vw,54px)}
+  #menu .rule{margin:8px 0 10px}
+  #menu .presets{margin-top:8px}
+  #menu .credit{font-size:9.5px;bottom:4px}
+  .screen{padding:12px}
+  .perk{margin-top:8px;gap:7px}
   #tN{bottom:calc(var(--edgeB) + 8px + var(--pad))}
   #hpWrap{left:80px;bottom:calc(var(--edgeB) + 12px + var(--pad));width:min(15vw,calc(25vw - 65px))}
   /* The right edge cannot hold cash, stars, the district name, the speedo AND

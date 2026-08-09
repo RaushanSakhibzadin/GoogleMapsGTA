@@ -100,6 +100,20 @@ function stockCops(target) {
 }
 
 /* ------------------------------ 5. physics ------------------------------ */
+/* Off the road without the perk. Constant engine force against linear drag
+   settles at accel/drag, so 40/9.5 is about 4.2 m/s — the ceiling is a shade
+   above that so the number on the clock is one the car genuinely reaches
+   rather than an asymptote it creeps towards, same argument as the top speed. */
+const STRAY_DRAG = 9.5;
+const STRAY_TOP = 4.5;              // ≈16 km/h
+/* Back towards the tarmac you left. This fights the very drag that makes the
+   crawl — the pull goes into world velocity, and the next frame decomposes it
+   and damps it again at 6.5 sideways — so it has to be a good deal larger than
+   the speed it is trying to produce. At 20 it settles around 3 m/s of drift
+   back towards the road, which reads as the car leaning that way rather than
+   being yanked. At 7 it moved the car two metres in five seconds, which is
+   indistinguishable from not being there at all. */
+const KERB_PULL = 20;
 function drive(c, throttle, brake, steerIn, hand, dt) {
   const cs = Math.cos(c.h), sn = Math.sin(c.h);
   // decompose velocity into forward / lateral against the car's heading
@@ -107,10 +121,24 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   let vl = -c.vx * sn + c.vy * cs;
 
   c.road = onRoad(c.x, c.y);
+  /* THE ROAD IS THE GAME, unless you're a supporter. Off the tarmac the car
+     drops to walking pace and leans back towards it. GHOST lifts that and the
+     building collision with it — that pair is the whole perk.
+
+     Three guards on this, and each one is load-bearing:
+     · the player only. Traffic and police share drive(), and a cop that crawls
+       the moment it leaves the road cannot follow you across a car park, which
+       makes a five-star chase a farce. Same reason `hand` and the tyre-mark
+       threshold are already player-only.
+     · not while GHOST is on, obviously.
+     · and only where we actually KNOW there is no road — see roadDataHere().
+       Ground that simply hasn't streamed yet must stay fast, or this rebuilds
+       the frontier-crawl bug by hand. */
+  const stray = c.kind === 'player' && !c.road && !GHOST && roadDataHere(c.x, c.y);
   const grip = c.road ? 1 : .58;
   // a wrecked car limps — the player's own top speed stays honest
   const wear = c.kind === 'player' ? 1 : lerp(.32, 1, clamp(c.hp / 100, 0, 1));
-  const top = c.maxSpeed * grip * wear;
+  const top = stray ? STRAY_TOP : c.maxSpeed * grip * wear;
 
   /* INERTIA. Nothing in a car happens the instant you ask for it: the engine
      takes a moment to come on song and a moment to fall off it, and the brakes
@@ -129,7 +157,7 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   if (c.brakeT > .002) vf -= (vf > .8 ? c.accel * 1.9 : c.accel * .55) * dt * c.brakeT;
   if (!throttle && !brake) vf -= vf * decay(.9, dt);                 // engine braking
 
-  vf -= vf * decay(c.road ? .32 : 1.5, dt);                     // drag / rough ground
+  vf -= vf * decay(c.road ? .32 : stray ? STRAY_DRAG : 1.5, dt);   // drag / rough ground
   if (hand) vf -= vf * decay(.5, dt);        // a locked rear axle scrubs speed
   vf = clamp(vf, -top * .45, top);                              // maxSpeed means maxSpeed
 
@@ -179,6 +207,16 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   const cs2 = Math.cos(c.h), sn2 = Math.sin(c.h);
   c.vx = cs2 * vf - sn2 * vl;
   c.vy = sn2 * vf + cs2 * vl;
+
+  /* The kerb: off the tarmac, lean back across towards it. Without this the
+     crawl is just a car that has stopped working; with it, it reads as a car
+     that wants the road. Nothing happens right at the edge, or the last metre
+     turns into a magnet that fights you trying to park. */
+  if (stray) {
+    const n = nearestRoadDir(c.x, c.y);
+    if (n && n.d > 3) { c.vx += n.x * KERB_PULL * dt; c.vy += n.y * KERB_PULL * dt; }
+  }
+
   c.x += c.vx * dt; c.y += c.vy * dt;
 
   /* Tyre lines. The old threshold wanted 5.5 m/s of lateral slip — more than the

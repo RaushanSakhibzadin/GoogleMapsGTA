@@ -52,6 +52,15 @@
     Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
     ram a cop and find out what five stars feels like.
   </div>
+
+  <!-- supporter perk: a switch and an ask, side by side -->
+  <div class="perk" id="perkM">
+    <button class="ghost tgl" id="ghostM" aria-pressed="false">
+      <span class="dot"></span><span>GHOST MODE — drive anywhere, through buildings</span>
+    </button>
+    <a class="pat" id="patM" target="_blank" rel="noopener">Back it on Patreon · $10</a>
+  </div>
+
   <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · a parody tribute, not affiliated with Rockstar Games</div>
 </div>
 
@@ -63,6 +72,8 @@
   <div id="loadMsg">Waking the satellites…</div>
   <div id="loadSub"></div>
   <button id="skip" class="ghost">PLAY OFFLINE CITY</button>
+  <!-- the one screen where people genuinely sit and wait -->
+  <a class="pat" id="patL" target="_blank" rel="noopener">Enjoying this? Back it on Patreon</a>
 </div>
 
 <!-- ===================== pause ===================== -->
@@ -72,8 +83,16 @@
     <div id="pauseStats" style="margin:6px 0 14px;font-size:13.5px;color:rgba(255,255,255,.75)"></div>
     <button id="resume" class="pink">RESUME</button>
     <button id="newLoc" class="ghost">CHANGE CITY</button>
+    <div class="perk" id="perkP">
+      <button class="ghost tgl" id="ghostP" aria-pressed="false">
+        <span class="dot"></span><span>GHOST MODE</span>
+      </button>
+      <a class="pat" id="patP" target="_blank" rel="noopener">Back it on Patreon · $10</a>
+    </div>
   </div>
 </div>
+
+<div id="ghostTag">GHOST MODE</div>
 
 <!-- ===================== wasted / busted ===================== -->
 <div id="big"><div id="bigT" class="hudTxt">WASTED</div><div id="bigS">respawning…</div></div>

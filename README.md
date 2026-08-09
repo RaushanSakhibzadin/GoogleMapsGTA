@@ -4,6 +4,18 @@
 
 <https://raushansakhibzadin.github.io/GoogleMapsGTA/>
 
+## ❤ [Back it on Patreon](https://www.patreon.com/raushanraushan)
+
+The game is free and always will be. The **$10 tier** gets you **GHOST MODE** — normally the car
+is a road car and drops to walking pace off the tarmac; ghost mode gives you full speed across
+open ground and lets you drive straight through buildings.
+
+It's a switch in the menu, and it runs on trust. There's no server here — the whole thing is
+static files and the source is right there in this repo — so any check would be a line of
+JavaScript anyone could flip. Backing it is how you say the game should keep going.
+
+---
+
 A GTA: Vice City–flavoured driving sandbox that runs on **real streets, anywhere on Earth**.
 Type a place — your street, Miami Beach, Shibuya — and it pulls the actual road network and
 building footprints for that spot and turns them into a drivable neon city.
@@ -45,6 +57,7 @@ pulls in the rest.
 | **N** | switch between dusk and daylight (or the ☀ button on touch devices) |
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
+| GHOST MODE | the switch on the title screen and the pause card — supporter perk, see the top |
 
 ## What's in it
 
@@ -84,6 +97,15 @@ pulls in the rest.
   clock is a speed you actually reach rather than an asymptote — the engine deliberately out-pulls
   the drag, since constant force against linear drag settles at `accel/0.32` and anything less makes
   the top number a lie. The camera pulls back as you wind it out.
+- **The road is the game.** Off the tarmac the car drops to about 15 km/h and leans back across
+  towards the kerb, so a shortcut through a car park costs you rather than saving you. The lean is
+  aimed at the nearest road cell in the drivable mask, not at the last bit of road you were on —
+  that sounds equivalent and isn't, because the point you left is usually far behind you *along*
+  the road, so the pull comes out parallel to the kerb and the car never comes back. Three guards
+  on the penalty: the player only, since a police car that crawls off the tarmac can't chase you
+  across a car park; never in GHOST; and **only where the road data is actually complete**, because
+  `onRoad()` also answers false for ground that simply hasn't streamed in yet, and slowing the car
+  out there would rebuild the frontier-crawl bug by hand.
 - **The drift turns you half as far as you're going fast.** The turn in degrees is half the number
   on the clock: press DRIFT at 90 km/h and the car comes round 45°, at 180 it's 90°, and at 360 —
   the top of the speedo, which is why top speed is exactly 100 m/s — it's a half turn. Crawl

@@ -836,6 +836,57 @@ function onRoad(x, y) {
   return W.grid[gy * W.gw + gx] === 1;
 }
 
+/* WHICH WAY IS THE TARMAC? A short spiral outwards over the drivable mask,
+   nearest ring first. The mask is already a grid, so this is a handful of array
+   reads rather than any geometry, and it runs for one car.
+
+   The kerb pull needs the direction ACROSS to the road, and the obvious cheap
+   substitute — remember the last on-road point and aim at that — sounds
+   equivalent and is not. That point is usually a long way back ALONG the road,
+   so the pull comes out almost parallel to the kerb and the car never actually
+   returns: measured, it closed one and a half metres in five seconds, which is
+   indistinguishable from having no kerb at all. */
+function nearestRoadDir(x, y, maxCells = 6) {
+  if (!W.grid) return null;
+  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  let bd = Infinity, bx = 0, by = 0;
+  for (let r = 1; r <= maxCells; r++) {
+    for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;      // the ring, not the block
+      const cx = gx + i, cy = gy + j;
+      if (cx < 0 || cy < 0 || cx >= W.gw || cy >= W.gh) continue;
+      if (W.grid[cy * W.gw + cx] !== 1) continue;
+      const wx = W.minX + (cx + .5) * W.cell, wy = W.minY + (cy + .5) * W.cell;
+      const d = dist2(x, y, wx, wy);
+      if (d < bd) { bd = d; bx = wx; by = wy; }
+    }
+    if (bd < Infinity) break;                    // nearest ring wins; stop widening
+  }
+  if (bd === Infinity) return null;
+  const d = Math.sqrt(bd) || 1;
+  return { x: (bx - x) / d, y: (by - y) / d, d };
+}
+
+/* Do we actually KNOW there is no road here, or have we simply not been told yet?
+
+   onRoad() answers false for both, and the off-road penalty must only ever apply
+   to the first. The reserved ground beyond the loaded tiles has no roads on it
+   because nothing has arrived, not because it is a field — and slowing the car
+   to walking pace out there would rebuild, by hand, the exact fault this session
+   just fixed: a car that will not move at the frontier of the map with the
+   throttle down and nothing visible to explain it.
+
+   The skeleton is the easy case: when one landed the road network is complete
+   across its whole rectangle and never changes again. Otherwise it comes down to
+   whether this point's tile has actually loaded. A Map lookup, not a search. */
+function roadDataHere(x, y) {
+  if (W.procedural) return true;                     // the generated city is all there is
+  if (W.skelRect) return x >= W.skelRect.x0 && x <= W.skelRect.x1 &&
+                          y >= W.skelRect.y0 && y <= W.skelRect.y1;
+  const [i, j] = tileOf(x, y);
+  return W.tiles.get(tileKey(i, j)) === 'loaded';
+}
+
 /* Random point sitting on a real road, optionally within a distance band.
    Carries the way + node index so traffic can start driving it immediately. */
 function roadLen(r) {

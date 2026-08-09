@@ -26,6 +26,11 @@ const decay = (k, dt) => 1 - Math.exp(-k * dt);
 
 const $ = id => document.getElementById(id);
 
+/* One constant owns every Patreon link in the game. Set it empty and nothing
+   renders anywhere — which is the guard against shipping a dead link if the
+   handle ever changes, rather than three places to remember to edit. */
+const PATREON = 'https://www.patreon.com/raushanraushan';
+
 /* ------------------------------ 1. colour ------------------------------ */
 /* Buildings hold a base *material* colour as [r,g,b]; each theme turns that into
    the roof and wall strings the renderer draws. That's what makes N instant. */
