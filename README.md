@@ -101,11 +101,16 @@ pulls in the rest.
   towards the kerb, so a shortcut through a car park costs you rather than saving you. The lean is
   aimed at the nearest road cell in the drivable mask, not at the last bit of road you were on —
   that sounds equivalent and isn't, because the point you left is usually far behind you *along*
-  the road, so the pull comes out parallel to the kerb and the car never comes back. Three guards
-  on the penalty: the player only, since a police car that crawls off the tarmac can't chase you
-  across a car park; never in GHOST; and **only where the road data is actually complete**, because
-  `onRoad()` also answers false for ground that simply hasn't streamed in yet, and slowing the car
-  out there would rebuild the frontier-crawl bug by hand.
+  the road, so the pull comes out parallel to the kerb and the car never comes back. Guards on the
+  penalty, each one earned: the player only, since a police car that crawls off the tarmac can't
+  chase you across a car park; never in GHOST; **only where the road data is actually complete**,
+  because `onRoad()` also answers false for ground that simply hasn't streamed in yet; **anything
+  drawn as tarmac counts**, road network or not, because OSM maps a city square as
+  `highway=pedestrian` and this paints it with the same kerb and casing as a street — a car
+  standing in the middle of one and crawling reads as a broken game, and did; and **10 m of
+  slack**, because the mask is 8 m cells stamped along centrelines and it does not agree with the
+  drawn width to the metre. A false negative here costs nothing. A false positive is a car that
+  won't move.
 - **The drift turns you half as far as you're going fast.** The turn in degrees is half the number
   on the clock: press DRIFT at 90 km/h and the car comes round 45°, at 180 it's 90°, and at 360 —
   the top of the speedo, which is why top speed is exactly 100 m/s — it's a half turn. Crawl

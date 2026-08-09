@@ -100,6 +100,13 @@ window.__touch = () => ({ ...touch });          // what the pads currently read
 window.__ghost = on => { if (on != null) setGhost(on); return GHOST; };
 window.__patreon = url => { wirePatreon(url); return PATREON; };
 window.__roadDataHere = (x, y) => roadDataHere(x, y);
+window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r.drive, pts: r.pts }));
+// would the off-road penalty bite at this spot? the tolerance included
+window.__onRoadPenalty = (x, y) => {
+  if (onTarmac(x, y)) return false;
+  const n = nearestRoadDir(x, y);
+  return !n || n.d > STRAY_TOL;
+};
 // paused, the loop stops drawing — this redraws the identical world on demand, so
 // a test can diff two frames that differ by exactly one thing
 window.__renderOnce = () => render();

@@ -106,6 +106,7 @@ function stockCops(target) {
    rather than an asymptote it creeps towards, same argument as the top speed. */
 const STRAY_DRAG = 9.5;
 const STRAY_TOP = 4.5;              // ≈16 km/h
+const STRAY_TOL = 10;               // metres of slack before any of it applies
 /* Back towards the tarmac you left. This fights the very drag that makes the
    crawl — the pull goes into world velocity, and the next frame decomposes it
    and damps it again at 6.5 sideways — so it has to be a good deal larger than
@@ -134,7 +135,17 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      · and only where we actually KNOW there is no road — see roadDataHere().
        Ground that simply hasn't streamed yet must stay fast, or this rebuilds
        the frontier-crawl bug by hand. */
-  const stray = c.kind === 'player' && !c.road && !GHOST && roadDataHere(c.x, c.y);
+  /* Where the nearest tarmac is, when it might matter. Computed once and used
+     both to decide the penalty and to aim the kerb. */
+  const maybeStray = c.kind === 'player' && !GHOST && !onTarmac(c.x, c.y) && roadDataHere(c.x, c.y);
+  const near = maybeStray ? nearestRoadDir(c.x, c.y) : null;
+  /* The tolerance is the important part. The mask is 8 m cells stamped along
+     centrelines, and the roads are DRAWN from the same widths — but the two do
+     not agree to the metre, and a single cell of disagreement used to be free
+     and is now a car stopped dead on tarmac. Anything within a cell or so of
+     paved ground is treated as on it. False negatives here cost nothing; false
+     positives look like a broken game. */
+  const stray = maybeStray && (!near || near.d > STRAY_TOL);
   const grip = c.road ? 1 : .58;
   // a wrecked car limps — the player's own top speed stays honest
   const wear = c.kind === 'player' ? 1 : lerp(.32, 1, clamp(c.hp / 100, 0, 1));
@@ -212,9 +223,15 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      crawl is just a car that has stopped working; with it, it reads as a car
      that wants the road. Nothing happens right at the edge, or the last metre
      turns into a magnet that fights you trying to park. */
-  if (stray) {
-    const n = nearestRoadDir(c.x, c.y);
-    if (n && n.d > 3) { c.vx += n.x * KERB_PULL * dt; c.vy += n.y * KERB_PULL * dt; }
+  /* The kerb applies over the whole of the off-tarmac range, not just past the
+     tolerance — the tolerance is there to stop the car being PUNISHED for a
+     metre of disagreement between the mask and the drawn road, not to carve out
+     a band where it drifts into a field with nothing pulling it back. It fades
+     in with distance so it is nothing at the edge, where it would otherwise
+     fight you trying to park, and full strength by the time the crawl starts. */
+  if (maybeStray && near) {
+    const k = KERB_PULL * clamp((near.d - 4) / 10, 0, 1);
+    c.vx += near.x * k * dt; c.vy += near.y * k * dt;
   }
 
   c.x += c.vx * dt; c.y += c.vy * dt;

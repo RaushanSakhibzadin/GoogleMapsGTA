@@ -253,10 +253,36 @@ function fitGrid(x0, y0, x1, y1) {
   return true;
 }
 
+/* THE MASK HOLDS TWO KINDS OF GROUND: 1 is drivable tarmac, 2 is tarmac that is
+   drawn but not part of the road network — pedestrian streets and tracks.
+
+   They matter now. Every one of them is painted with the same kerb, casing and
+   colour as a road, and OSM maps a city square as `highway=pedestrian`, which
+   this draws as one very wide stroke. Before the off-road penalty existed the
+   difference cost nothing, because off the road was 96 km/h anyway. Now a car
+   standing in the middle of a drawn square is a car that crawls on what is
+   plainly tarmac — which is exactly what a screenshot of a Belgrade junction
+   showed at 12 km/h.
+
+   Kept as a separate value rather than folded into 1, because `onRoad()` feeds
+   traffic grip, pedestrian kerb-avoidance and spawning, and none of those should
+   start treating a pedestrian square as a road. Only the player's off-road
+   penalty reads the wider meaning. */
 function markRoads(roads) {
   for (const r of roads) {
-    if (!r.drive) continue;
     const hw = r.w / 2;
+    if (!r.drive) {                     // drawn tarmac: marks only empty cells
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const a = r.pts[i], b = r.pts[i + 1];
+        const len = dist(a.x, a.y, b.x, b.y);
+        const steps = Math.max(1, Math.ceil(len / (W.cell * .6)));
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          markDrivable(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, hw, 2);
+        }
+      }
+      continue;
+    }
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1];
       const len = dist(a.x, a.y, b.x, b.y);
@@ -820,20 +846,30 @@ function mergeChunk(data, key) {
   return data.roads.length;
 }
 
-function markDrivable(x, y, r) {
+function markDrivable(x, y, r, val = 1) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   const rad = Math.ceil(r / W.cell);
   for (let i = -rad; i <= rad; i++) for (let j = -rad; j <= rad; j++) {
     const cx = gx + i, cy = gy + j;
     if (cx < 0 || cy < 0 || cx >= W.gw || cy >= W.gh) continue;
     if (i * i + j * j > (rad + .4) * (rad + .4)) continue;
-    W.grid[cy * W.gw + cx] = 1;
+    const k = cy * W.gw + cx;
+    // drivable always wins, whichever order the two kinds happen to be marked in
+    if (val === 1 || W.grid[k] === 0) W.grid[k] = val;
   }
 }
 function onRoad(x, y) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
   return W.grid[gy * W.gw + gx] === 1;
+}
+// Anything painted as tarmac, road network or not. Only the off-road penalty
+// asks this: what it needs to know is "does this LOOK like road under the car",
+// because punishing a player who is plainly on a paved surface reads as a bug.
+function onTarmac(x, y) {
+  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
+  return W.grid[gy * W.gw + gx] !== 0;
 }
 
 /* WHICH WAY IS THE TARMAC? A short spiral outwards over the drivable mask,
@@ -855,7 +891,7 @@ function nearestRoadDir(x, y, maxCells = 6) {
       if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;      // the ring, not the block
       const cx = gx + i, cy = gy + j;
       if (cx < 0 || cy < 0 || cx >= W.gw || cy >= W.gh) continue;
-      if (W.grid[cy * W.gw + cx] !== 1) continue;
+      if (W.grid[cy * W.gw + cx] === 0) continue;      // any tarmac will do
       const wx = W.minX + (cx + .5) * W.cell, wy = W.minY + (cy + .5) * W.cell;
       const d = dist2(x, y, wx, wy);
       if (d < bd) { bd = d; bx = wx; by = wy; }
