@@ -170,9 +170,14 @@ function sessAbort(s) {
 
 async function geocode(q) {
   const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q);
+  const t0 = Date.now();
   const r = await fetchTimeout(url, { headers: { 'Accept': 'application/json' } }, 12000);
   if (!r.ok) throw new Error('geocoder ' + r.status);
-  const j = await r.json();
+  // read as text so the log gets the reply exactly as sent, same as Overpass
+  const raw = await r.text();
+  LOG.osm({ kind: 'geocode', host: host(url), status: r.status, ms: Date.now() - t0,
+            query: q, body: raw });
+  const j = JSON.parse(raw);
   if (!j.length) throw new Error('no such place');
   return { lat: +j[0].lat, lon: +j[0].lon, name: j[0].display_name.split(',').slice(0, 2).join(',') };
 }
@@ -203,7 +208,14 @@ function overpassArea(s, w, n, e, sess, opt) {
   const kind = opt.kind || 'streets';
   const tune = kind === 'buildings' ? BUILDINGS : kind === 'pois' ? POIS
               : kind === 'arterials' ? ARTERIALS : STREETS;
-  const body = 'data=' + encodeURIComponent(overpassQL(s, w, n, e, kind));
+  /* Built ONCE, out here. Inside attempt() the retry counter is also called `n`,
+     which shadows the north latitude — reading s/w/n/e from in there records a
+     bbox with the retry number in it and a query to match. The request body
+     already had to be built out here for the same reason; the log needs the same
+     treatment or it quietly describes a different area than the one fetched. */
+  const ql = overpassQL(s, w, n, e, kind);
+  const bbox = { s, w, n, e };
+  const body = 'data=' + encodeURIComponent(ql);
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
   let live = 0;
@@ -220,6 +232,7 @@ function overpassArea(s, w, n, e, sess, opt) {
       }
       live++;
       onMsg(live > 1 ? 'Asking ' + live + ' map servers…' : (opt.label || 'Surveying the streets…'));
+      const t0 = Date.now();
       try {
         const r = await fetchTimeout(url, {
           method: 'POST',
@@ -234,7 +247,12 @@ function overpassArea(s, w, n, e, sess, opt) {
         }
         sess.streaming = true;             // headers in hand: stop hedging
         mirrorNote(url, true);             // this one answers; keep it at the front
-        const j = JSON.parse(await readBody(r, onBytes));
+        // Captured here, as text, BEFORE anything parses it — the log is meant to
+        // be a recording of what the server said, not of what we made of it.
+        const raw = await readBody(r, onBytes);
+        LOG.osm({ kind, host: host(url), status: r.status, ms: Date.now() - t0,
+                  bbox, query: ql, body: raw });
+        const j = JSON.parse(raw);
         if (!j || !j.elements) throw new Error('empty response');
         resolve(j.elements);
       } catch (err) {
@@ -247,6 +265,9 @@ function overpassArea(s, w, n, e, sess, opt) {
         LOAD.lastErr = host(url) + ': ' +
           (aborted ? 'too slow' : err.status ? err.status
            : err.status == null ? 'unreachable' : err.message);
+        // a refusal never reaches console.warn — the retry usually saves the day —
+        // so it is recorded here or the log would show a clean load that wasn't
+        LOG.note('mirror', kind + ' · ' + LOAD.lastErr + ' (' + (Date.now() - t0) + 'ms)');
         if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled) {
           const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
           onMsg('Map server busy — retrying…');

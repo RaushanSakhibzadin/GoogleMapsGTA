@@ -11,6 +11,10 @@
 <canvas id="game"></canvas>
 <div id="post"></div>
 
+<!-- Above every screen on purpose: the log worth having most is the one from a
+     load that failed, and by then the HUD has never appeared. -->
+<button id="logBtn" title="Save the session log">⤓ LOG</button>
+
 <!-- ===================== HUD ===================== -->
 <div id="hud">
   <!-- one stacked column, so nothing has to guess anyone else's height -->
@@ -98,6 +102,7 @@
 <div id="big"><div id="bigT" class="hudTxt">WASTED</div><div id="bigS">respawning…</div></div>
 
 <script src="js/util.js"></script>
+<script src="js/log.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/world.js"></script>
 <script src="js/entities.js"></script>

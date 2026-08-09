@@ -141,11 +141,27 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
 #hud.on{display:block}
 .hudTxt{font-family:var(--hud);letter-spacing:1px;
   text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 22px rgba(255,79,216,.45)}
-#cash{position:absolute;top:12px;right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
+/* Save-the-log button. Above the menu, the loading screen and the pause card as
+   well as the HUD, because the log worth having most is from a load that failed
+   — and at that point the HUD has never been shown and never will be.
+
+   Everything else in this corner is positioned from --hudTop rather than from
+   12px, so the column starts underneath the button instead of behind it. Three
+   separately tuned offsets in one corner is exactly how they end up 3px inside
+   each other, which has happened here before. */
+#logBtn{position:fixed;top:12px;right:14px;z-index:70;
+  font-family:var(--hud);font-size:13px;letter-spacing:.12em;color:rgba(255,255,255,.82);
+  padding:6px 11px;border-radius:9px;cursor:pointer;
+  background:rgba(20,10,32,.5);border:1px solid rgba(255,255,255,.3);box-shadow:none;
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none}
+#logBtn:active{transform:translateY(1px)}
+body.theme-day #logBtn{color:#22202a;background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.3)}
+:root{--hudTop:46px}          /* 12px inset + the button + a gap */
+#cash{position:absolute;top:var(--hudTop);right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
 /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
    a 42px figure occupies about 48px once line-height is in, so 6vw left the
    stars sitting 3px inside it on a landscape phone. */
-#stars{position:absolute;top:calc(12px + clamp(32px,6.6vw,50px));right:14px;font-size:clamp(19px,3.9vw,27px);
+#stars{position:absolute;top:calc(var(--hudTop) + clamp(32px,6.6vw,50px));right:14px;font-size:clamp(19px,3.9vw,27px);
   letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 16px rgba(255,180,60,.85)}
 #stars .off{color:rgba(255,255,255,.16);text-shadow:none}
 /* Top-left column: objective, radar, street name. The camera parks the car at
@@ -281,7 +297,7 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      the star row's — rather than a separately-tuned number, because three
      independently-chosen offsets in one corner is exactly how they end up
      3px inside each other. */
-  #speed{top:calc(20px + clamp(32px,6.6vw,50px) + clamp(22px,4.6vw,32px));
+  #speed{top:calc(var(--hudTop) + 8px + clamp(32px,6.6vw,50px) + clamp(22px,4.6vw,32px));
     right:14px;bottom:auto}
   #spdN{font-size:clamp(30px,7.5vw,46px)}
   /* left column bottom-up: pads, armor, day/night */
@@ -324,6 +340,15 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      name moves to the left column beneath the street name, which is the same
      kind of information and where the space actually is. */
   #tH{bottom:calc(var(--edgeB) + 24px + var(--gas))}
+  /* The log button moves to the top CENTRE here, and the right-hand column goes
+     back to starting at 12px. On a 342px-tall screen that column is cash, stars,
+     the speedo and DRIFT with nothing between them — the speedo already ends
+     exactly where DRIFT begins — so there is no row to give the button, and
+     taking one put the speedo through the DRIFT pad. The top centre is the one
+     part of this layout with nothing in it. */
+  :root{--hudTop:12px}
+  #logBtn{left:50%;right:auto;transform:translateX(-50%)}
+  #logBtn:active{transform:translateX(-50%) translateY(1px)}
   #speed{top:calc(16px + 22vh);right:14px;bottom:auto}
   #zone{left:14px;right:auto;top:calc(14px + 40vh);bottom:auto;
     text-align:left;max-width:38vw;font-size:clamp(15px,3.6vh,20px)}

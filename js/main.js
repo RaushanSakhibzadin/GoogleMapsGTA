@@ -40,6 +40,10 @@ function togglePause() {
     state = 'play'; $('pause').classList.add('hide'); lastT = performance.now();
   }
 }
+/* Straight through to saveLog with nothing awaited in between: iOS only opens
+   the share sheet from inside a real tap, and an await before share() loses the
+   gesture and silently does nothing. */
+$('logBtn').onclick = () => saveLog();
 $('resume').onclick = togglePause;
 $('newLoc').onclick = () => {
   state = 'menu';
@@ -101,6 +105,9 @@ window.__ghost = on => { if (on != null) setGhost(on); return GHOST; };
 window.__patreon = url => { wirePatreon(url); return PATREON; };
 window.__roadDataHere = (x, y) => roadDataHere(x, y);
 window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r.drive, pts: r.pts }));
+window.__log = () => LOG.build();
+window.__logStats = () => LOG.stats();
+window.__saveLog = () => saveLog();
 // would the off-road penalty bite at this spot? the tolerance included
 window.__onRoadPenalty = (x, y) => {
   if (onTarmac(x, y)) return false;
