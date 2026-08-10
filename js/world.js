@@ -174,6 +174,59 @@ const FAKE_ST =['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Wa
 const FAKE_ZONE = ['Downtown', 'Little Habana', 'Beachfront', 'The Docks', 'Vice Point'];
 
 /* A neon grid city, for when the network is down or the map is all ocean. */
+/* THE BUNDLED CITY — central Belgrade, real OpenStreetMap data, shipped with the
+   game and loaded when the map servers cannot be reached.
+
+   It replaces the generated grid, which was only ever a way of not showing an
+   error screen: a place with real streets, real junctions and four thousand real
+   buildings is a far better offline game than a lattice, and it is the same data
+   the online path builds from, so nothing downstream can tell the difference.
+
+   Pulled in ON DEMAND, as a <script> tag rather than a fetch. Three megabytes
+   has no business loading on the normal path, and fetch() is refused for
+   file:// URLs while a script tag is not — opening index.html straight off disk
+   has to keep working. Kept to one attempt: if it will not load, the generated
+   city is still there underneath. */
+let offlinePromise = null;
+function loadOfflineCity() {
+  if (window.OFFLINE_CITY) return Promise.resolve(window.OFFLINE_CITY);
+  if (offlinePromise) return offlinePromise;
+  offlinePromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'data/belgrade.js';
+    s.onload = () => window.OFFLINE_CITY ? resolve(window.OFFLINE_CITY)
+                                         : reject(new Error('offline city empty'));
+    s.onerror = () => reject(new Error('offline city missing'));
+    document.head.appendChild(s);
+  });
+  return offlinePromise;
+}
+
+/* Its streets and buildings, projected about its own centre. The caller has
+   already given up on where the player asked for, so the origin moves to
+   Belgrade — leaving it where it was would scatter the geometry hundreds of
+   kilometres from the car. */
+function offlineCityData(city) {
+  setOrigin(city.lat, city.lon);
+  return parseOSM(city.streets.concat(city.buildings));
+}
+
+/* Nothing streams into the bundled city. It is not procedural — it is a real
+   place with real tiles — so without this the streamer would happily ask for
+   neighbouring districts from the very servers we just failed to reach, once
+   per tile boundary, for the whole session. */
+function bundledCity() { W.bundled = true; }
+
+// and its arterials, merged exactly as a downloaded skeleton would be
+function offlineSkeleton(city) {
+  const data = parseOSM(city.skeleton);
+  if (!data.roads.length) return null;
+  const R = city.skeletonRadius;
+  W.skelRect = { x0: -R, y0: -R, x1: R, y1: R };
+  const added = mergeChunk(data, 'skel');
+  return { radius: R, roads: added, places: data.places.length };
+}
+
 function proceduralCity() {
   const roads = [], buildings = [], parks = [], places = [];
   const N = 6, S = 150;
@@ -518,6 +571,7 @@ function buildWorld(data, name, procedural) {
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.tiles = new Map(); W.fixed = new Set();
   W.skelRect = null; SCENERY_ONLY = false;   // a new city starts with no wide map
+  W.bundled = false;                         // and streams, unless it came from disk
   RESERVED = '';                             // and reserves its own ground again
   // a real map streams; the generated city is a fixed island
   if (!procedural) { W.tiles.set('0,0', 'loaded'); W.fixed.add('0,0'); stampTile(data, '0,0'); }
@@ -773,7 +827,7 @@ function reserveAhead(px, py) {
 
 // Called from the game loop; cheap, and does nothing most frames.
 function updateChunks() {
-  if (W.procedural) return;
+  if (W.procedural || W.bundled) return;
   // before the busy/cooldown guards: the fence must keep up with the car even
   // while a request is in flight, which is precisely when it used to trap you
   reserveAhead(P.car.x, P.car.y);

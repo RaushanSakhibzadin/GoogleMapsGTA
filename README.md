@@ -25,6 +25,7 @@ No build step, no dependencies, no API key. Open `index.html` and drive.
 ```
 index.html      markup only
 style.css       all of the styling
+data/belgrade.js  the bundled offline city — real central Belgrade
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
 js/geo.js       projection, Overpass, Nominatim — everything that talks to the network
@@ -190,9 +191,21 @@ pulls in the rest.
 | Recycling | Only scenery is ever recycled, and only from tiles that arrived after play started — the ones loaded before it are permanent, since their roads are part of the fixed network. The furthest behind you are dropped to make room, taking their ids with them so driving back finds them again. Just the building hash is rebuilt: re-indexing the world here used to be right, but re-marking an 18 km skeleton mid-drive is a visible stutter for no gain, because nothing it rebuilds can change any more |
 | Audio | WebAudio oscillators only — sawtooth engine, two-tone siren, noise-burst crashes, and a band-passed sweep for the tyre squeal. The context is **resumed on every gesture and whenever the page comes back**, not just when it is created: iOS hands back a suspended context routinely — opening the page from another app is the usual case — and resuming only at creation left one bad start silently mute for ever, with every later tap short-circuiting past the fix |
 
-Overpass is rate-limited and occasionally slow, so requests rotate across three mirrors. If all
-of them fail — or you pick a spot with no roads, like the middle of the ocean — it generates a
-procedural neon grid city instead and tells you so. **The game always starts.**
+Overpass is rate-limited and occasionally slow, so requests rotate across six mirrors. If all of
+them fail — or you pick a spot with no roads, like the middle of the ocean — you get the
+**bundled offline city**: real central Belgrade, shipped in `data/belgrade.js`, captured from
+OpenStreetMap by the in-game log button. It has 4,300 real roads, 4,200 real buildings and its
+own 4.5 km arterial skeleton, and it is the same data the online path builds from, so nothing
+downstream can tell the difference. A generated grid is still underneath it, in case the bundle
+itself cannot load. **The game always starts.**
+
+And it always says why. Landing in a city you did not ask for with nothing but a welcome banner
+reads as the game ignoring you, so the arrival toast names **the place you asked for, what went
+wrong, and where you are instead** — and the same sentence stays on the pause card for the rest
+of the session, because "why am I in Belgrade?" is a question you ask ten minutes later, long
+after a toast has faded. It is a `<script>` tag rather than a `fetch`, loaded on demand: three
+megabytes has no business on the normal path, and `fetch()` is refused for `file://` URLs while a
+script tag is not.
 
 ## About Google Maps
 

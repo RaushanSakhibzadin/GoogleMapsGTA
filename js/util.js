@@ -25,6 +25,10 @@ function angDiff(a, b) { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d
 const decay = (k, dt) => 1 - Math.exp(-k * dt);
 
 const $ = id => document.getElementById(id);
+// a typed place name goes into innerHTML on the pause card, and a place name is
+// whatever somebody typed into the box
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /* One constant owns every Patreon link in the game. Set it empty and nothing
    renders anywhere — which is the guard against shipping a dead link if the

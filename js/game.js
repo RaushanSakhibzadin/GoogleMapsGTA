@@ -26,6 +26,9 @@ const store = {
    would be a line of JavaScript anyone could read and flip in half a minute.
    Pretending otherwise would just be theatre that annoys honest players. So it
    asks, links to the Patreon, and believes you. */
+// Set when the city you are driving is not the one you asked for; read by the
+// pause card so the answer is still there later.
+let FELLBACK = null;
 let GHOST = store.get('vm_ghost', '0') === '1';
 function setGhost(on) {
   GHOST = !!on;
@@ -176,6 +179,9 @@ async function startGame(query, lat, lon, label) {
   prog(.08);
   let name = label || query || 'Somewhere';
   let procedural = false, data = null, why = '', geoFailed = false, openingMs = 0;
+  // fellBack: we are not giving them the place they asked for. why/askedFor say
+  // which place and what went wrong, and both are shown rather than implied.
+  let fellBack = false, offline = null, askedFor = '';
 
   // 1. where is it? Presets already know, so only typed searches ask Nominatim.
   if (lat == null) {
@@ -212,36 +218,61 @@ async function startGame(query, lat, lon, label) {
     openingMs = Date.now() - LOAD.t0;      // how heavy this area is, measured
     prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
     data = parseOSM(els);
-    // a quiet village is still a real place — only invent a city if there's nothing
+    // a quiet village is still a real place — only fall back if there's nothing
     if (!data.roads.length) {
-      procedural = true;
-      data = proceduralCity();
-      why = 'nothing mapped out there';
-      name = name + ' — no roads out here';
+      fellBack = true;
+      why = 'nothing is mapped around ' + name.split(',')[0];
     }
   } catch (err) {
     if (gen !== loadGen) return;
     console.warn('map load failed:', err);
-    setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
-    procedural = true;
-    data = proceduralCity();
-    why = geoFailed ? 'couldn’t reach the place search'
-        : err && /cancel/i.test(err.message) ? 'skipped the download'
-        : err && /timed out/i.test(err.message) ? 'map servers were too slow'
-        : 'map servers unreachable';
-    name = 'Neon Grid City (offline)';
+    fellBack = true;
+    why = geoFailed ? 'the place search couldn’t be reached'
+        : err && /cancel/i.test(err.message) ? 'you skipped the download'
+        : err && /timed out/i.test(err.message) ? 'the map servers were too slow'
+        : 'the map servers couldn’t be reached';
+  }
+
+  /* THE OFFLINE CITY. Real Belgrade, bundled with the game, in place of the
+     generated lattice — and the generated one still underneath it, because a
+     three megabyte script that will not load must not be the end of the road. */
+  if (fellBack) {
+    const asked = name;
+    try {
+      const city = await loadOfflineCity();
+      if (gen !== loadGen) return;
+      offline = city;
+      data = offlineCityData(city);
+      name = city.name;
+    } catch (err) {
+      console.warn('offline city failed:', err && err.message);
+      setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
+      procedural = true;
+      data = proceduralCity();
+      name = 'Neon Grid City (offline)';
+    }
+    // what they asked for, so the reason names it rather than talking about
+    // "the chosen city" in the abstract
+    askedFor = asked;
   }
   endLoad();
 
   $('loadCity').textContent = name;
-  prog(.82, 'Wiring the neon…', procedural ? why + ' — generated a city instead' : '');
+  prog(.82, 'Wiring the neon…', fellBack ? why : '');
   await new Promise(r => setTimeout(r, 40));
   buildWorld(data, name, procedural);
+  if (offline) {
+    // its arterials, so the offline city gets the same wide world and the same
+    // scenery-only streaming as a downloaded one
+    offlineSkeleton(offline);
+    bundledCity();          // and nothing streams into it
+    prerenderMap();
+  }
 
   // The city opens at 5.4 km rather than 1.8: the ring comes in here, before you
   // ever take the wheel, and only its scenery trickles in afterwards. The tile you
   // are standing in gets its scenery queued first, so it fills in before the rest.
-  if (!procedural) {
+  if (!procedural && !offline) {
     loadOpeningBuildings(lat, lon, gen);
     // The landmark sweep doesn't depend on the ring, so it runs alongside rather
     // than adding its wait on top — two independent waits stacked is how a loading
@@ -296,7 +327,22 @@ async function startGame(query, lat, lon, label) {
   if (touchUI) $('touch').classList.add('on');
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
-  toast(procedural ? 'WELCOME TO\nNEON GRID CITY' : 'WELCOME TO\n' + name.toUpperCase(), 2600);
+  /* SAY WHY, EVERY TIME. Landing somewhere you did not ask for with nothing but
+     a welcome banner reads as the game ignoring you — the reason used to flash
+     past on the loading bar at 82% and was gone before the city appeared. So the
+     welcome names the place they asked for and what went wrong, and it stays up
+     long enough to read. */
+  if (fellBack) {
+    const place = askedFor ? askedFor.split(',')[0] : 'that place';
+    toast('COULDN’T LOAD ' + place.toUpperCase() + '\n' + why +
+          '\nDRIVING IN ' + name.split(',')[0].toUpperCase() + ' INSTEAD', 7000);
+    // and it stays on the pause card for the rest of the session, so it is still
+    // answerable ten minutes later when you wonder why you are in Belgrade
+    FELLBACK = { asked: askedFor, why, city: name };
+  } else {
+    FELLBACK = null;
+    toast('WELCOME TO\n' + name.toUpperCase(), 2600);
+  }
   if (!raf) { raf = true; requestAnimationFrame(loop); }
 }
 
@@ -511,16 +557,16 @@ function update(dt) {
      later. Zeroing this on any frame that didn't clamp meant it never reached
      the threshold no matter how long you leaned on the edge — so it leaks away
      slowly instead, and repeated contact still adds up. */
-  /* Credit per CONTACT, not per second of contact. Arriving at the edge on a
-     road at speed, the fence hands back 30% and the car bounces clear, comes
-     back, bounces again — each touch lasting a single frame. Accumulating dt
-     meant 16ms in and 600ms of decay out, so the counter never left zero and a
-     car repeatedly slamming into the end of the world was never told why.
-     One touch is a bounce and says nothing; two inside a couple of seconds is
-     the edge. A car grinding along it saturates immediately. */
-  if (atEdge && !P.dead) P.edgeT = Math.min(1.2, (P.edgeT || 0) + .25);
-  else P.edgeT = Math.max(0, (P.edgeT || 0) - dt * .5);
-  if (P.edgeT > .35 && P.edgeCd <= 0 && !P.dead) {
+  /* Touching it at all is the message, held off only by the cooldown.
+
+     Two earlier versions of this tried to be clever and both stayed silent
+     exactly when they were needed. Requiring sustained contact failed because
+     the fence hands back 30% of your speed, so the car bounces and each touch
+     lasts one frame. Requiring two touches close together failed too: arriving
+     on a road at 180 km/h, the bounce carries you far enough that the next
+     contact is seconds away. There is nothing ambiguous about reaching the end
+     of the world — say so the first time. */
+  if (atEdge && !P.dead && P.edgeCd <= 0) {
     P.edgeCd = 6; toast('EDGE OF THE MAP\nTURN BACK', 1700);
   }
 

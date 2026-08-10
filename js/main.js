@@ -34,7 +34,10 @@ function togglePause() {
   if (state === 'play') {
     state = 'pause'; $('pause').classList.remove('hide');
     $('pauseStats').innerHTML =
-      `${W.name}<br>Deliveries: <b>${MISSION.done}</b> · Bank: <b>$${P.cash.toLocaleString()}</b>`;
+      `${W.name}<br>Deliveries: <b>${MISSION.done}</b> · Bank: <b>$${P.cash.toLocaleString()}</b>` +
+      // still answering "why am I here?" ten minutes after the toast has gone
+      (FELLBACK ? `<div class="whyHere">Couldn’t load <b>${esc(FELLBACK.asked)}</b> — ` +
+                  `${esc(FELLBACK.why)}. This is the offline city.</div>` : '');
     SFX.engine(0, 0); SFX.siren(false, 0);
   } else if (state === 'pause') {
     state = 'play'; $('pause').classList.add('hide'); lastT = performance.now();
