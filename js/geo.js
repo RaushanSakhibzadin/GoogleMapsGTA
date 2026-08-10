@@ -246,7 +246,6 @@ function overpassArea(s, w, n, e, sess, opt) {
           throw e;
         }
         sess.streaming = true;             // headers in hand: stop hedging
-        mirrorNote(url, true);             // this one answers; keep it at the front
         // Captured here, as text, BEFORE anything parses it — the log is meant to
         // be a recording of what the server said, not of what we made of it.
         const raw = await readBody(r, onBytes);
@@ -254,16 +253,46 @@ function overpassArea(s, w, n, e, sess, opt) {
                   bbox, query: ql, body: raw });
         const j = JSON.parse(raw);
         if (!j || !j.elements) throw new Error('empty response');
+
+        /* A MIRROR THAT ANSWERS 200 WITH NOTHING IN IT IS NOT A HEALTHY MIRROR.
+
+           From a real session: one host returned an empty element list, in about
+           130 ms, for every query it was ever given. Its first empty answer was
+           to the landmark sweep, where empty is perfectly normal, so it was
+           marked healthy and went to the front of the queue — while every other
+           mirror had picked up misses being slow under the heavy opening
+           requests. From then on it won every hedge, because 130 ms beats
+           everything, and returned nothing every time. SEVEN of the eight
+           opening tiles died as "empty tile" and the detailed city came out two
+           tiles wide instead of nine.
+
+           So an empty body never promotes a mirror, whatever was asked for. And
+           for roads specifically it is treated as a failure and handed to
+           somebody else: a city tile with no streets in it is wrong, and the
+           cost of being wrong is the whole road network. */
+        if (!j.elements.length) {
+          mirrorNote(url, false);
+          if (kind === 'streets' || kind === 'arterials') {
+            // let the other mirrors off the leash — they are parked on this flag
+            sess.streaming = false;
+            const e = new Error('returned nothing');
+            e.empty = true;
+            throw e;
+          }
+        } else mirrorNote(url, true);      // this one answers; keep it at the front
         resolve(j.elements);
       } catch (err) {
         // 429/5xx and network errors mean "busy, come back"; a 400 means our query
         // is wrong and will never work. Our own timeout is left to the other mirrors.
         const aborted = err && err.name === 'AbortError';
-        const retryable = !aborted && (err.status == null || TRANSIENT.has(err.status));
+        // an empty answer is not transient — the same host will just say it
+        // again, instantly. Give the query to a different mirror instead.
+        const empty = !!(err && err.empty);
+        const retryable = !aborted && !empty && (err.status == null || TRANSIENT.has(err.status));
         // note who said no and what they said, for the loading screen to show
         mirrorNote(url, false);            // and this one goes to the back of the queue
         LOAD.lastErr = host(url) + ': ' +
-          (aborted ? 'too slow' : err.status ? err.status
+          (aborted ? 'too slow' : empty ? 'returned nothing' : err.status ? err.status
            : err.status == null ? 'unreachable' : err.message);
         // a refusal never reaches console.warn — the retry usually saves the day —
         // so it is recorded here or the log would show a clean load that wasn't

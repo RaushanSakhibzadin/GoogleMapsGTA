@@ -764,7 +764,11 @@ function reserveAhead(px, py) {
   if (here === RESERVED) return;             // nothing to do until you cross a seam
   RESERVED = here;
   const a = tileRect(tileKey(ci - 1, cj - 1)), b = tileRect(tileKey(ci + 1, cj + 1));
-  if (fitGrid(a.x0, a.y0, b.x1, b.y1)) prerenderMap();   // the radar sizes off the bounds
+  if (!fitGrid(a.x0, a.y0, b.x1, b.y1)) return;
+  // the same hole as in mergeChunk: growing the mask preserves whatever was
+  // missing from it, so anything that overhung the old edge is re-marked here
+  markRoads(W.roads);
+  prerenderMap();                                        // the radar sizes off the bounds
 }
 
 // Called from the game loop; cheap, and does nothing most frames.
@@ -824,7 +828,26 @@ function mergeChunk(data, key) {
   for (const p of data.places || []) W.places.push(p);
   addPOIs(data.pois || []);
 
-  markRoads(data.roads);            // the mask was blitted, so only new roads need marking
+  /* A GROWN GRID HAS HOLES IN IT WHERE ROADS RAN OFF THE OLD ONE.
+
+     markDrivable() bounds-checks against the grid and silently skips cells
+     outside it, so a way that overhangs the box it arrived in is marked only as
+     far as the mask reached at the time. Growing the mask blits the old marks
+     across faithfully — and faithfully preserves the missing part.
+
+     That is what the opening tile does to every road leaving it. Tile (0,0)
+     sizes the grid to ±940 m; the skeleton then grows it to ±18 km, and every
+     street overhanging that first box stays unmarked past 940 m for the rest of
+     the session. In real Belgrade data that is Немањина reading as open ground
+     with its own centreline 0.1 m away — a car crawling on a main road. The
+     duplicate that arrives with the skeleton cannot repair it either, because
+     it carries the same OSM id and is deduped out before it is ever marked.
+
+     So when the grid grows, everything gets re-marked, not just what came in
+     the box that grew it. markDrivable only ever sets cells to 1, so this is
+     idempotent, and the grid grows perhaps twice in a session. */
+  if (grew) markRoads(W.roads);
+  else markRoads(data.roads);       // the mask was blitted, so only new roads need marking
   indexBuildings(firstBuilding);
   indexView(data.roads);
   for (const r of data.roads) if (r.drive && r.pts.length >= 2) indexDrive(W.driveRoads.push(r) - 1);

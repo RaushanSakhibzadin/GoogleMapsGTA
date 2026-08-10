@@ -511,8 +511,15 @@ function update(dt) {
      later. Zeroing this on any frame that didn't clamp meant it never reached
      the threshold no matter how long you leaned on the edge — so it leaks away
      slowly instead, and repeated contact still adds up. */
-  if (atEdge && !P.dead) P.edgeT = Math.min(1.2, (P.edgeT || 0) + dt);
-  else P.edgeT = Math.max(0, (P.edgeT || 0) - dt * .6);
+  /* Credit per CONTACT, not per second of contact. Arriving at the edge on a
+     road at speed, the fence hands back 30% and the car bounces clear, comes
+     back, bounces again — each touch lasting a single frame. Accumulating dt
+     meant 16ms in and 600ms of decay out, so the counter never left zero and a
+     car repeatedly slamming into the end of the world was never told why.
+     One touch is a bounce and says nothing; two inside a couple of seconds is
+     the edge. A car grinding along it saturates immediately. */
+  if (atEdge && !P.dead) P.edgeT = Math.min(1.2, (P.edgeT || 0) + .25);
+  else P.edgeT = Math.max(0, (P.edgeT || 0) - dt * .5);
   if (P.edgeT > .35 && P.edgeCd <= 0 && !P.dead) {
     P.edgeCd = 6; toast('EDGE OF THE MAP\nTURN BACK', 1700);
   }
