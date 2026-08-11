@@ -257,6 +257,16 @@ window.__putCop = (i, x, y, h, vx, vy) => {
   k.x = x; k.y = y; k.h = h; k.vx = vx || 0; k.vy = vy || 0; return true;
 };
 window.__explodeAt = (x, y) => explode(x, y);
+window.__parts = () => ({ parts: parts.length, blasts: blasts.length, shake: cam.shake });
+/* wasted() is a plain global function, so a test can sit in front of it and count
+   the calls — which is the only way to see the recursion the P.dead ordering in
+   wasted() exists to prevent. Pass null to put the real one back. */
+let WASTED_REAL = null;
+window.__countWasted = fn => {
+  if (!WASTED_REAL) WASTED_REAL = wasted;
+  window.wasted = fn ? function (...a) { fn(); return WASTED_REAL.apply(null, a); } : WASTED_REAL;
+  return true;
+};
 window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   const t = traffic[i]; if (!t) return false;
   t.x = x; t.y = y; t.h = h; t.vx = vx || 0; t.vy = vy || 0;

@@ -454,6 +454,18 @@ function wasted() {
   P.cash = 0;
   store.set('vm_cash', P.cash);
   bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
+  /* THE CAR GOES UP WITH YOU. Every other car in the game explodes when its
+     health runs out — checkWreck sends traffic and police through wreck(), which
+     is an explosion. The player's just stopped, and a banner appeared over a car
+     sitting there intact, which reads as the game giving up rather than as the
+     car being destroyed.
+
+     P.dead first, and that ordering is load-bearing: explode() damages whatever
+     is standing in the blast, the player included, and the player's health is
+     already at zero. Without the flag the blast walks straight back into
+     wasted() and recurses. */
+  P.dead = true;
+  explode(P.car.x, P.car.y);
   respawn('hospital');
 }
 function respawn(kind) {
