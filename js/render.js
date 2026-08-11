@@ -350,6 +350,124 @@ function drawArrow() {
   ctx.fillText(d + ' m', x, y + 28); ctx.restore();
 }
 
+/* ------------------------------ the big map ------------------------------ */
+/* Drawn from the road list rather than from the radar's pre-rendered image: that
+   image is a 4 km window at 0.6 px/m, which is the wrong scale and the wrong
+   extent for a map you open to find something. This one is redrawn only when it
+   moves — opening, panning, pinching — never per frame, so it can afford to walk
+   every road in the world. */
+const MAPV = { cx: 0, cy: 0, s: 0 };      // centre in metres, scale in px/m
+
+function mapFit() {
+  // Opens on about 5 km across the short axis: far enough to see the next
+  // district and the garages in it, close enough that streets are still streets.
+  const short = Math.min(VW, VH);
+  MAPV.s = short / 5000;
+  MAPV.cx = P.car.x; MAPV.cy = P.car.y;
+  mapClamp();
+}
+function mapClamp() {
+  const wide = Math.max(W.maxX - W.minX, 1), tall = Math.max(W.maxY - W.minY, 1);
+  // never zoom out past the whole world, nor in past a metre a pixel
+  const minS = Math.min(VW / wide, VH / tall) * .9;
+  MAPV.s = clamp(MAPV.s, minS, 1);
+  // and never pan the world off the screen entirely
+  const halfW = VW / 2 / MAPV.s, halfH = VH / 2 / MAPV.s;
+  MAPV.cx = clamp(MAPV.cx, W.minX - halfW * .5, W.maxX + halfW * .5);
+  MAPV.cy = clamp(MAPV.cy, W.minY - halfH * .5, W.maxY + halfH * .5);
+}
+
+function drawBigMap() {
+  const cv = $('bigmapC'), g = cv.getContext('2d');
+  const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = PAL.mapBg; g.fillRect(0, 0, w, h);
+  if (!MAPV.s) mapFit();
+
+  const s = MAPV.s * DPR;
+  g.save();
+  g.translate(w / 2, h / 2); g.scale(s, s); g.translate(-MAPV.cx, -MAPV.cy);
+
+  // what's on screen, in metres, so everything below can cull against it
+  const halfW = (w / 2) / s, halfH = (h / 2) / s;
+  const x0 = MAPV.cx - halfW, x1 = MAPV.cx + halfW;
+  const y0 = MAPV.cy - halfH, y1 = MAPV.cy + halfH;
+  const near = f => f.bb.x1 >= x0 && f.bb.x0 <= x1 && f.bb.y1 >= y0 && f.bb.y0 <= y1;
+
+  for (const f of W.parks) {
+    if (!near(f)) continue;
+    g.fillStyle = PAL.mapPark;
+    g.beginPath();
+    g.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) g.lineTo(f.pts[i].x, f.pts[i].y);
+    g.closePath(); g.fill();
+  }
+
+  /* Roads in two passes, small then big, so the arterials read on top of the
+     lattice instead of being lost in it. Widths have a pixel floor — at four
+     kilometres across, a true-to-scale 8 m street is a quarter of a pixel and
+     the map turns into a grey haze. */
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const big of [false, true]) {
+    g.strokeStyle = big ? PAL.mapRoadBig : PAL.mapRoad;
+    g.beginPath();
+    for (const r of W.roads) {
+      if ((r.w >= 11) !== big || !near(r)) continue;
+      g.moveTo(r.pts[0].x, r.pts[0].y);
+      for (let i = 1; i < r.pts.length; i++) g.lineTo(r.pts[i].x, r.pts[i].y);
+    }
+    // world metres, with a floor expressed in pixels and converted back
+    g.lineWidth = Math.max(big ? 13 : 7, (big ? 2.6 : 1.4) * DPR / s);
+    g.stroke();
+  }
+  g.restore();
+
+  // Landmarks and markers go on unscaled, so they stay the same size however far
+  // you zoom out — a dot that shrinks with the map is a dot you cannot find.
+  const toPx = (wx, wy) => [w / 2 + (wx - MAPV.cx) * s, h / 2 + (wy - MAPV.cy) * s];
+  const dot = (wx, wy, col, rad) => {
+    const [px, py] = toPx(wx, wy);
+    if (px < -20 || py < -20 || px > w + 20 || py > h + 20) return;
+    g.fillStyle = col; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.4 * DPR;
+    g.beginPath(); g.arc(px, py, rad * DPR, 0, TAU); g.fill(); g.stroke();
+  };
+  for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], 4.2);
+  if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 6);
+  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, '#ffe36a', 6);
+
+  // the car, pointing where it is pointing
+  const [cx, cy] = toPx(P.car.x, P.car.y);
+  g.save(); g.translate(cx, cy); g.rotate(P.car.h + Math.PI / 2);
+  g.fillStyle = '#fff'; g.strokeStyle = '#12061d'; g.lineWidth = 1.6 * DPR;
+  g.beginPath();
+  g.moveTo(0, -9 * DPR); g.lineTo(6.4 * DPR, 7 * DPR); g.lineTo(0, 3.6 * DPR); g.lineTo(-6.4 * DPR, 7 * DPR);
+  g.closePath(); g.fill(); g.stroke();
+  g.restore();
+
+  drawMapScale(g, w, h, s);
+}
+/* A scale bar, because "is that garage worth driving to" is a question about
+   distance and the zoom moves. Picks a round number of metres that lands near a
+   fifth of the screen. */
+function drawMapScale(g, w, h, s) {
+  const want = w / 5;
+  const steps = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
+  let m = steps[steps.length - 1];
+  for (const st of steps) if (st * s >= want * .55) { m = st; break; }
+  const px = m * s, x = 14 * DPR, y = h - 34 * DPR;
+  g.save();
+  g.strokeStyle = 'rgba(255,255,255,.75)'; g.fillStyle = 'rgba(255,255,255,.75)';
+  g.lineWidth = 2 * DPR;
+  g.beginPath();
+  g.moveTo(x, y - 5 * DPR); g.lineTo(x, y); g.lineTo(x + px, y); g.lineTo(x + px, y - 5 * DPR);
+  g.stroke();
+  g.font = '600 ' + (11 * DPR) + 'px system-ui,sans-serif';
+  g.textBaseline = 'bottom';
+  g.fillText(m >= 1000 ? (m / 1000) + ' km' : m + ' m', x, y - 7 * DPR);
+  g.restore();
+}
+
 /* ---- HUD text is DOM; only the numbers change, and only ~12×/s ---- */
 let hudT = 0;
 function drawHUD() {

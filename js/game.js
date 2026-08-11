@@ -566,6 +566,7 @@ function update(dt) {
      on a road at 180 km/h, the bounce carries you far enough that the next
      contact is seconds away. There is nothing ambiguous about reaching the end
      of the world — say so the first time. */
+  if (atEdge) P.edgeHits = (P.edgeHits || 0) + 1;
   if (atEdge && !P.dead && P.edgeCd <= 0) {
     P.edgeCd = 6; toast('EDGE OF THE MAP\nTURN BACK', 1700);
   }

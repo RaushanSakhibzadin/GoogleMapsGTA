@@ -26,7 +26,10 @@ addEventListener('keydown', e => {
   if (typing(e)) return;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
   keys[e.key.toLowerCase()] = 1;
-  if (e.key === 'Escape') togglePause();
+  // Esc closes the map if it's open, rather than stacking a pause card behind it
+  if (e.key === 'Escape') state === 'map' ? closeMap() : togglePause();
+  if (e.key.toLowerCase() === 'm' && (state === 'play' || state === 'map'))
+    state === 'map' ? closeMap() : openMap();
   if (e.key.toLowerCase() === 'h') SFX.horn();
   if (e.key.toLowerCase() === 'n' && state === 'play') toggleTheme();
   if (state === 'play') audioStart();
@@ -253,6 +256,9 @@ function resize() {
   // the pads move with the layout, and this is also the call that runs right
   // after the touch UI is first shown — before that they measure as nothing
   padBoxes = null;
+  // the big map is drawn only when it moves, so a rotation while it is open
+  // would otherwise leave it stretched across the new viewport until touched
+  if (state === 'map') { mapClamp(); drawBigMap(); }
 }
 addEventListener('resize', resize);
 

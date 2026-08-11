@@ -46,6 +46,77 @@ function togglePause() {
 /* Straight through to saveLog with nothing awaited in between: iOS only opens
    the share sheet from inside a real tap, and an await before share() loses the
    gesture and silently does nothing. */
+/* ---- the big map: tap the radar, the game stops, the city opens ---- */
+/* Its own state rather than reusing 'pause'. The loop only steps the world while
+   state is 'play', so this pauses by existing — and keeping it distinct means
+   Esc closes the map instead of stacking the pause card underneath it. */
+function openMap() {
+  if (state !== 'play') return;
+  state = 'map';
+  SFX.engine(0, 0); SFX.siren(false, 0);      // no engine note over a paused game
+  $('mapWhere').textContent = (NAV.street || W.name || '') +
+    (NAV.zone ? ' · ' + NAV.zone : '');
+  $('bigmap').classList.remove('hide');
+  mapFit();
+  drawBigMap();
+}
+function closeMap() {
+  if (state !== 'map') return;
+  $('bigmap').classList.add('hide');
+  state = 'play';
+  lastT = performance.now(); acc = 0;         // don't hand the physics the pause
+}
+$('mini').onclick = openMap;
+$('mapClose').onclick = closeMap;
+
+/* Pan and pinch. Pointer events cover mouse, pen and touch in one path, and the
+   pointers are tracked in a map so a second finger arriving mid-drag becomes a
+   pinch rather than a jump. */
+(function mapGestures() {
+  const cv = $('bigmapC');
+  const live = new Map();
+  let pinch0 = 0, scale0 = 0;
+  const mid = () => {
+    let sx = 0, sy = 0;
+    for (const q of live.values()) { sx += q.x; sy += q.y; }
+    return { x: sx / live.size, y: sy / live.size };
+  };
+  const spread = () => {
+    const [a, b] = [...live.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    live.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (live.size === 2) { pinch0 = spread(); scale0 = MAPV.s; }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!live.has(e.pointerId)) return;
+    const prev = mid();
+    live.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const now = mid();
+    // dragging moves the world under the finger, so the pixel delta is negated
+    MAPV.cx -= (now.x - prev.x) / MAPV.s;
+    MAPV.cy -= (now.y - prev.y) / MAPV.s;
+    if (live.size === 2 && pinch0 > 8) MAPV.s = scale0 * (spread() / pinch0);
+    mapClamp();
+    drawBigMap();
+  });
+  const up = e => {
+    live.delete(e.pointerId);
+    if (live.size === 2) { pinch0 = spread(); scale0 = MAPV.s; }
+  };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+  // and a wheel, for the desktop
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    MAPV.s *= Math.exp(-e.deltaY * .0015);
+    mapClamp();
+    drawBigMap();
+  }, { passive: false });
+})();
+
 $('logBtn').onclick = () => saveLog();
 $('resume').onclick = togglePause;
 $('newLoc').onclick = () => {
@@ -199,6 +270,13 @@ window.__nearestPOI = kind => {
                 d: +dist(p.x, p.y, P.car.x, P.car.y).toFixed(1) };
 };
 window.__mini = () => ({ w: mini.width, h: mini.height, dpr: DPR });
+window.__openMap = () => { openMap(); return state; };
+window.__closeMap = () => { closeMap(); return state; };
+window.__edge = () => ({ cd: +(P.edgeCd || 0).toFixed(2), hits: P.edgeHits || 0 });
+window.__clearEdge = () => { P.edgeCd = 0; P.edgeHits = 0; };
+window.__mapView = () => ({ cx: +MAPV.cx.toFixed(1), cy: +MAPV.cy.toFixed(1), s: +MAPV.s.toFixed(5) });
+window.__mapPan = (dx, dy) => { MAPV.cx += dx; MAPV.cy += dy; mapClamp(); drawBigMap(); };
+window.__mapZoom = k => { MAPV.s *= k; mapClamp(); drawBigMap(); };
 window.__missingKinds = () => missingKinds();
 window.__wideSearch = () => widenLandmarkSearch();
 window.__sweepLandmarks = () => sweepLandmarks();
