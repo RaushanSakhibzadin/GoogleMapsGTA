@@ -400,9 +400,58 @@ function drawMini() {
     mctx.beginPath(); mctx.arc(px, py, sz * DPR, 0, TAU); mctx.fill();
   };
   for (const t of traffic) blip(t.x, t.y, 'rgba(255,255,255,.45)', 1.6);
+
+  /* LANDMARKS. They are already baked into the pre-rendered map — and at 0.6
+     px/m, scaled down again to fit 230 m across a 98 px phone radar, a five
+     pixel dot lands under two pixels. Which is why a player with two hundred
+     repair shops around him could not find one. Drawn as blips they are the
+     same size as everything else you are meant to see. */
+  for (const p of W.pois) {
+    if (Math.abs(p.x - P.car.x) > showM || Math.abs(p.y - P.car.y) > showM) continue;
+    blip(p.x, p.y, POI_COL[p.kind], 3);
+  }
+
   for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
   if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
   if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, '#ffe36a', 3.4);
+
+  /* THE NEAREST REPAIR SHOP, ON THE RIM. Everything above only exists while it
+     is inside 230 m, and the nearest garage is usually further than that — so
+     the one landmark you go looking for on purpose gets a pointer that works at
+     any range. It sits on the edge of the radar at the shop's bearing, with the
+     distance, and brightens once the armour is low enough to want it. */
+  const rep = nearestPOI('repair', P.car.x, P.car.y);
+  if (rep) {
+    const dx = rep.x - P.car.x, dy = rep.y - P.car.y;
+    const d = Math.hypot(dx, dy);
+    if (d > showM) {
+      const a = Math.atan2(dx * sn + dy * cs, dx * cs - dy * sn);   // into radar space
+      const hurt = P.car.hp < 55;
+      const rim = r - 5 * DPR;
+      mctx.save();
+      mctx.translate(r + Math.cos(a) * rim, r + Math.sin(a) * rim);
+      mctx.rotate(a);
+      mctx.globalAlpha = hurt ? 1 : .8;
+      mctx.fillStyle = POI_COL.repair;
+      mctx.shadowColor = POI_COL.repair; mctx.shadowBlur = (hurt ? 8 : 4) * DPR;
+      const s2 = (hurt ? 5.4 : 4.4) * DPR;
+      mctx.beginPath();
+      mctx.moveTo(s2, 0); mctx.lineTo(-s2 * .8, -s2 * .8); mctx.lineTo(-s2 * .8, s2 * .8);
+      mctx.closePath(); mctx.fill();
+      mctx.restore();
+      // how far, just inside the rim — the whole point is deciding whether to go
+      mctx.save();
+      mctx.globalAlpha = hurt ? 1 : .85;
+      mctx.fillStyle = POI_COL.repair;
+      mctx.font = '700 ' + (8.5 * DPR) + 'px system-ui,sans-serif';
+      mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
+      mctx.shadowColor = '#000'; mctx.shadowBlur = 3 * DPR;
+      const lr = rim - 11 * DPR;
+      mctx.fillText(d > 950 ? (d / 1000).toFixed(1) + 'k' : Math.round(d) + '',
+                    r + Math.cos(a) * lr, r + Math.sin(a) * lr);
+      mctx.restore();
+    }
+  }
 
   // player triangle at centre, always pointing up
   mctx.save(); mctx.translate(r, r);

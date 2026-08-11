@@ -1090,6 +1090,25 @@ function zoneAt(x, y) {
 }
 
 const REPAIR_COST = 1000;
+
+/* The nearest landmark of a kind. Recomputed a few times a second rather than
+   every frame: there are three hundred of these in a real city, the answer only
+   changes as you drive, and a marker that re-picks its target every frame
+   flickers between two shops equidistant from you. */
+const NEAR_POI = { t: 0, of: {} };
+function nearestPOI(kind, x, y) {
+  const now = performance.now();
+  if (now - NEAR_POI.t > 250) { NEAR_POI.t = now; NEAR_POI.of = {}; }
+  if (kind in NEAR_POI.of) return NEAR_POI.of[kind];
+  let best = null, bd = Infinity;
+  for (const p of W.pois) {
+    if (p.kind !== kind) continue;
+    const d = dist2(p.x, p.y, x, y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  NEAR_POI.of[kind] = best;
+  return best;
+}
 // Half-widths for the landmark sweep, tried in order. Each rung runs at most once
 // per city; when the first still turns up no station and no hospital, the next
 // one goes wider rather than giving up.

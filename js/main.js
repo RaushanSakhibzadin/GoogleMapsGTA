@@ -72,6 +72,7 @@ window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.
   cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
 window.__addWanted = n => addWanted(n);
 window.__hurt = () => { P.car.hp = 0; };
+window.__heal = () => { P.car.hp = 100; return P.car.hp; };
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;
   P.car.vx = P.car.vy = 0; cam.x = x; cam.y = y; };
 window.__m = () => ({ state: MISSION.state, done: MISSION.done, reward: MISSION.reward,
@@ -192,6 +193,12 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   return true;
 };
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
+window.__nearestPOI = kind => {
+  const p = nearestPOI(kind, P.car.x, P.car.y);
+  return p && { x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name,
+                d: +dist(p.x, p.y, P.car.x, P.car.y).toFixed(1) };
+};
+window.__mini = () => ({ w: mini.width, h: mini.height, dpr: DPR });
 window.__missingKinds = () => missingKinds();
 window.__wideSearch = () => widenLandmarkSearch();
 window.__sweepLandmarks = () => sweepLandmarks();
