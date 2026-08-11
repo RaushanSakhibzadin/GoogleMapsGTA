@@ -62,9 +62,21 @@ const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk reques
    real city; the trunk roads alone are a few, and they're what makes the place
    feel like somewhere with a horizon. Nothing about the road network is ever
    requested again after this — once you're driving, only scenery loads. */
-const SKELETON_RADII = [18000, 9000, 4000];   // tried in order; first one to land wins
-const SKELETON_MS = [28000, 12000, 8000];     // per attempt, so the ladder can't run away
-const SKELETON_WAIT = 45000;                  // shared deadline over the whole ladder
+/* 36 km out, so the city has a horizon you can drive to rather than one you
+   reach. The rungs below it are not decoration: the box grows with the SQUARE of
+   the radius, so this asks for four times the area the 18 km version did, and
+   there are servers and networks that will not carry it. First one to land wins,
+   and the one that lands is the one you get. */
+const SKELETON_RADII = [36000, 18000, 9000];  // tried in order; first one to land wins
+/* The per-rung caps are generous because the big box is a big download; the
+   SHARED deadline is what the player actually feels, and it is the thing to keep
+   short. Letting each rung have its head — 50, 20, 10 — meant a server refusing
+   everything took seventy seconds to give up, and seventy seconds of loading
+   screen is worse than a smaller world. Thirty-five seconds for the 36 km try
+   still leaves twenty for the 18 km one, which is known to answer in about
+   three. */
+const SKELETON_MS = [35000, 18000, 10000];    // per attempt, so the ladder can't run away
+const SKELETON_WAIT = 55000;                  // shared deadline over the whole ladder
 
 /* Two queries, not one. Streets are small and quick and are all you need to start
    driving; buildings are the bulk of the payload and arrive afterwards. Splitting
@@ -85,7 +97,7 @@ function overpassQL(s, w, n, e, kind) {
   // the overwhelming majority of a city's ways, and including them here is the
   // difference between a few megabytes and a query the server refuses outright.
   if (kind === 'arterials') {
-    return `[out:json][timeout:90];(` +
+    return `[out:json][timeout:120];(` +
       `way["highway"~"^(motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link)$"](${bb});` +
       `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
       `);out geom qt;`;
@@ -123,7 +135,7 @@ const HEDGE = 2200;
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
-const ARTERIALS = { mirrorMs: 40000, totalMs: 45000 };  // query says timeout:90, big box
+const ARTERIALS = { mirrorMs: 55000, totalMs: 62000 };  // query says timeout:120, huge box
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 
 /* Which mirrors are actually answering, learned as we go. Every request used to

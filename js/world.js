@@ -288,7 +288,24 @@ function proceduralCity() {
 
 /* ---- indexing, written so it can run over a whole world or just a new chunk ---- */
 
-// Grow the drivable mask to cover new bounds, carrying the existing marks across.
+/* THE MASK IS TWO BITS A CELL, packed four to a byte.
+
+   At 8 m cells a 36 km world is 4,510 squared — twenty million cells, and a byte
+   each was fine. A 72 km world is 9,010 squared: eighty-one million cells, and
+   eighty-one megabytes of Uint8Array is not something to ask a phone for on top
+   of thirty megabytes of map JSON. Two bits hold everything this ever stored —
+   0 nothing, 1 road, 2 tarmac-but-not-road — and bring the same world down to
+   twenty megabytes at the same eight metre resolution. Coarsening the cells
+   instead would have been less code and worse: at 16 m a residential street
+   marks sixteen metres either side of its centreline, and the whole point of
+   the off-road penalty is knowing where the road stops. */
+const gridGet = i => (W.grid[i >> 2] >> ((i & 3) << 1)) & 3;
+function gridSet(i, v) {
+  const b = i >> 2, sh = (i & 3) << 1;
+  W.grid[b] = (W.grid[b] & ~(3 << sh)) | (v << sh);
+}
+
+// Grow the drivable mask to cover new bounds.
 function fitGrid(x0, y0, x1, y1) {
   const pad = 40;
   const nMinX = Math.min(W.minX, x0 - pad), nMinY = Math.min(W.minY, y0 - pad);
@@ -296,13 +313,14 @@ function fitGrid(x0, y0, x1, y1) {
   if (W.grid && nMinX === W.minX && nMinY === W.minY && nMaxX === W.maxX && nMaxY === W.maxY) return false;
 
   const gw = Math.ceil((nMaxX - nMinX) / W.cell), gh = Math.ceil((nMaxY - nMinY) / W.cell);
-  const grid = new Uint8Array(gw * gh);
-  if (W.grid) {                        // blit the old mask into its new offset
-    const ox = Math.round((W.minX - nMinX) / W.cell), oy = Math.round((W.minY - nMinY) / W.cell);
-    for (let y = 0; y < W.gh; y++) grid.set(W.grid.subarray(y * W.gw, (y + 1) * W.gw), (y + oy) * gw + ox);
-  }
+  /* Fresh and empty — the old marks are NOT carried across. They used to be, by
+     blitting row by row, and that faithfully preserved the hole every road left
+     when it ran off the edge of the smaller mask. Every caller re-marks after a
+     grow for exactly that reason, so the blit was already doing nothing but
+     hiding the bug, and packed rows do not begin on byte boundaries anyway. */
   W.minX = nMinX; W.minY = nMinY; W.maxX = nMaxX; W.maxY = nMaxY;
-  W.gw = gw; W.gh = gh; W.grid = grid;
+  W.gw = gw; W.gh = gh;
+  W.grid = new Uint8Array(Math.ceil(gw * gh / 4));
   return true;
 }
 
@@ -932,13 +950,13 @@ function markDrivable(x, y, r, val = 1) {
     if (i * i + j * j > (rad + .4) * (rad + .4)) continue;
     const k = cy * W.gw + cx;
     // drivable always wins, whichever order the two kinds happen to be marked in
-    if (val === 1 || W.grid[k] === 0) W.grid[k] = val;
+    if (val === 1 || gridGet(k) === 0) gridSet(k, val);
   }
 }
 function onRoad(x, y) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
-  return W.grid[gy * W.gw + gx] === 1;
+  return gridGet(gy * W.gw + gx) === 1;
 }
 // Anything painted as tarmac, road network or not. Only the off-road penalty
 // asks this: what it needs to know is "does this LOOK like road under the car",
@@ -946,7 +964,7 @@ function onRoad(x, y) {
 function onTarmac(x, y) {
   const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
-  return W.grid[gy * W.gw + gx] !== 0;
+  return gridGet(gy * W.gw + gx) !== 0;
 }
 
 /* WHICH WAY IS THE TARMAC? A short spiral outwards over the drivable mask,
@@ -968,7 +986,7 @@ function nearestRoadDir(x, y, maxCells = 6) {
       if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;      // the ring, not the block
       const cx = gx + i, cy = gy + j;
       if (cx < 0 || cy < 0 || cx >= W.gw || cy >= W.gh) continue;
-      if (W.grid[cy * W.gw + cx] === 0) continue;      // any tarmac will do
+      if (gridGet(cy * W.gw + cx) === 0) continue;      // any tarmac will do
       const wx = W.minX + (cx + .5) * W.cell, wy = W.minY + (cy + .5) * W.cell;
       const d = dist2(x, y, wx, wy);
       if (d < bd) { bd = d; bx = wx; by = wy; }
