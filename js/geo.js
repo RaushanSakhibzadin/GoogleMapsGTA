@@ -278,20 +278,37 @@ function overpassArea(s, w, n, e, sess, opt) {
            opening tiles died as "empty tile" and the detailed city came out two
            tiles wide instead of nine.
 
-           So an empty body never promotes a mirror, whatever was asked for. And
-           for roads specifically it is treated as a failure and handed to
-           somebody else: a city tile with no streets in it is wrong, and the
-           cost of being wrong is the whole road network. */
+           So an empty body never promotes a mirror, and it is never the answer.
+
+           The first version of this rule made an exception for landmarks and
+           scenery, on the reasoning that a box really can have none in it. The
+           next session showed what that exception costs: the same host answered
+           nothing to the 36 km landmark sweep and to three of the four scenery
+           tiles, and every one was accepted, because each was individually
+           plausible. It ended with ONE landmark in a 36 km radius of central
+           Belgrade and no repair shop anywhere — which is what was reported, as
+           not being able to find one.
+
+           So there is no exception. An empty box is a real thing and a mirror
+           serving an empty database is a real thing, and NOTHING IN THE REPLY
+           TELLS THEM APART — both are 200 with an element list of length zero.
+           What separates them is that asking somebody else is cheap and being
+           wrong is not: an empty reply arrives in a quarter of a second and
+           releases the next mirror immediately, so the whole ladder costs about
+           a second, while accepting one silently deletes a district's worth of
+           the map. When the box genuinely is empty every mirror says so, the
+           request fails, and a failed scenery tile is already handled — it backs
+           off and comes round again, which is the correct behaviour for ground
+           that has nothing on it. */
         if (!j.elements.length) {
           mirrorNote(url, false);
-          if (kind === 'streets' || kind === 'arterials') {
-            // let the other mirrors off the leash — they are parked on this flag
-            sess.streaming = false;
-            const e = new Error('returned nothing');
-            e.empty = true;
-            throw e;
-          }
-        } else mirrorNote(url, true);      // this one answers; keep it at the front
+          // let the other mirrors off the leash — they are parked on this flag
+          sess.streaming = false;
+          const e = new Error('returned nothing');
+          e.empty = true;
+          throw e;
+        }
+        mirrorNote(url, true);             // this one answers; keep it at the front
         resolve(j.elements);
       } catch (err) {
         // 429/5xx and network errors mean "busy, come back"; a 400 means our query
@@ -328,10 +345,21 @@ function overpassArea(s, w, n, e, sess, opt) {
   });
   deadline.catch(() => {});
 
-  const racers = [
-    Promise.any(tries).catch(() => { throw new Error('all mirrors failed'); }),
-    deadline
-  ];
+  /* AND IF THEY ALL SAY NOTHING, THERE IS NOTHING THERE. An empty reply is
+     refused above because one mirror's silence is worthless as evidence — but
+     six independent servers agreeing is not, and it is the only thing that ever
+     distinguishes a genuinely empty box from a broken database. It costs about a
+     second, since empty answers come back fast and each one releases the next
+     mirror immediately, and it buys the difference between "this ground has
+     nothing on it" and "this request failed": a tile over open water settles as
+     loaded-and-empty instead of failing, backing off, and being asked for again
+     every ninety seconds for as long as you drive near it. */
+  const allEmpty = Promise.any(tries).catch(err => {
+    const list = (err && err.errors) || [];
+    if (list.length && list.every(e => e && e.empty)) return [];
+    throw new Error('all mirrors failed');
+  });
+  const racers = [allEmpty, deadline];
   if (sess.cancelP) racers.push(sess.cancelP);
   return Promise.race(racers).finally(() => sessAbort(sess));
 }

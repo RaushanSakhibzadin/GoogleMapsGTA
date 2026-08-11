@@ -174,19 +174,22 @@ const FAKE_ST =['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Wa
 const FAKE_ZONE = ['Downtown', 'Little Habana', 'Beachfront', 'The Docks', 'Vice Point'];
 
 /* A neon grid city, for when the network is down or the map is all ocean. */
-/* THE BUNDLED CITY — central Belgrade, real OpenStreetMap data, shipped with the
-   game and loaded when the map servers cannot be reached.
+/* THE BUNDLED CITY — Stari grad, the old town of Belgrade, real OpenStreetMap
+   data captured from a real session and shipped with the game. Loaded when the
+   map servers cannot be reached.
 
    It replaces the generated grid, which was only ever a way of not showing an
-   error screen: a place with real streets, real junctions and four thousand real
-   buildings is a far better offline game than a lattice, and it is the same data
-   the online path builds from, so nothing downstream can tell the difference.
+   error screen: a place with real streets, real junctions and nearly four
+   thousand real buildings is a far better offline game than a lattice, and it is
+   the same data the online path builds from, so nothing downstream can tell the
+   difference. Its arterial skeleton reaches 15 km, so the fallback is a 30 km
+   world rather than the pocket the first version bundled.
 
-   Pulled in ON DEMAND, as a <script> tag rather than a fetch. Three megabytes
-   has no business loading on the normal path, and fetch() is refused for
-   file:// URLs while a script tag is not — opening index.html straight off disk
-   has to keep working. Kept to one attempt: if it will not load, the generated
-   city is still there underneath. */
+   Pulled in ON DEMAND, as a <script> tag rather than a fetch. Four megabytes has
+   no business loading on the normal path, and fetch() is refused for file://
+   URLs while a script tag is not — opening index.html straight off disk has to
+   keep working. Kept to one attempt: if it will not load, the generated city is
+   still there underneath. */
 let offlinePromise = null;
 function loadOfflineCity() {
   if (window.OFFLINE_CITY) return Promise.resolve(window.OFFLINE_CITY);
