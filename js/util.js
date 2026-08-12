@@ -39,6 +39,23 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
    out orange beside the arrow, twice. tests/daynight.mjs checks the three
    against each other rather than against a number typed into the test. */
 const GOLD = '#ffe36a';
+
+/* HOW LOUD SOMETHING OVER THERE SHOULD BE, 0 to 1.
+
+   Everything that made a noise made it at full volume wherever it happened, and
+   with a city full of traffic that meant a pile-up six hundred metres away
+   sounded exactly like one under the bonnet. Reported, accurately, as hearing
+   nothing but explosions from cars that are not on the screen.
+
+   The scale is the view, not a fixed distance: full volume out to half the
+   visible radius, fading to nothing a little past the edge of it, so what you
+   can see you can hear and what you cannot see you cannot. */
+function earshot(x, y) {
+  if (typeof P === 'undefined' || !P.car) return 1;
+  const view = Math.hypot(VW, VH) / 2 / cam.s;
+  const d = dist(x, y, P.car.x, P.car.y);
+  return clamp(1 - (d - view * .5) / (view * .9), 0, 1);
+}
 const PATREON = 'https://www.patreon.com/raushanraushan';
 
 /* ------------------------------ 1. colour ------------------------------ */

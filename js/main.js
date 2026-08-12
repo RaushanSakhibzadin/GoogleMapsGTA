@@ -239,6 +239,12 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedg
   slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,
   loadSweepWait: LOAD_SWEEP_WAIT });
 window.__pal = () => PAL;
+// traffic: how many are alive, how many have died, and how big the ring is
+window.__traf = () => ({ cars: traffic.length, cap: trafficCap(), wrecks: WRECKS,
+  radius: +trafficR().toFixed(1), gapStop: GAP_STOP, gapSee: GAP_SEE });
+window.__trafficCap = n => { TRAFFIC_SET = n | 0; return trafficCap(); };
+// what every crash and explosion is scaled by, so a test can ask it directly
+window.__earshot = (x, y) => earshot(x, y);
 // the objective yellow the canvas actually draws with, so a test can hold the
 // stylesheet and the stars against it rather than against a literal
 window.__gold = () => GOLD;

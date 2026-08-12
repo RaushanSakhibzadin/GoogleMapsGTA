@@ -372,13 +372,19 @@ function resetRun() {
   $('street').textContent = ''; $('street').classList.remove('on');
   $('zone').textContent = ''; $('zone').classList.remove('on');
   cam.x = P.car.x; cam.y = P.car.y;
-  spawnTraffic(trafficCap()); spawnPeds(34);
+  spawnTraffic(trafficCap(), true); spawnPeds(34);
   newMission();
 }
 
-/* DAYLIGHT IS RUSH HOUR. Ten times the cars while the sun is up, because a
-   bright empty city reads as an abandoned one — dusk can carry a quiet street on
-   atmosphere and midday cannot.
+/* DAYLIGHT IS RUSH HOUR — three times the cars, not ten.
+
+   Ten was the figure when traffic lived in a 780 m circle and nine tenths of it
+   was somewhere you could never see. Now that cars are kept to the edge of the
+   screen the same count is THIRTY times the density, and measured on real
+   Belgrade streets that is not a rush hour, it is a car park: average traffic
+   speed falls from 17 km/h to 5.5 and well over half of them are stopped. Three
+   times still flows at around 11 km/h and puts more cars in front of you than
+   ten times ever did, because all of them are now within sight.
 
    A cap, not a spawn: the top-up already fills towards it a few cars at a time
    and the 780 m cull already empties it from behind, so this is one number and
@@ -387,7 +393,8 @@ function resetRun() {
    one, which would leave the city in rush hour for a minute after you asked it
    not to be. */
 const TRAFFIC_N = 26;
-const trafficCap = () => themeName === 'day' ? TRAFFIC_N * 10 : TRAFFIC_N;
+let TRAFFIC_SET = 0;                      // tests and tuning; 0 means use the theme
+const trafficCap = () => TRAFFIC_SET || (themeName === 'day' ? TRAFFIC_N * 3 : TRAFFIC_N);
 
 /* ------------------------------ 10. missions ------------------------------ */
 // Contracts reach further as more of the map streams in, so packets turn up in
@@ -659,7 +666,9 @@ function update(dt) {
   const spd = Math.hypot(c.vx, c.vy);
 
   // --- traffic
+  trafficGrid();                       // before anything asks who is nearby
   for (const t of traffic) updateTraffic(t, dt);
+  trafficCollisions();                 // once per pair, off the same grid
   // anything out of health goes up; the list filters below drop the wreckage
   for (const o of traffic) checkWreck(o, dt);
   for (const o of cops) checkWreck(o, dt);
@@ -753,7 +762,11 @@ function update(dt) {
   if (P.dead) { P.deadT -= dt; if (P.deadT <= 0) doRespawn(); }
 
   // --- respawn thinning population near the player
-  traffic = traffic.filter(t => !t.dead && dist(t.x, t.y, c.x, c.y) < 780);
+  /* Traffic only exists where you can see it — see trafficR(). Police are NOT
+     culled to the screen: a pursuit that evaporates the moment it drops out of
+     frame is not a pursuit, so they keep their own 700 m leash. */
+  const tR = trafficR();
+  traffic = traffic.filter(t => !t.dead && dist2(t.x, t.y, c.x, c.y) < tR * tR);
   peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
   /* Refilling the world is a search over the road index, so it is rate-limited
      rather than run every frame. Traffic tops out at 17 m/s and you now do 100:
@@ -831,12 +844,43 @@ function updateTraffic(t, dt) {
   const dx = target.x - t.x, dy = target.y - t.y;
   if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast
   const want = Math.atan2(dy, dx);
-  const steer = clamp(angDiff(t.h, want) * 2.2, -1, 1);
+  /* Gentler on the wheel than 2.2. At full lock every frame a car overshoots the
+     node it is aiming at, comes back, overshoots again, and weaves down a
+     straight road like it is avoiding something — which is what "move straight
+     by roads mostly" was asking for. 1.25 settles instead of hunting, and the
+     cap keeps it from sawing at speed. */
+  const steer = clamp(angDiff(t.h, want) * 1.25, -.75, .75);
+  let throttle = 1;
 
   // slow down for whatever is directly in front (usually the player)
   let brake = 0;
   const ahead = { x: t.x + Math.cos(t.h) * 9, y: t.y + Math.sin(t.h) * 9 };
   if (dist2(ahead.x, ahead.y, P.car.x, P.car.y) < 42) brake = 1;
+
+  /* AND FOR EACH OTHER, which they never did. Traffic braked for the player and
+     for nothing else, so every car drove at a constant 100% throttle into
+     whatever was in front of it — and once daylight put ten times as many of
+     them on the same streets, the result was a permanent demolition derby going
+     off out of sight. Reported as hearing nothing but explosions from cars that
+     aren't on the screen, which is exactly what it was.
+
+     A car counts as "in the way" only if it is genuinely AHEAD and roughly in
+     line: the dot product against our heading picks out in front from alongside,
+     and the perpendicular offset picks out our lane from the oncoming one. Brake
+     hard when it is close, lift off when it is merely near — cars that only ever
+     brake or floor it end up nose-to-tail concertinas. */
+  const cs = Math.cos(t.h), sn = Math.sin(t.h);
+  let lead = Infinity;
+  for (const o of nearTraffic(t.x, t.y)) {
+    if (o === t || o.dead) continue;
+    const rx = o.x - t.x, ry = o.y - t.y;
+    const fwd = rx * cs + ry * sn;                  // metres ahead of us
+    if (fwd <= 0 || fwd > GAP_SEE) continue;
+    if (Math.abs(-rx * sn + ry * cs) > 3.2) continue;  // in the next lane, not ours
+    if (fwd < lead) lead = fwd;
+  }
+  if (lead < GAP_STOP) brake = 1;
+  else if (lead < GAP_SEE) throttle = Math.max(0, (lead - GAP_STOP) / (GAP_SEE - GAP_STOP));
   /* Panic near a wanted player — but only if they are actually IN FRONT. Braking
      for someone beside or behind you just parks a car across the road with no way
      round it, which is how you end up nose to tail with a stationary civilian at
@@ -845,11 +889,32 @@ function updateTraffic(t, dt) {
     brake = Math.random() < .5 ? 1 : 0;
   }
 
-  drive(t, brake ? 0 : 1, brake, steer, 0, dt);
+  drive(t, brake ? 0 : throttle, brake, steer, 0, dt);
   fence(t);
-  for (const o of traffic) if (o !== t) {
-    const rel = carsCollide(t, o);
-    if (rel > 5.5) { damageCar(t, rel); damageCar(o, rel); SFX.crash(rel * .6); }
+}
+
+/* CAR ON CAR, ONCE PER PAIR. This used to live at the bottom of updateTraffic,
+   which runs per car: every pair was tested TWICE and given two lots of damage,
+   and the sweep was every car against every other — sixty-five thousand tests a
+   frame once daylight put 255 of them on the road. Off the bucket grid it is a
+   handful of neighbours each, and `o.i > t.i` means one test and one impact per
+   pair rather than two.
+
+   The threshold is higher between two AI cars than it is for the player. They
+   are nose to tail in traffic by design and a kiss at walking pace is not a
+   crash — it was, and a queue of cars gently touching each other wore itself
+   down to nothing over a minute and then detonated, one after another. */
+function trafficCollisions() {
+  for (const t of traffic) {
+    if (t.dead) continue;
+    for (const o of nearTraffic(t.x, t.y)) {
+      if (o.i <= t.i || o.dead) continue;
+      const rel = carsCollide(t, o);
+      if (rel > AI_HIT) {
+        damageCar(t, rel); damageCar(o, rel);
+        SFX.crash(rel * .6 * earshot(t.x, t.y));
+      }
+    }
   }
 }
 

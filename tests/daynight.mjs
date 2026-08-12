@@ -10,9 +10,13 @@
    holds all three against each other rather than against a number typed into a
    test, which would just be a fourth copy.
 
-   THE TRAFFIC. Ten times the cars while the sun is up: a bright empty city reads
-   as an abandoned one. Checked in both directions, because a cap that fills is
-   only half of it — switching back to dusk has to empty as well, and quickly.
+   THE TRAFFIC. Busier while the sun is up: a bright empty city reads as an
+   abandoned one. It was ten times the cars when traffic lived in a 780 m circle
+   and nine tenths of it was out of sight; now that cars are kept to the edge of
+   the screen, ten times the count is thirty times the DENSITY and the streets
+   gridlock, so it is three times — and the number that matters, cars actually in
+   front of you, went UP. Checked in both directions, because a cap that fills is
+   only half of it: switching back to dusk has to empty as well, and quickly.
 
    AND THE ONES YOU CANNOT SEE ARE FREE. The view is about 170 m across and cars
    are simulated out to 780, so most of them are never drawn — but they used to
@@ -134,7 +138,7 @@ const onScreen = () => p.evaluate(() => window.__traffic().filter(t => {
 }).length);
 const settle = async theme => {
   await p.evaluate(t => applyTheme(t), theme);
-  const want2 = theme === 'day' ? 260 : 26;
+  const want2 = theme === 'day' ? 78 : 26;
   const t0 = Date.now();
   await p.waitForFunction(w => Math.abs(window.__p().traffic - w) <= 8, want2, { timeout: 45000 })
     .catch(() => {});
@@ -147,7 +151,7 @@ const settle = async theme => {
 out.trafficDusk = await settle('dusk');
 out.trafficDay = await settle('day');
 out.trafficBack = await settle('dusk');
-out.tenTimes = out.trafficDay.cars >= out.trafficDusk.cars * 8;
+out.busierByDay = out.trafficDay.cars >= out.trafficDusk.cars * 2.5;
 // and dusk empties again rather than staying in rush hour for a minute
 out.emptiesBack = out.trafficBack.cars <= 34 && out.trafficBack.settleMs < 4000;
 out.holdsUp = out.trafficDay.fps >= 45;
@@ -160,7 +164,7 @@ out.moreOnScreen = out.trafficDay.onScreen > out.trafficDusk.onScreen;
 
 out.errs = errs.slice(0, 3);
 out.pass = out.oneYellow && out.unlitSameHue &&
-           out.tenTimes && out.emptiesBack && out.holdsUp &&
+           out.busierByDay && out.emptiesBack && out.holdsUp &&
            out.offScreenAreFree && out.moreOnScreen && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await br.close();

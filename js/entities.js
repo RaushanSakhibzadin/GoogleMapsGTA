@@ -44,14 +44,102 @@ const SPIN_SECS = .85;      // how long a committed 180 takes, eased in and out
 const STUCK_SECS = 1.3;
 const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0 };
 
-function spawnTraffic(n) {
+/* WHERE THE OTHER CARS ARE, in buckets, rebuilt once a frame.
+
+   Traffic used to find its neighbours by walking the whole list — and it did it
+   from inside the per-car update, so the sweep was every car against every other
+   one: 255 cars in daylight is sixty-five thousand distance tests a frame, each
+   pair visited twice. Bucketed at 26 m a car looks at the handful actually near
+   it, which is what makes both the collisions and the new keep-your-distance
+   check affordable at all.
+
+   Rebuilt rather than maintained: cars move every frame, a whole rebuild is one
+   pass over the list, and an index that has to be kept correct as cars spawn,
+   die and get culled is a bug waiting to happen. */
+const TCELL = 26;
+const TG = new Map();
+const TNEAR = [];
+const tkey = (gx, gy) => gx * 8192 + gy;
+function gridAdd(t) {
+  const k = tkey(Math.floor(t.x / TCELL), Math.floor(t.y / TCELL));
+  const a = TG.get(k);
+  if (a) a.push(t); else TG.set(k, [t]);
+}
+function trafficGrid() {
+  TG.clear();
+  for (let i = 0; i < traffic.length; i++) {
+    traffic[i].i = i;                          // pair ordering, so each pair resolves once
+    gridAdd(traffic[i]);
+  }
+}
+// the cars in this cell and the eight around it. One shared array — the callers
+// read it and are done with it before anything else asks.
+function nearTraffic(x, y) {
+  TNEAR.length = 0;
+  const gx = Math.floor(x / TCELL), gy = Math.floor(y / TCELL);
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const a = TG.get(tkey(gx + i, gy + j));
+    if (a) for (let n = 0; n < a.length; n++) TNEAR.push(a[n]);
+  }
+  return TNEAR;
+}
+
+/* How much room traffic leaves. GAP_STOP is a car length and a half of hard
+   brake; between there and GAP_SEE it lifts off proportionally, so a queue
+   settles into a rolling gap instead of the brake/floor-it concertina that
+   ends in a shunt. AI_HIT is the closing speed two AI cars have to meet at
+   before it counts as a crash — higher than the player's, because nose to tail
+   in traffic is the normal state and a kiss at walking pace is not a collision. */
+const GAP_STOP = 7, GAP_SEE = 22, AI_HIT = 9;
+
+/* THE EDGE OF THE SCREEN IS WHERE TRAFFIC BEGINS AND ENDS.
+
+   Cars used to live out to 780 m while the view is about 170 m across, so nine
+   tenths of them were driving around, crashing and exploding somewhere you could
+   never see. They are kept just past the corner of the screen now: TRAFFIC_PAD
+   metres beyond the furthest visible point, which is enough that nothing pops
+   into existence in frame and little enough that nothing is simulated for no
+   reason.
+
+   The radius is a circle around the car, not the screen rectangle, so spinning
+   on the spot reveals nothing that was culled — the camera sits at 60% of the
+   viewport height and shows more road ahead than behind, and the circle covers
+   the far corner in every direction. */
+const TRAFFIC_PAD = 150;
+const trafficR = () => Math.hypot(VW, VH) / 2 / cam.s + TRAFFIC_PAD;
+
+/* New cars arrive in the band between the edge of the screen and the cull
+   radius, biased to the road ahead — you drive INTO traffic, you don't watch it
+   materialise in the mirror. `ahead` is the direction to favour; roadPoint takes
+   a heading band, so this asks for the far side first and settles for anywhere
+   in the ring if that stretch of road has nothing on it. */
+function spawnTraffic(n, wide) {
+  /* `wide` fills the whole ring, for a standing start: opening a city with every
+     car in the outer band means the street you are actually parked on is empty
+     until something happens to drive down it. Every top-up after that arrives at
+     the edge. */
+  const r1 = trafficR() - 4;
+  const r0 = wide ? 30 : trafficR() - TRAFFIC_PAD * .7;
   for (let i = 0; i < n; i++) {
-    const p = roadPoint(P.car.x, P.car.y, 60, 620, 140) || roadPoint(P.car.x, P.car.y, 60, 620);
+    const p = roadPoint(P.car.x, P.car.y, r0, r1, 140) || roadPoint(P.car.x, P.car.y, r0, r1)
+           || roadPoint(P.car.x, P.car.y, 30, r1);
     if (!p) continue;
+    /* Not on top of one that is already there. roadPoint picks a spot on a way
+       without looking, so two cars in the same tick could land on the same metre
+       of tarmac — which reads as one car with a shadow, and then as a shunt when
+       the overlap resolves. */
+    let taken = false;
+    for (const o of nearTraffic(p.x, p.y)) if (dist2(o.x, o.y, p.x, p.y) < 49) { taken = true; break; }
+    if (taken) continue;
     const c = makeCar(p.x, p.y, p.h, 'traffic');
     // the spawn point already knows which way it sits on — no search needed
     c.road_ = p.road; c.idx = p.idx; c.dir = Math.random() < .5 ? 1 : -1;
+    c.i = traffic.length;
     traffic.push(c);
+    // into the grid straight away, or the next car in this same call cannot see
+    // it — the grid is only rebuilt once a frame, and a whole rush hour is
+    // spawned in one tick
+    gridAdd(c);
   }
 }
 // Re-home a car onto some nearby way (used when one runs out of road).
@@ -367,7 +455,7 @@ function explode(x, y) {
     parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
       life: rand(.8, 1.8), r: rand(.8, 2), col: '#4a4048' });
   }
-  SFX.boom();
+  SFX.boom(earshot(x, y));
   cam.shake = Math.min(1, cam.shake + clamp(90 / (10 + dist(x, y, P.car.x, P.car.y)), 0, .8));
 
   // the blast itself — everything nearby, the player included
@@ -393,9 +481,11 @@ function smoke(c) {
 }
 
 // Health hit zero: blow it up and let the list filters drop it.
+let WRECKS = 0;                           // how many cars have gone up, ever
 function wreck(c) {
   if (c.dead) return;
   c.dead = true;
+  WRECKS++;
   explode(c.x, c.y);
 }
 

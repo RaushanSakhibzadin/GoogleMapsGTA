@@ -221,7 +221,9 @@ const SFX = (() => {
     // test hook: the OS suspending us is the failure mode, so it has to be reachable
     suspend: () => ac ? ac.suspend() : Promise.resolve(),
     state: () => ({ started, state: ac ? ac.state : 'none', now: ac ? ac.currentTime : 0 }),
-    crash: v => { noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },
+    // v already carries the distance falloff from earshot(); under a whisper
+    // there is nothing worth waking the audio graph up for
+    crash: v => { if (v < .5) return; noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },
     pickup: () => { blip(880, .09); setTimeout(() => blip(1320, .13), 80); },
     cash: () => { blip(660, .08); setTimeout(() => blip(990, .09), 70); setTimeout(() => blip(1480, .16), 150); },
     star: () => { blip(300, .22, 'sawtooth', .07); },
@@ -229,7 +231,11 @@ const SFX = (() => {
     skid: () => { screech(.85); },
     bust: () => { blip(200, .5, 'sawtooth', .08); },
     blipZone: () => { blip(520, .07, 'sine', .05); setTimeout(() => blip(780, .12, 'sine', .045), 70); },
-    boom: () => { noise(.7, .5); blip(70, .5, 'sawtooth', .1); setTimeout(() => blip(45, .6, 'sine', .08), 60); }
+    boom: (g = 1) => {
+      if (g < .04) return;
+      noise(.7, .5 * g); blip(70, .5, 'sawtooth', .1 * g);
+      setTimeout(() => blip(45, .6, 'sine', .08 * g), 60);
+    }
   };
 })();
 function audioStart() { SFX.start(); }

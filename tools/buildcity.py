@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Turn the captured Overpass payloads into the bundled offline city.
 
-Reads tests/fixtures/stari-grad -- what the map servers actually sent during
-one real session -- and writes data/belgrade.js, the city that loads when they
-cannot be reached. Three things shrink them without touching what the game can
-see:
+Reads tests/fixtures/ -- what the map servers actually sent during two real
+sessions -- and writes data/belgrade.js, the city that loads when they cannot be
+reached.
+
+The detail comes from the LATER capture (autokomanda: four street tiles and
+seven of scenery, so 5.4 km of streets rather than 1.8), and the SKELETON from
+the earlier one (stari-grad), because the later session's 200 km arterials reply
+was 44 MB and the log's 25 MB cap dropped it. The two centres are 1.14 km apart
+and the earlier arterials box reaches 35 km around the later centre, so it
+covers the offline horizon with room to spare -- it is the same city, and the
+motorways out of it do not move.
+
+Four things shrink the result without touching what the game can see:
 
   * tags the game never reads are dropped. Overpass returns everything a way
     carries -- addr:*, source, wikidata, opening_hours -- and parseOSM looks at
@@ -20,7 +29,9 @@ file:// where fetch() is refused and a <script> tag is not.
 import gzip, json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, 'tests', 'fixtures', 'stari-grad')
+FIX = os.path.join(ROOT, 'tests', 'fixtures')
+SRC = os.path.join(FIX, 'autokomanda')          # streets and scenery
+SKEL_SRC = os.path.join(FIX, 'stari-grad')      # and the arterials
 DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'data', 'belgrade.js')
 
 # How far the offline horizon reaches, in metres. The online world is 36 km in
@@ -31,6 +42,13 @@ DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'data', 'belgrade
 # map gets interesting.
 SKEL_HALF = 15000
 
+# How far the bundled scenery reaches. The capture holds seven tiles of it,
+# 22,403 buildings, which is more than a phone should parse off a <script> tag
+# before it can drive -- and the streets are what makes the place drivable, the
+# buildings are what makes it look like somewhere. The centre keeps its
+# buildings and the outer tiles keep their streets.
+BLD_HALF = 1200
+
 # every tag parseOSM, buildingColours or addPOIs actually looks at
 KEEP = {
     'highway', 'name', 'ref', 'oneway', 'tunnel', 'covered', 'layer', 'place',
@@ -40,19 +58,22 @@ KEEP = {
     'leisure', 'landuse', 'amenity', 'shop',
 }
 
-def load(n):
-    with gzip.open(f'{SRC}/{n}.json.gz', 'rt', encoding='utf-8') as f:
+def load(where, n):
+    with gzip.open(f'{where}/{n}.json.gz', 'rt', encoding='utf-8') as f:
         return json.load(f)
 
-def bbox_of(kind):
-    """the box the real request asked for, from the captured manifest"""
-    s = json.load(open(f'{SRC}/session.json'))
-    for r in s['replies']:
-        if r['kind'] == kind and r['elements']:
-            return r['bbox']
-    raise SystemExit('no non-empty %s reply in the fixture' % kind)
+def replies(where, kind):
+    """every non-empty reply of one kind, in the order they arrived"""
+    s = json.load(open(f'{where}/session.json'))
+    return [r for r in s['replies'] if r['kind'] == kind and r['elements']]
 
-bb = bbox_of('streets')
+def all_of(where, kind):
+    out = []
+    for r in replies(where, kind):
+        out += load(where, r['file'].replace('.json.gz', ''))['elements']
+    return out
+
+bb = replies(SRC, 'streets')[0]['bbox']
 LAT0 = (bb['s'] + bb['n']) / 2
 LON0 = (bb['w'] + bb['e']) / 2
 M_LAT = 110540.0
@@ -115,12 +136,14 @@ def clip(els, half, nid):
             nid[0] += 1
     return out
 
-streets = [slim(e) for e in load('streets')['elements']]
-buildings = [slim(e) for e in load('buildings')['elements']]
-skeleton = clip(load('arterials')['elements'], SKEL_HALF, [900000000])
+streets = [slim(e) for e in all_of(SRC, 'streets')]
+# scenery only where you can see it from the middle; the outer tiles keep their
+# streets, which is what the offline city is actually for
+buildings = clip(all_of(SRC, 'buildings'), BLD_HALF, [800000000])
+skeleton = clip(all_of(SKEL_SRC, 'arterials'), SKEL_HALF, [900000000])
 
 city = {
-    'name': 'Stari grad, Beograd',
+    'name': 'Autokomanda, Beograd',
     'lat': round(LAT0, 6), 'lon': round(LON0, 6),
     'skeletonRadius': SKEL_HALF,
     'streets': streets, 'buildings': buildings, 'skeleton': skeleton,
@@ -128,10 +151,11 @@ city = {
 body = json.dumps(city, separators=(',', ':'), ensure_ascii=False)
 header = (
     '/* VICE MAPS — the bundled offline city.\n\n'
-    '   Stari grad, Belgrade \u2014 the old town. Captured from real OpenStreetMap\n'
-    '   data by the in-game LOG button, and trimmed out of\n'
-    '   tests/fixtures/stari-grad by tools/buildcity.py. This is what loads when\n'
-    '   the map servers cannot be reached, in place of a generated grid.\n\n'
+    '   Belgrade, around Autokomanda. Captured from real OpenStreetMap data by\n'
+    '   the in-game LOG button and trimmed out of tests/fixtures by\n'
+    '   tools/buildcity.py -- streets and scenery from the later session, the\n'
+    '   arterial skeleton from the earlier one. This is what loads when the map\n'
+    '   servers cannot be reached, in place of a generated grid.\n\n'
     '   Generated \u2014 do not edit. Rebuild with: python3 tools/buildcity.py\n\n'
     '   A classic script assigning one global, NOT JSON fetched at runtime:\n'
     '   fetch() is refused for file:// URLs and a <script> tag is not, and\n'

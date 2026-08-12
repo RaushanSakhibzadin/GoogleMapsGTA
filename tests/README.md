@@ -13,6 +13,7 @@ node tests/mapfill.mjs              # the big map, at four shapes of screen
 node tests/ring.mjs                 # the opening ring of street tiles
 node tests/ring.mjs heavy           # ...and an area whose streets really are slow
 node tests/daynight.mjs             # the two themes: star colour, and rush hour
+node tests/traffic.mjs              # traffic that drives instead of detonating
 ```
 
 Chromium is found automatically under `PLAYWRIGHT_BROWSERS_PATH` (default
@@ -59,6 +60,18 @@ carrying ten times the traffic, in both directions, since a cap that fills is
 only half of it. It also holds that the cars you cannot see are free: daylight
 has ten times the traffic and has to cost the same per frame to draw as dusk,
 while putting more of them on the screen.
+
+`traffic.mjs` drives daylight's rush hour for half a minute and watches: how
+many cars wreck, how close any two ever get, whether they are still moving or
+just queued, that nothing is simulated outside the ring, and — by wrapping the
+sound functions and setting off explosions at known distances — that what you
+cannot see you cannot hear.
+
+`fixtures/autokomanda` is the second recording, from 12 August: four street
+tiles and seven of scenery, which is where the bundled offline city's detail
+comes from. Its own 200 km arterials reply was 44 MB and the log's 25 MB cap
+dropped it, so the skeleton still comes from `stari-grad` — the two centres are
+1.14 km apart and that box reaches 35 km around the newer one.
 
 The rest of the suite lives outside the repository and serves fixtures written
 by hand. This one is here because the fixture is irreplaceable: it is a
