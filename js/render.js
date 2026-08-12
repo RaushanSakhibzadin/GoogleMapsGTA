@@ -368,13 +368,27 @@ function mapFit() {
 }
 function mapClamp() {
   const wide = Math.max(W.maxX - W.minX, 1), tall = Math.max(W.maxY - W.minY, 1);
-  // never zoom out past the whole world, nor in past a metre a pixel
-  const minS = Math.min(VW / wide, VH / tall) * .9;
+  /* THE MAP FILLS THE SCREEN. Zooming out used to stop at
+     `min(VW/wide, VH/tall) * .9` — the whole world, then a tenth further out
+     again — which on a square world in a landscape window put the map across 90%
+     of the height and 53% of the width. Nearly half a tablet screen was bare
+     ground, and bare ground reads as a map that failed to load rather than as
+     one you are meant to pan.
+
+     Filling both axes instead costs nothing, because it is a framing choice and
+     not a loading one: the world is already 72 km across in each direction, and
+     the SHORT axis still shows all of it. The long axis shows the middle 60% and
+     you drag for the rest, which is what every map does — none of them
+     letterbox. Zooming in still stops at a metre a pixel. */
+  const minS = Math.max(VW / wide, VH / tall);
   MAPV.s = clamp(MAPV.s, minS, 1);
-  // and never pan the world off the screen entirely
+  /* And the edge of the world may not be dragged inside the viewport. Where the
+     world is narrower than the view — a generated grid city, or a skeleton that
+     only came back at 9 km — there is no pan to allow, so it centres. */
   const halfW = VW / 2 / MAPV.s, halfH = VH / 2 / MAPV.s;
-  MAPV.cx = clamp(MAPV.cx, W.minX - halfW * .5, W.maxX + halfW * .5);
-  MAPV.cy = clamp(MAPV.cy, W.minY - halfH * .5, W.maxY + halfH * .5);
+  const pin = (v, lo, hi) => lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi);
+  MAPV.cx = pin(MAPV.cx, W.minX + halfW, W.maxX - halfW);
+  MAPV.cy = pin(MAPV.cy, W.minY + halfH, W.maxY - halfH);
 }
 
 function drawBigMap() {

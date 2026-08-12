@@ -9,6 +9,7 @@ failed.
 npm install --prefix tests          # playwright
 node tests/real.mjs                 # the replay, on real Belgrade map data
 node tests/real.mjs emptyMirror     # with a mirror that answers 200 and nothing
+node tests/mapfill.mjs              # the big map, at four shapes of screen
 ```
 
 Chromium is found automatically under `PLAYWRIGHT_BROWSERS_PATH` (default
@@ -31,6 +32,13 @@ before the run. It checks the things that only real data can check:
 - the 72 km arterial skeleton parses and bounds the world
 - an empty reply from any mirror, for any kind of query, is handed to the next
   one instead of being believed
+
+`mapfill.mjs` opens the city map on the same data and measures two things that
+look identical on screen and have nothing to do with each other: how much of the
+viewport the **world rectangle** covers at maximum zoom-out, and how much of the
+canvas has anything but ground colour painted on it, sampled row by row and
+column by column. The first is the zoom clamp's business and the second is the
+map data's, and a report of "the map is half empty" can be either.
 
 The rest of the suite lives outside the repository and serves fixtures written
 by hand. This one is here because the fixture is irreplaceable: it is a
