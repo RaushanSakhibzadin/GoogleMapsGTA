@@ -14,6 +14,13 @@
    as an abandoned one. Checked in both directions, because a cap that fills is
    only half of it — switching back to dusk has to empty as well, and quickly.
 
+   AND THE ONES YOU CANNOT SEE ARE FREE. The view is about 170 m across and cars
+   are simulated out to 780, so most of them are never drawn — but they used to
+   be drawn anyway, gradient headlights and all. What this holds is that the
+   drawing cost no longer depends on how many cars exist: daylight has ten times
+   the traffic and must cost the same per frame to render as dusk, while still
+   putting MORE of them on the screen.
+
    Usage: node tests/daynight.mjs [GAME=/path/to/index.html]
 */
 import { chromium, devices } from 'playwright';
@@ -118,6 +125,13 @@ const drive = () => p.evaluate(() => new Promise(res => {
   };
   requestAnimationFrame(tick);
 }));
+/* On screen means inside the drawn frame, not inside a radius: the camera puts
+   the car at 60% of the viewport height, so a radius counts cars behind you that
+   were never drawn. toScreen() is what the renderer itself uses. */
+const onScreen = () => p.evaluate(() => window.__traffic().filter(t => {
+  const [sx, sy] = window.__toScreen(t.x, t.y);
+  return sx > -40 && sy > -40 && sx < innerWidth + 40 && sy < innerHeight + 40;
+}).length);
 const settle = async theme => {
   await p.evaluate(t => applyTheme(t), theme);
   const want2 = theme === 'day' ? 260 : 26;
@@ -127,7 +141,8 @@ const settle = async theme => {
   const cars = await p.evaluate(() => window.__p().traffic);
   const fps = await drive();
   const perf = await p.evaluate(() => window.__perf());
-  return { cars, fps, settleMs: Date.now() - t0, upd: perf.upd, ren: perf.ren };
+  return { cars, onScreen: await onScreen(), fps, settleMs: Date.now() - t0,
+           upd: +perf.upd.toFixed(2), ren: +perf.ren.toFixed(2) };
 };
 out.trafficDusk = await settle('dusk');
 out.trafficDay = await settle('day');
@@ -136,10 +151,17 @@ out.tenTimes = out.trafficDay.cars >= out.trafficDusk.cars * 8;
 // and dusk empties again rather than staying in rush hour for a minute
 out.emptiesBack = out.trafficBack.cars <= 34 && out.trafficBack.settleMs < 4000;
 out.holdsUp = out.trafficDay.fps >= 45;
+/* Ten times the cars, the same drawing bill. Before the view cull daylight cost
+   twice dusk to render — 3.98 ms against 2.27 — because every car in the world
+   was drawn whether or not it landed on the canvas. */
+out.offScreenAreFree = out.trafficDay.ren < out.trafficDusk.ren * 1.6;
+// and the extra cars are actually where you can see them
+out.moreOnScreen = out.trafficDay.onScreen > out.trafficDusk.onScreen;
 
 out.errs = errs.slice(0, 3);
 out.pass = out.oneYellow && out.unlitSameHue &&
-           out.tenTimes && out.emptiesBack && out.holdsUp && !out.errs.length;
+           out.tenTimes && out.emptiesBack && out.holdsUp &&
+           out.offScreenAreFree && out.moreOnScreen && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await br.close();
 process.exit(out.pass ? 0 : 1);

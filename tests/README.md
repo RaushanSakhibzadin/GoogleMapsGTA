@@ -56,7 +56,9 @@ of which had been reported after being "fixed" once already: the wanted stars
 being the same yellow as the objective arrow — checked against the one constant
 the canvas draws with, not against a number typed into the test — and daylight
 carrying ten times the traffic, in both directions, since a cap that fills is
-only half of it.
+only half of it. It also holds that the cars you cannot see are free: daylight
+has ten times the traffic and has to cost the same per frame to draw as dusk,
+while putting more of them on the screen.
 
 The rest of the suite lives outside the repository and serves fixtures written
 by hand. This one is here because the fixture is irreplaceable: it is a

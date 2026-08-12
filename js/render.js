@@ -96,12 +96,26 @@ function render() {
   ctx.restore();
 
   /* ---- traffic and pedestrians go UNDER the buildings, or they look like
-         they're driving across the rooftops ---- */
+         they're driving across the rooftops ----
+
+     AND ONLY THE ONES YOU CAN SEE. Everything else here culls to the view —
+     parks, roads, buildings, tyre marks, street lights — and the cars were the
+     one thing that did not: every car in the world got a full drawCar(), which
+     builds a fresh linear gradient for its headlights, rounds four corners and
+     lays down a shadow. The view is about 140 m across and cars are simulated
+     out to 780, so in daylight that was two hundred and fifty of them drawn per
+     frame with perhaps a dozen on screen.
+
+     Nothing is removed and nothing pops: a car skipped here is one whose paint
+     lands outside the canvas, and it is still driving, still solid, still
+     spawning police attention. The margin covers the car's own length and the
+     26 m headlight cone reaching in from off-screen. */
   ctx.save();
   ctx.translate(HX, HY); ctx.rotate(rot); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
-  for (const p of peds) drawPed(p);
-  for (const t of traffic) drawCar(t);
-  for (const k of cops) drawCar(k);
+  const seen = (o, m) => Math.abs(o.x - cam.x) < viewR + m && Math.abs(o.y - cam.y) < viewR + m;
+  for (const p of peds) if (seen(p, 2)) drawPed(p);
+  for (const t of traffic) if (seen(t, 30)) drawCar(t);
+  for (const k of cops) if (seen(k, 30)) drawCar(k);
   ctx.restore();
 
   /* ---- buildings: fake 3D by pushing the roof away from screen centre ---- */
