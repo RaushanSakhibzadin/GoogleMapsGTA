@@ -239,6 +239,9 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedg
   slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,
   loadSweepWait: LOAD_SWEEP_WAIT });
 window.__pal = () => PAL;
+// the objective yellow the canvas actually draws with, so a test can hold the
+// stylesheet and the stars against it rather than against a literal
+window.__gold = () => GOLD;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
 window.__toScreen = (x, y) => toScreen(x, y);
 window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,

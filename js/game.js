@@ -372,9 +372,22 @@ function resetRun() {
   $('street').textContent = ''; $('street').classList.remove('on');
   $('zone').textContent = ''; $('zone').classList.remove('on');
   cam.x = P.car.x; cam.y = P.car.y;
-  spawnTraffic(26); spawnPeds(34);
+  spawnTraffic(trafficCap()); spawnPeds(34);
   newMission();
 }
+
+/* DAYLIGHT IS RUSH HOUR. Ten times the cars while the sun is up, because a
+   bright empty city reads as an abandoned one — dusk can carry a quiet street on
+   atmosphere and midday cannot.
+
+   A cap, not a spawn: the top-up already fills towards it a few cars at a time
+   and the 780 m cull already empties it from behind, so this is one number and
+   the rest is machinery that already existed. Switching back to dusk truncates
+   the list rather than waiting for two hundred cars to drift out of range one by
+   one, which would leave the city in rush hour for a minute after you asked it
+   not to be. */
+const TRAFFIC_N = 26;
+const trafficCap = () => themeName === 'day' ? TRAFFIC_N * 10 : TRAFFIC_N;
 
 /* ------------------------------ 10. missions ------------------------------ */
 // Contracts reach further as more of the map streams in, so packets turn up in
@@ -751,7 +764,15 @@ function update(dt) {
   P.popT = (P.popT || 0) - dt;
   if (P.popT <= 0) {
     P.popT = .25;
-    if (traffic.length < 26) spawnTraffic(Math.min(5, 26 - traffic.length));
+    const cap = trafficCap();
+    const need = cap - traffic.length;
+    /* Five a tick while topping up, as before — spawning is a road search and
+       raising the steady rate to ten cost four frames a second at dusk, where
+       cars are being culled and replaced constantly as you drive. A big burst is
+       only for the standing start and the switch into daylight, where the deficit
+       is two hundred and filling it five at a time would take ten seconds. */
+    if (need > 0) spawnTraffic(Math.min(need > 40 ? 25 : 5, need));
+    else if (need < 0) traffic.length = cap;               // switched back to dusk
     if (peds.length < 34) spawnPeds(Math.min(6, 34 - peds.length));
   }
 

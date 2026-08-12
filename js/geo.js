@@ -78,13 +78,6 @@ const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk reques
 const SKELETON_RADII = [100000, 36000, 18000, 9000];  // tried in order; first one to land wins
 /* The per-rung caps are generous because the big box is a big download; the
    SHARED deadline is what the player actually feels, and it is the thing to keep
-   short. Letting each rung have its head — 50, 20, 10 — meant a server refusing
-   everything took seventy seconds to give up, and seventy seconds of loading
-   screen is worse than a smaller world. Thirty-five seconds for the 36 km try
-   still leaves twenty for the 18 km one, which is known to answer in about
-   three. */
-/* The per-rung caps are generous because the big box is a big download; the
-   SHARED deadline is what the player actually feels, and it is the thing to keep
    short. The 100 km rung gets 30 s — a mirror that can serve a 200 km box at all
    serves it in well under that, and one that cannot is not going to start in the
    twenty-ninth second — which still leaves 18 s for the 36 km rung, more than

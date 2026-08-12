@@ -161,12 +161,15 @@ body.theme-day #logBtn{color:#22202a;background:rgba(255,255,255,.5);border-colo
 /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
    a 42px figure occupies about 48px once line-height is in, so 6vw left the
    stars sitting 3px inside it on a landscape phone. */
-/* Yellow, and yellow when unlit too. The empty stars used to be white at 16%
-   alpha, so a row with no wanted level read as five grey ticks with no
-   connection to the gold ones that replace them. */
+/* THE SAME YELLOW AS THE OBJECTIVE ARROW, which is --gold. Two earlier goes at
+   this were both off: white at 16% alpha for the unlit ones, which read as grey
+   ticks, and then a deeper #ffd21a that still came out orange next to the arrow.
+   The arrow is the reference — it is the other yellow thing on the screen — so
+   the stars take its colour exactly, in both themes, and carry their contrast in
+   the outline rather than in the hue. */
 #stars{position:absolute;top:calc(var(--hudTop) + clamp(32px,6.6vw,50px));right:14px;font-size:clamp(19px,3.9vw,27px);
-  letter-spacing:3px;color:#ffd21a;text-shadow:2px 2px 0 rgba(0,0,0,.85),0 0 18px rgba(255,200,30,.95)}
-#stars .off{color:rgba(255,210,26,.26);text-shadow:2px 2px 0 rgba(0,0,0,.5)}
+  letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.85),0 0 18px rgba(255,227,106,.9)}
+#stars .off{color:rgba(255,227,106,.28);text-shadow:2px 2px 0 rgba(0,0,0,.5)}
 /* Top-left column: objective, radar, street name. The camera parks the car at
    60% of the viewport height, and anything anchored to the bottom edge has to
    clear the thumb pads on the way up — which is how the objective ended up
@@ -302,10 +305,11 @@ body.theme-day #post{
 body.theme-day #post::after{background:none}
 body.theme-day .hudTxt{text-shadow:2px 2px 0 rgba(255,255,255,.8),0 0 18px rgba(255,255,255,.95)}
 body.theme-day #cash{color:#7d4a00}
-/* Daylight needs a darker yellow to survive a pale background, but amber rather
-   than the brown it used to be. */
-body.theme-day #stars{color:#d99400;text-shadow:2px 2px 0 rgba(255,255,255,.9),0 0 10px rgba(255,220,90,.7)}
-body.theme-day #stars .off{color:rgba(190,130,0,.3);text-shadow:1px 1px 0 rgba(255,255,255,.7)}
+/* Daylight keeps the arrow's yellow and takes its contrast from a dark outline
+   instead. Darkening the star itself is what turned it orange: on a pale ground
+   the thing that needs to be dark is the edge, not the fill. */
+body.theme-day #stars{color:var(--gold);text-shadow:2px 2px 0 rgba(20,14,5,.85),0 0 12px rgba(0,0,0,.45)}
+body.theme-day #stars .off{color:rgba(255,227,106,.42);text-shadow:1px 1px 0 rgba(20,14,5,.6)}
 body.theme-day #obj{color:#1b1626}
 body.theme-day #obj small,body.theme-day #spdU{color:#0a6478;text-shadow:0 0 8px rgba(255,255,255,.95)}
 body.theme-day #timer{color:#a3186f}

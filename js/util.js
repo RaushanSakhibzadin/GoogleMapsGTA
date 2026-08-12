@@ -33,6 +33,12 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
 /* One constant owns every Patreon link in the game. Set it empty and nothing
    renders anywhere — which is the guard against shipping a dead link if the
    handle ever changes, rather than three places to remember to edit. */
+/* THE OBJECTIVE YELLOW, in one place. The stylesheet has it as --gold and the
+   canvas draws the arrow, the marker and the radar blip with it, and the wanted
+   stars are meant to match — they were written out by hand as #ffd21a and came
+   out orange beside the arrow, twice. tests/daynight.mjs checks the three
+   against each other rather than against a number typed into the test. */
+const GOLD = '#ffe36a';
 const PATREON = 'https://www.patreon.com/raushanraushan';
 
 /* ------------------------------ 1. colour ------------------------------ */

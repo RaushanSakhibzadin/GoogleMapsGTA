@@ -122,7 +122,7 @@ function render() {
     marker(p, POI_COL[p.kind]);
   }
   if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8');
-  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, '#ffe36a');
+  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, GOLD);
 
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
 
@@ -337,7 +337,7 @@ function drawArrow() {
     y = (above > 46 && y < (miniRect.top + miniRect.bottom) / 2) ? above : below;
   }
   y = clamp(y, 46, botLimit);
-  const col = MISSION.state === 'pickup' ? '#ff4fd8' : '#ffe36a';
+  const col = MISSION.state === 'pickup' ? '#ff4fd8' : GOLD;
   ctx.save(); ctx.translate(x, y); ctx.rotate(a);
   ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
   ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, -10); ctx.lineTo(-5, 0); ctx.lineTo(-10, 10);
@@ -418,23 +418,55 @@ function drawBigMap() {
     g.closePath(); g.fill();
   }
 
-  /* Roads in two passes, small then big, so the arterials read on top of the
-     lattice instead of being lost in it. Widths have a pixel floor — at four
-     kilometres across, a true-to-scale 8 m street is a quarter of a pixel and
-     the map turns into a grey haze. */
+  /* Roads in THREE passes by class, finest first, so the arterials read on top
+     of the lattice instead of being lost in it — and so the lattice can be
+     dropped once it stops being one.
+
+     Widths have a pixel floor, because at four kilometres across a true-to-scale
+     8 m street is a quarter of a pixel and disappears. But a floor is a lie that
+     gets worse the further out you go: the detailed centre of Belgrade is eleven
+     thousand ways across 5.4 km, most of them service roads round the back of
+     buildings, and floored to a pixel each with round joins they stop being
+     streets and become one solid white rectangle sitting in the middle of the
+     map. Which is exactly what it looked like.
+
+     THE FLOOR WAS IN THE WRONG UNIT, and that is most of the fault. It read
+     `1.4 * DPR / s`, which is 1.4 CSS pixels — four and a half DEVICE pixels on
+     a phone. Two streets sixty metres apart are ten device pixels apart on a
+     7 km view, so four-and-a-half-pixel strokes with round joins cover half the
+     gap between them and close the rest at every junction. In device pixels the
+     floor is a hairline instead, and the same streets come out as a grid you can
+     read. Alleys and then the residential grid still fade out once they are
+     finer than that, which is what every paper map does and the reason a road
+     atlas doesn't draw every driveway in the county.
+
+     The bands are metres per DEVICE pixel, so a phone and a desktop drop the
+     same detail at the same apparent scale. */
   g.lineCap = 'round'; g.lineJoin = 'round';
-  for (const big of [false, true]) {
-    g.strokeStyle = big ? PAL.mapRoadBig : PAL.mapRoad;
+  const mpp = 1 / s;                                  // metres per device pixel
+  const fade = (gone, full) => clamp((gone - mpp) / (gone - full), 0, 1);
+  const TIERS = [
+    { max: 7,        col: PAL.mapRoad,    w: 5,  px: 0.9, alpha: fade(4, 2.5) },   // service, alleys
+    { max: 11,       col: PAL.mapRoad,    w: 7,  px: 1.1, alpha: fade(14, 9) },    // the residential grid
+    { max: Infinity, col: PAL.mapRoadBig, w: 13, px: 2.6 * DPR, alpha: 1 },        // arterials
+  ];
+  let lo = 0;
+  for (const t of TIERS) {
+    const from = lo; lo = t.max;
+    if (t.alpha <= 0) continue;
+    g.globalAlpha = t.alpha;
+    g.strokeStyle = t.col;
     g.beginPath();
     for (const r of W.roads) {
-      if ((r.w >= 11) !== big || !near(r)) continue;
+      if (r.w < from || r.w >= t.max || !near(r)) continue;
       g.moveTo(r.pts[0].x, r.pts[0].y);
       for (let i = 1; i < r.pts.length; i++) g.lineTo(r.pts[i].x, r.pts[i].y);
     }
-    // world metres, with a floor expressed in pixels and converted back
-    g.lineWidth = Math.max(big ? 13 : 7, (big ? 2.6 : 1.4) * DPR / s);
+    // world metres, with a floor expressed in device pixels and converted back
+    g.lineWidth = Math.max(t.w, t.px / s);
     g.stroke();
   }
+  g.globalAlpha = 1;
   g.restore();
 
   // Landmarks and markers go on unscaled, so they stay the same size however far
@@ -448,7 +480,7 @@ function drawBigMap() {
   };
   for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], 4.2);
   if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 6);
-  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, '#ffe36a', 6);
+  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, GOLD, 6);
 
   // the car, pointing where it is pointing
   const [cx, cy] = toPx(P.car.x, P.car.y);
@@ -545,7 +577,7 @@ function drawMini() {
 
   for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
   if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
-  if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, '#ffe36a', 3.4);
+  if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, GOLD, 3.4);
 
   /* THE NEAREST REPAIR SHOP, ON THE RIM. Everything above only exists while it
      is inside 230 m, and the nearest garage is usually further than that — so

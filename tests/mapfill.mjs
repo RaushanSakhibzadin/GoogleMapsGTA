@@ -192,6 +192,35 @@ for (const [VPW, VPH] of VIEWPORTS) {
              cx: Math.round(v.cx), cy: Math.round(v.cy) };
   });
   o.ink = await p.evaluate(INK);
+  /* AND IT MUST NOT BE A BLOCK. Filling the viewport is only half of "full of
+     map": the detailed centre is eleven thousand ways across 5.4 km, and with a
+     pixel floor measured in CSS rather than device pixels they merged into one
+     solid white rectangle sitting in the middle of the city. Sampled per cell of
+     a 12x12 grid and the worst cell taken, because an average over the whole
+     canvas hides a block behind all the empty ground around it. */
+  o.block = await p.evaluate(async () => {
+    applyTheme('day');                       // minor roads are pure white here
+    const cv = document.getElementById('bigmapC');
+    const short = Math.min(cv.clientWidth, cv.clientHeight);
+    window.__mapZoom((short / 7000) / window.__mapView().s);   // 7 km across
+    const v = window.__mapView();
+    window.__mapPan(-v.cx, -v.cy);
+    await new Promise(r => requestAnimationFrame(r));
+    const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const d = g.getImageData(0, 0, W, H).data;
+    const N = 12, hit = new Array(N * N).fill(0), tot = new Array(N * N).fill(0);
+    for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {
+      const i = (y * W + x) * 4;
+      const c = Math.floor(y * N / H) * N + Math.floor(x * N / W);
+      tot[c]++;
+      if (d[i] > 245 && d[i + 1] > 245 && d[i + 2] > 245) hit[c]++;
+    }
+    let worst = 0;
+    for (let c = 0; c < N * N; c++) if (tot[c] > 100) worst = Math.max(worst, hit[c] / tot[c]);
+    applyTheme('dusk');
+    return { worstCellPctWhite: +(worst * 100).toFixed(1),
+             acrossKm: +(short / v.s / 1000).toFixed(1) };
+  });
   // and after a shove that stays well inside the data
   o.inkPanned = await p.evaluate(() => {
     window.__mapPan(4000, 4000);
@@ -199,6 +228,7 @@ for (const [VPW, VPH] of VIEWPORTS) {
   }).then(() => p.evaluate(INK));
   o.errs = errs.slice(0, 3);
   o.pass = o.out.coverW > .999 && o.out.coverH > .999 &&
+           o.block.worstCellPctWhite < 15 &&
            o.ink.rowsWithInk === 40 && o.ink.colsWithInk === 40 &&
            o.inkPanned.rowsWithInk === 40 && o.inkPanned.colsWithInk === 40 &&
            o.panned.overhangPxX < 1 && o.panned.overhangPxY < 1 &&

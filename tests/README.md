@@ -12,6 +12,7 @@ node tests/real.mjs emptyMirror     # with a mirror that answers 200 and nothing
 node tests/mapfill.mjs              # the big map, at four shapes of screen
 node tests/ring.mjs                 # the opening ring of street tiles
 node tests/ring.mjs heavy           # ...and an area whose streets really are slow
+node tests/daynight.mjs             # the two themes: star colour, and rush hour
 ```
 
 Chromium is found automatically under `PLAYWRIGHT_BROWSERS_PATH` (default
@@ -49,6 +50,13 @@ is side-fetched per tile once that tile's streets land, so it goes wherever the
 ring goes, including nowhere. Its `heavy` mode checks the
 opposite: an area whose streets really are slow still gets the ring trimmed,
 because that rule is not the bug.
+
+`daynight.mjs` covers the two things the themes are supposed to get right, both
+of which had been reported after being "fixed" once already: the wanted stars
+being the same yellow as the objective arrow — checked against the one constant
+the canvas draws with, not against a number typed into the test — and daylight
+carrying ten times the traffic, in both directions, since a cap that fills is
+only half of it.
 
 The rest of the suite lives outside the repository and serves fixtures written
 by hand. This one is here because the fixture is irreplaceable: it is a
