@@ -66,6 +66,22 @@ function ringTile(s, w, n, e) {
   return JSON.stringify({ version: 0.6, generator: 'x', elements: els });
 }
 
+/* And its scenery. The ring's buildings are side-fetched per tile after its
+   streets land, so they follow the ring wherever it goes — including into the
+   ditch, when the ring was being skipped. Same tagging, so the test can see
+   which tiles actually got dressed. */
+function ringBuildings(s, w, n, e) {
+  const x0 = projX(w), x1 = projX(e), y0 = projY(n), y1 = projY(s);
+  const ti = Math.round((x0 + x1) / 2 / 1800), tj = Math.round((y0 + y1) / 2 / 1800);
+  const els = [];
+  let id = ((ti + 8) * 17 + (tj + 8)) * 100000 + 900000;
+  for (let x = x0 + 120; x < x1 - 60; x += 320)
+    for (let y = y0 + 120; y < y1 - 60; y += 320)
+      els.push({ type: 'way', id: id++, tags: { building: 'yes', 'building:levels': '5' },
+        geometry: [[x, y], [x + 60, y], [x + 60, y + 60], [x, y + 60], [x, y]].map(([a, b]) => toLL(a, b)) });
+  return JSON.stringify({ version: 0.6, generator: 'x', elements: els });
+}
+
 const boxOf = q => { const m = q.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)/);
   return m ? { s: +m[1], w: +m[2], n: +m[3], e: +m[4] } : null; };
 const near = (a, t) => a && Math.abs((a.s + a.n) / 2 - (t.s + t.n) / 2) < 3e-3 &&
@@ -127,8 +143,11 @@ await p.route('**/api/interpreter', async r => {
     asked.push('ring');
     return r.fulfill({ contentType: 'application/json', body: ringTile(box.s, box.w, box.n, box.e) });
   }
-  if (kind === 'buildings' && near(box, rep.buildings.bbox))
-    return r.fulfill({ contentType: 'application/json', body: rep.buildings.body });
+  if (kind === 'buildings') {
+    asked.push('scenery');
+    return r.fulfill({ contentType: 'application/json',
+      body: near(box, rep.buildings.bbox) ? rep.buildings.body : ringBuildings(box.s, box.w, box.n, box.e) });
+  }
   return r.fulfill({ contentType: 'application/json', body: EMPTY });
 });
 
@@ -166,6 +185,15 @@ out.detailOut = await p.evaluate(() => {
   }
   return { hits, tried, pct: +(hits / tried * 100).toFixed(1) };
 });
+/* The scenery is queued behind the streets and runs after the loading screen
+   lets go, so it is waited FOR rather than slept past — what matters is that
+   every tile the ring brought in eventually gets dressed, not how fast. */
+await p.waitForFunction(() => window.__bldTiles().length >= 9, null, { timeout: 60000 })
+  .catch(() => {});
+out.buildingTiles = await p.evaluate(() => window.__bldTiles());
+out.buildings = await p.evaluate(() => window.__chunks().buildings);
+out.sceneryRequests = asked.filter(a => a === 'scenery').length;
+
 out.fps = await p.evaluate(() => new Promise(r => {
   let n = 0; const t = performance.now();
   const tick = () => { n++; performance.now() - t < 1500 ? requestAnimationFrame(tick) : r(Math.round(n / 1.5)); };
@@ -177,7 +205,10 @@ out.pass = HEAVY
   ? out.ringRequests <= 4 && out.fps >= 45 && !out.errs.length
   // and the reported session gets all eight neighbours and real streets out there
   : out.chunks.loaded >= 9 && out.neighbours.length === 8 &&
-    out.detailOut.pct > 3 && out.fps >= 45 && !out.errs.length;
+    out.detailOut.pct > 3 &&
+    // and the scenery follows the ring: all nine tiles dressed, not just the centre
+    out.buildingTiles.length >= 9 && out.buildings > 3000 &&
+    out.fps >= 45 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await br.close();
 process.exit(out.pass ? 0 : 1);

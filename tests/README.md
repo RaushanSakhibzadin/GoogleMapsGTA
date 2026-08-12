@@ -44,7 +44,9 @@ map data's, and a report of "the map is half empty" can be either.
 
 `ring.mjs` replays the timing of a reported session — a mirror answering
 nothing, one unreachable, streets back in 5.5 s and a skeleton behind them — and
-checks that all eight neighbouring tiles arrive. Its `heavy` mode checks the
+checks that all eight neighbouring tiles arrive, with their buildings — scenery
+is side-fetched per tile once that tile's streets land, so it goes wherever the
+ring goes, including nowhere. Its `heavy` mode checks the
 opposite: an area whose streets really are slow still gets the ring trimmed,
 because that rule is not the bug.
 

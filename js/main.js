@@ -279,6 +279,12 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   if (col) t.color = col;
   return true;
 };
+// which tiles have any scenery in them yet, by the buildings' own coordinates
+window.__bldTiles = () => {
+  const s = new Set();
+  for (const b of W.buildings) s.add(tileOf(b.cx, b.cy).join(','));
+  return [...s].sort();
+};
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
 // what the network layer has learned about each mirror this session
 window.__mirrors = () => OVERPASS.map(u => ({ host: new URL(u).hostname, miss: MIRROR_MISS.get(u) || 0 }));
