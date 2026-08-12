@@ -143,10 +143,10 @@ for (const [VPW, VPH] of VIEWPORTS) {
              coverW: +((c.x1 - c.x0) * v.s / VW).toFixed(3),
              coverH: +((c.y1 - c.y0) * v.s / VH).toFixed(3) };
   });
-  o.ink = await p.evaluate(INK);
-  /* Pan hard into every corner. Where the world is bigger than the view, its
-     edge may not come inside the viewport — that is the other way to end up
-     looking at bare ground, and the old clamp allowed half a screen of it. */
+  /* Pan hard into every corner, still at maximum zoom-out. Where the world is
+     bigger than the view, its edge may not come inside the viewport — that is the
+     other way to end up looking at bare ground, and the old clamp allowed half a
+     screen of it. */
   o.panned = await p.evaluate(() => {
     const worst = { dx: 0, dy: 0 };
     for (const [dx, dy] of [[1e6, 1e6], [-1e6, -1e6], [1e6, -1e6], [-1e6, 1e6]]) {
@@ -156,8 +156,8 @@ for (const [VPW, VPH] of VIEWPORTS) {
       const halfW = cv.clientWidth / 2 / v.s, halfH = cv.clientHeight / 2 / v.s;
       /* How far the viewport sticks out past the world — in PIXELS, not metres,
          because that is the unit the complaint is in. At the zoom-out limit one
-         pixel is a hundred metres, and __mapView rounds the scale, so metres
-         here would be reporting noise rather than bare ground. */
+         pixel is a hundred metres, and __mapView rounds the scale, so metres here
+         would be reporting noise rather than bare ground. */
       const outX = Math.max(0, (c.x0 - (v.cx - halfW)), ((v.cx + halfW) - c.x1)) * v.s;
       const outY = Math.max(0, (c.y0 - (v.cy - halfH)), ((v.cy + halfH) - c.y1)) * v.s;
       // the world is narrower than the view on one axis by design; only count
@@ -167,7 +167,36 @@ for (const [VPW, VPH] of VIEWPORTS) {
     }
     return { overhangPxX: +worst.dx.toFixed(2), overhangPxY: +worst.dy.toFixed(2) };
   });
-  o.inkPanned = await p.evaluate(INK);
+
+  /* The ink is a separate question from the clamp, and asking it at maximum
+     zoom-out would now be asking it of the FIXTURE: the game requests a 200 km
+     skeleton and the capture is a 72 km box, so most of the world out there is
+     empty because nobody recorded it. Re-centre, zoom to what the capture
+     actually covers, and read the ink inside that. */
+  o.dataFit = await p.evaluate(() => {
+    const v0 = window.__mapView();
+    window.__mapPan(-v0.cx, -v0.cy);              // back to the middle
+    let m = 0;
+    for (const r of window.__roadList()) for (const q of r.pts) {
+      const a = Math.abs(q.x), b = Math.abs(q.y);
+      if (a > m) m = a;
+      if (b > m) m = b;
+    }
+    const cv = document.getElementById('bigmapC');
+    // comfortably inside the data rather than exactly on its edge, where a
+    // single boundary column of ground is not evidence of anything
+    const want = 1.3 * Math.max(cv.clientWidth, cv.clientHeight) / (2 * m);
+    window.__mapZoom(want / window.__mapView().s);
+    const v = window.__mapView();
+    return { dataHalfKm: Math.round(m / 1000), mPerPx: +(1 / v.s).toFixed(1),
+             cx: Math.round(v.cx), cy: Math.round(v.cy) };
+  });
+  o.ink = await p.evaluate(INK);
+  // and after a shove that stays well inside the data
+  o.inkPanned = await p.evaluate(() => {
+    window.__mapPan(4000, 4000);
+    return null;
+  }).then(() => p.evaluate(INK));
   o.errs = errs.slice(0, 3);
   o.pass = o.out.coverW > .999 && o.out.coverH > .999 &&
            o.ink.rowsWithInk === 40 && o.ink.colsWithInk === 40 &&

@@ -62,12 +62,20 @@ const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk reques
    real city; the trunk roads alone are a few, and they're what makes the place
    feel like somewhere with a horizon. Nothing about the road network is ever
    requested again after this — once you're driving, only scenery loads. */
-/* 36 km out, so the city has a horizon you can drive to rather than one you
+/* 100 km out, so the city has a horizon you can drive to rather than one you
    reach. The rungs below it are not decoration: the box grows with the SQUARE of
-   the radius, so this asks for four times the area the 18 km version did, and
-   there are servers and networks that will not carry it. First one to land wins,
-   and the one that lands is the one you get. */
-const SKELETON_RADII = [36000, 18000, 9000];  // tried in order; first one to land wins
+   the radius, so a 200 km box is nearly eight times the area of the 72 km one
+   that came before it, and there are servers and networks that will not carry
+   it. First one to land wins, and the one that lands is the one you get — which
+   is why the rung under the new one is 36 km exactly: when the big ask is
+   refused, what you get is precisely the world the game had before it was asked
+   for, not some worse compromise.
+
+   What made 100 km possible on the client was uncoupling the drivable mask from
+   the world (see MASK_HALF). At 8 m cells and two bits it would have been 156 MB
+   over a 200 km box, against 19.4 over 72 — the download was never the binding
+   constraint, the bitmap was. */
+const SKELETON_RADII = [100000, 36000, 18000, 9000];  // tried in order; first one to land wins
 /* The per-rung caps are generous because the big box is a big download; the
    SHARED deadline is what the player actually feels, and it is the thing to keep
    short. Letting each rung have its head — 50, 20, 10 — meant a server refusing
@@ -75,8 +83,16 @@ const SKELETON_RADII = [36000, 18000, 9000];  // tried in order; first one to la
    screen is worse than a smaller world. Thirty-five seconds for the 36 km try
    still leaves twenty for the 18 km one, which is known to answer in about
    three. */
-const SKELETON_MS = [35000, 18000, 10000];    // per attempt, so the ladder can't run away
-const SKELETON_WAIT = 55000;                  // shared deadline over the whole ladder
+/* The per-rung caps are generous because the big box is a big download; the
+   SHARED deadline is what the player actually feels, and it is the thing to keep
+   short. The 100 km rung gets 30 s — a mirror that can serve a 200 km box at all
+   serves it in well under that, and one that cannot is not going to start in the
+   twenty-ninth second — which still leaves 18 s for the 36 km rung, more than
+   twice the eight seconds it is known to take. The cost of asking for 100 km is
+   therefore bounded and paid only by people whose servers refuse it: up to half
+   a minute more loading screen, and then the same city as before. */
+const SKELETON_MS = [30000, 18000, 12000, 8000];   // per attempt, so the ladder can't run away
+const SKELETON_WAIT = 62000;                       // shared deadline over the whole ladder
 
 /* Two queries, not one. Streets are small and quick and are all you need to start
    driving; buildings are the bulk of the payload and arrive afterwards. Splitting
@@ -309,6 +325,13 @@ function overpassArea(s, w, n, e, sess, opt) {
           throw e;
         }
         mirrorNote(url, true);             // this one answers; keep it at the front
+        /* How long the mirror that ACTUALLY ANSWERED took, on its own. The
+           opening ring is sized off this, and the wall clock is no substitute:
+           it carries the geocode, and every mirror that was unreachable or slow
+           before a good one came through, none of which says anything about how
+           heavy this area's streets are. */
+        sess.replyMs = Date.now() - t0;
+        sess.replyBytes = raw.length;
         resolve(j.elements);
       } catch (err) {
         // 429/5xx and network errors mean "busy, come back"; a 400 means our query

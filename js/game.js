@@ -215,7 +215,12 @@ async function startGame(query, lat, lon, label) {
       m => { $('loadMsg').textContent = m; },
       b => { LOAD.bytes = b; });
     if (gen !== loadGen) return;
-    openingMs = Date.now() - LOAD.t0;      // how heavy this area is, measured
+    /* How heavy this area is — measured from the reply that landed, not from the
+       clock. This used to be `Date.now() - LOAD.t0`, which is everything since
+       the player pressed DRIVE: the geocode, and every mirror that was
+       unreachable or too slow before a good one answered. In the session that
+       exposed it the streets came back in 5.5 s and that expression read 12 s. */
+    openingMs = LOAD.replyMs || (Date.now() - LOAD.t0);
     prog(.62, 'Pouring concrete…', els.length.toLocaleString() + ' map features');
     data = parseOSM(els);
     // a quiet village is still a real place — only fall back if there's nothing
@@ -284,10 +289,8 @@ async function startGame(query, lat, lon, label) {
        — is sized from its rectangle, and growing all of that mid-drive is a
        stutter. The ring is detail, and takes whatever budget is left. */
     prog(.84, 'Mapping the whole city…', 'roads out to ' + (SKELETON_RADII[0] / 1000) + ' km');
-    const t0 = Date.now();
     const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
     if (gen !== loadGen) return;
-    const skelMs = Date.now() - t0;
     // Note, don't act on it: the ring that follows is full street detail and still
     // needs the streets query. Scenery-only mode starts when play does.
     // "0 more roads across 18 km" is a real outcome — a small town whose trunk
@@ -301,8 +304,18 @@ async function startGame(query, lat, lon, label) {
     // Raced, not just deadlined between tiles: one slow district would otherwise
     // run to the streets budget and hold the loading screen for a minute. What is
     // still in flight when the race ends simply lands while you're driving.
+    /* The ring is sized off the STREETS request alone. It used to be
+       `openingMs + skelMs`, and once the skeleton went out to 36 km that sum was
+       past the "this area is too heavy for eight more requests" threshold in
+       essentially every city — the skeleton is eleven megabytes of motorways and
+       takes eight seconds in Belgrade on a good mirror. The opening ring was
+       therefore skipped almost always, and the detailed city came out ONE tile
+       wide instead of nine: 1.8 km of real streets and then nothing but trunk
+       roads, which is exactly what "the streets are not loaded well" looks like.
+       The skeleton is a fixed cost everywhere and says nothing about the density
+       of the streets here, which is the only thing this decision is about. */
     await Promise.race([
-      preloadRing(openingMs + skelMs,
+      preloadRing(openingMs,
                   (g, n) => prog(.89 + .03 * (g / Math.max(n, 1)), 'Filling in the streets…', g + ' of ' + n + ' districts')),
       new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
     ]);

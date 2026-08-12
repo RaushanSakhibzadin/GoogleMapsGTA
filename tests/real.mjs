@@ -250,6 +250,12 @@ out.pedestrian = await p.evaluate(async () => {
 out.repair = await p.evaluate(() => window.__nearestPOI('repair'));
 out.foundRepair = !!out.repair;
 out.mirrors = await p.evaluate(() => window.__mirrors());
+/* The capture is a 72 km box, and the game now asks for 200. The mock answers
+   the first rung whatever it asks for, so what this can check is that the
+   skeleton landed at the top of the ladder and bounded the world — the rung's
+   size is the game's business, not the fixture's, so it is read rather than
+   pinned. */
+out.firstRung = await p.evaluate(() => window.__cfg().skeletonRadii[0]);
 
 out.fps = await p.evaluate(() => new Promise(r => {
   let n = 0; const t = performance.now();
@@ -270,7 +276,7 @@ out.errs = errs.slice(0, 5);
    not steal the landmarks either: in the real session it took both. */
 out.pass = out.world.roads > 5000 && out.world.buildings > 3000 && out.world.parks > 100 &&
            out.world.pois >= 5 &&
-           out.world.skel && out.world.skel.r === 36000 &&
+           out.world.skel && out.world.skel.r === out.firstRung &&
            out.noFalseCrawl &&
            out.drive.topKmh > 200 && out.drive.offPct < 5 &&
            out.pedestrian.found > 0 && out.pedestrian.penalty === false &&

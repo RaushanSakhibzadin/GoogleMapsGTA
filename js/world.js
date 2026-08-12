@@ -14,6 +14,7 @@ const W = {
   pois: [],                              // police stations, hospitals, repair shops
   sweptTo: 0, sweeping: false,           // how many rungs of the landmark sweep have run
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
+  gx0: 0, gy0: 0,                        // and its own origin — it stops before the world does
   bcell: 90, buckets: new Map(),         // building spatial hash
   rbuckets: new Map(),                   // road spatial hash (named roads only)
   vcell: 256, vbuckets: new Map(),       // road spatial hash for view culling (all roads)
@@ -308,20 +309,47 @@ function gridSet(i, v) {
   W.grid[b] = (W.grid[b] & ~(3 << sh)) | (v << sh);
 }
 
+/* THE MASK STOPS GROWING BEFORE THE WORLD DOES.
+
+   It is 8 m cells at two bits each, so its cost is the square of how far it
+   reaches: 19.4 MB across 72 km, 39 MB across 100, and 156 MB across 200. The
+   world itself is only road geometry and spatial hashes, which cost what the
+   roads cost — a 200 km skeleton is sparse motorways and weighs a few megabytes.
+   So the mask is the one thing that cannot follow the world outwards, and it is
+   given its own box: centred on where you started, MASK_HALF in each direction,
+   and it simply stops there.
+
+   Nothing is lost that was ever really there. The mask exists for the off-road
+   penalty, and the penalty is already gated on roadDataHere() — on whether we
+   actually KNOW there is no road under the car, rather than merely having
+   nothing to say. Beyond the mask we have nothing to say, so the honest answer
+   out there is the one that ground already gets while a tile is in flight: drive
+   it, at speed, with no penalty. Sixty kilometres from where you started, on a
+   motorway through farmland, that is also the right game. */
+const MASK_HALF = 36000;
+
 // Grow the drivable mask to cover new bounds.
 function fitGrid(x0, y0, x1, y1) {
   const pad = 40;
   const nMinX = Math.min(W.minX, x0 - pad), nMinY = Math.min(W.minY, y0 - pad);
   const nMaxX = Math.max(W.maxX, x1 + pad), nMaxY = Math.max(W.maxY, y1 + pad);
-  if (W.grid && nMinX === W.minX && nMinY === W.minY && nMaxX === W.maxX && nMaxY === W.maxY) return false;
+  const grew = !(W.grid && nMinX === W.minX && nMinY === W.minY &&
+                 nMaxX === W.maxX && nMaxY === W.maxY);
+  W.minX = nMinX; W.minY = nMinY; W.maxX = nMaxX; W.maxY = nMaxY;
 
-  const gw = Math.ceil((nMaxX - nMinX) / W.cell), gh = Math.ceil((nMaxY - nMinY) / W.cell);
+  // the mask covers the world, clipped to its own box
+  const gx0 = Math.max(nMinX, -MASK_HALF), gy0 = Math.max(nMinY, -MASK_HALF);
+  const gx1 = Math.min(nMaxX, MASK_HALF), gy1 = Math.min(nMaxY, MASK_HALF);
+  const gw = Math.max(1, Math.ceil((gx1 - gx0) / W.cell));
+  const gh = Math.max(1, Math.ceil((gy1 - gy0) / W.cell));
+  if (W.grid && gx0 === W.gx0 && gy0 === W.gy0 && gw === W.gw && gh === W.gh) return grew;
+
   /* Fresh and empty — the old marks are NOT carried across. They used to be, by
      blitting row by row, and that faithfully preserved the hole every road left
      when it ran off the edge of the smaller mask. Every caller re-marks after a
      grow for exactly that reason, so the blit was already doing nothing but
      hiding the bug, and packed rows do not begin on byte boundaries anyway. */
-  W.minX = nMinX; W.minY = nMinY; W.maxX = nMaxX; W.maxY = nMaxY;
+  W.gx0 = gx0; W.gy0 = gy0;
   W.gw = gw; W.gh = gh;
   W.grid = new Uint8Array(Math.ceil(gw * gh / 4));
   return true;
@@ -617,6 +645,7 @@ function reindexWorld() {
   for (const arr of [W.roads, W.buildings])
     for (const f of arr) if (f.id != null) W.roadIds.add(f.id);
   W.grid = null; W.minX = W.minY = Infinity; W.maxX = W.maxY = -Infinity;
+  W.gx0 = W.gy0 = 0;
 
   const b = worldBounds();
   fitGrid(b.x0, b.y0, b.x1, b.y1);   // bounds start empty, so this sizes the grid afresh
@@ -945,7 +974,14 @@ function mergeChunk(data, key) {
 }
 
 function markDrivable(x, y, r, val = 1) {
-  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  /* Out of the mask entirely — bail before the disc loop rather than inside it.
+     A 100 km skeleton is tens of thousands of kilometres of motorway stepped
+     every five metres, and almost all of it now falls outside a mask that stops
+     at 36: the per-cell bounds check still gave the right answer and did it
+     millions of times over. */
+  if (x < W.gx0 - r || y < W.gy0 - r ||
+      x > W.gx0 + W.gw * W.cell + r || y > W.gy0 + W.gh * W.cell + r) return;
+  const gx = Math.floor((x - W.gx0) / W.cell), gy = Math.floor((y - W.gy0) / W.cell);
   const rad = Math.ceil(r / W.cell);
   for (let i = -rad; i <= rad; i++) for (let j = -rad; j <= rad; j++) {
     const cx = gx + i, cy = gy + j;
@@ -957,7 +993,7 @@ function markDrivable(x, y, r, val = 1) {
   }
 }
 function onRoad(x, y) {
-  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  const gx = Math.floor((x - W.gx0) / W.cell), gy = Math.floor((y - W.gy0) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
   return gridGet(gy * W.gw + gx) === 1;
 }
@@ -965,7 +1001,7 @@ function onRoad(x, y) {
 // asks this: what it needs to know is "does this LOOK like road under the car",
 // because punishing a player who is plainly on a paved surface reads as a bug.
 function onTarmac(x, y) {
-  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  const gx = Math.floor((x - W.gx0) / W.cell), gy = Math.floor((y - W.gy0) / W.cell);
   if (gx < 0 || gy < 0 || gx >= W.gw || gy >= W.gh) return false;
   return gridGet(gy * W.gw + gx) !== 0;
 }
@@ -982,7 +1018,7 @@ function onTarmac(x, y) {
    indistinguishable from having no kerb at all. */
 function nearestRoadDir(x, y, maxCells = 6) {
   if (!W.grid) return null;
-  const gx = Math.floor((x - W.minX) / W.cell), gy = Math.floor((y - W.minY) / W.cell);
+  const gx = Math.floor((x - W.gx0) / W.cell), gy = Math.floor((y - W.gy0) / W.cell);
   let bd = Infinity, bx = 0, by = 0;
   for (let r = 1; r <= maxCells; r++) {
     for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
@@ -990,7 +1026,7 @@ function nearestRoadDir(x, y, maxCells = 6) {
       const cx = gx + i, cy = gy + j;
       if (cx < 0 || cy < 0 || cx >= W.gw || cy >= W.gh) continue;
       if (gridGet(cy * W.gw + cx) === 0) continue;      // any tarmac will do
-      const wx = W.minX + (cx + .5) * W.cell, wy = W.minY + (cy + .5) * W.cell;
+      const wx = W.gx0 + (cx + .5) * W.cell, wy = W.gy0 + (cy + .5) * W.cell;
       const d = dist2(x, y, wx, wy);
       if (d < bd) { bd = d; bx = wx; by = wy; }
     }
@@ -1013,8 +1049,18 @@ function nearestRoadDir(x, y, maxCells = 6) {
    The skeleton is the easy case: when one landed the road network is complete
    across its whole rectangle and never changes again. Otherwise it comes down to
    whether this point's tile has actually loaded. A Map lookup, not a search. */
+// is this point inside the mask's own box, whatever the world does beyond it?
+function inMask(x, y) {
+  return x >= W.gx0 && y >= W.gy0 &&
+         x < W.gx0 + W.gw * W.cell && y < W.gy0 + W.gh * W.cell;
+}
 function roadDataHere(x, y) {
   if (W.procedural) return true;                     // the generated city is all there is
+  /* Past the edge of the mask there is nothing to consult, so there is nothing
+     to know — and "no road here" from a mask that does not reach this far is the
+     same false negative as "no road here" from a tile still in flight. Both must
+     leave the penalty alone. */
+  if (!inMask(x, y)) return false;
   if (W.skelRect) return x >= W.skelRect.x0 && x <= W.skelRect.x1 &&
                           y >= W.skelRect.y0 && y <= W.skelRect.y1;
   const [i, j] = tileOf(x, y);

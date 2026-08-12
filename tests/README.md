@@ -10,6 +10,8 @@ npm install --prefix tests          # playwright
 node tests/real.mjs                 # the replay, on real Belgrade map data
 node tests/real.mjs emptyMirror     # with a mirror that answers 200 and nothing
 node tests/mapfill.mjs              # the big map, at four shapes of screen
+node tests/ring.mjs                 # the opening ring of street tiles
+node tests/ring.mjs heavy           # ...and an area whose streets really are slow
 ```
 
 Chromium is found automatically under `PLAYWRIGHT_BROWSERS_PATH` (default
@@ -39,6 +41,12 @@ viewport the **world rectangle** covers at maximum zoom-out, and how much of the
 canvas has anything but ground colour painted on it, sampled row by row and
 column by column. The first is the zoom clamp's business and the second is the
 map data's, and a report of "the map is half empty" can be either.
+
+`ring.mjs` replays the timing of a reported session — a mirror answering
+nothing, one unreachable, streets back in 5.5 s and a skeleton behind them — and
+checks that all eight neighbouring tiles arrive. Its `heavy` mode checks the
+opposite: an area whose streets really are slow still gets the ring trimmed,
+because that rule is not the bug.
 
 The rest of the suite lives outside the repository and serves fixtures written
 by hand. This one is here because the fixture is irreplaceable: it is a

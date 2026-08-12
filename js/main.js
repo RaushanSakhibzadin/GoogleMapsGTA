@@ -163,7 +163,9 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   note: CHUNK.note, tiles: [...W.tiles.entries()],
   bounds: { x0: W.minX, y0: W.minY, x1: W.maxX, y1: W.maxY },
   roads: W.roads.length, buildings: W.buildings.length, drive: W.driveRoads.length,
-  grid: W.gw + 'x' + W.gh,
+  grid: W.gw + 'x' + W.gh, maskBytes: W.grid ? W.grid.length : 0,
+  maskBox: { x0: W.gx0, y0: W.gy0, x1: W.gx0 + W.gw * W.cell, y1: W.gy0 + W.gh * W.cell },
+  maskHalf: MASK_HALF,
   skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2 }, sceneryOnly: SCENERY_ONLY,
   fixed: [...W.fixed], roadIds: W.roadIds.size,
   mapScale: +W.mapScale.toFixed(4), mapWhole: !!W.mapWhole,
@@ -183,9 +185,13 @@ window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r
 window.__log = () => LOG.build();
 window.__logStats = () => LOG.stats();
 window.__saveLog = () => saveLog();
-// would the off-road penalty bite at this spot? the tolerance included
+/* Would the off-road penalty bite at this spot? Every guard the real predicate
+   has, in the same order — including roadDataHere(), which this used to omit. It
+   therefore claimed a crawl on ground beyond the edge of the mask, where the car
+   in fact drives away at full speed, and a hook that disagrees with the game is
+   worse than no hook. */
 window.__onRoadPenalty = (x, y) => {
-  if (onTarmac(x, y)) return false;
+  if (onTarmac(x, y) || !roadDataHere(x, y)) return false;
   const n = nearestRoadDir(x, y);
   return !n || n.d > STRAY_TOL;
 };
