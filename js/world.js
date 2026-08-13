@@ -1255,16 +1255,28 @@ async function widenLandmarkSearch() {
    up so you start in a 5.4 km city rather than a 1.8 km one. Sequential, because
    Overpass gives roughly two slots per IP and a burst just earns 429s, and bounded
    by a deadline so a slow city starts with whatever landed rather than not at all. */
-/* The wide city, fetched once. Walks 18 km, then 9, then 4 — a server that won't
-   answer for the big box will often answer for a smaller one, and the biggest
-   world that server would give us is the one we want. First success wins; if the
-   whole ladder fails you still have the detailed centre and the game starts. */
+/* The wide city, fetched once. Walks 200 km, then 100, 36, 18, 9 — a server that
+   won't answer for the big box will often answer for a smaller one, and the
+   biggest world that server would give us is the one we want. First success wins;
+   if the whole ladder fails you still have the detailed centre and the game
+   starts.
+
+   THE LADDER IS FOR REFUSALS, NOT FOR EMPTY GROUND, and those arrive down
+   different paths on purpose. A rung that THREW was turned away — a 429, a
+   timeout, a box too big — and a smaller box is a fair thing to try next. A rung
+   that RESOLVED with no roads in it means all six mirrors agreed there are no
+   arterials out there, and a smaller box inside an empty one cannot hold any:
+   descending is four more rungs of asking servers a question they have already
+   answered. Each rung costs about twelve seconds, because unanimity means waiting
+   for the sixth mirror, so telling the two cases apart is the difference between
+   a one-second start and a minute of loading screen for anyone in open country. */
 async function loadSkeleton(onMsg) {
   const until = Date.now() + SKELETON_WAIT;
   for (let rung = 0; rung < SKELETON_RADII.length; rung++) {
     if (Date.now() > until) break;
     const R = SKELETON_RADII[rung];
     const sess = newSession();
+    let emptyEverywhere = false;
     try {
       if (onMsg) onMsg('Mapping ' + Math.round(R / 1000) + ' km of city…');
       const s = unprojLat(R), w = unprojLon(-R), n = unprojLat(-R), e = unprojLon(R);
@@ -1273,7 +1285,8 @@ async function loadSkeleton(onMsg) {
         label: 'Mapping ' + Math.round(R / 1000) + ' km of city…', onMsg
       });
       const data = parseOSM(els);
-      if (!data.roads.length) throw new Error('no arterials out there');
+      // resolved, not refused, and with nothing in it: that is the ground talking
+      if (!data.roads.length) { emptyEverywhere = true; throw new Error('no arterials out there'); }
       // Set before merging: mergeChunk sizes the grid off this rectangle, and it
       // has to grow even when every road in the response was already a duplicate.
       W.skelRect = { x0: -R, y0: -R, x1: R, y1: R };
@@ -1281,6 +1294,8 @@ async function loadSkeleton(onMsg) {
       return { radius: R, roads: added, places: data.places.length };
     } catch (err) {
       console.warn('skeleton ' + R + 'm:', err && err.message);
+      // answered, and the answer was "nothing" — a smaller box holds nothing too
+      if (emptyEverywhere) break;
     } finally {
       sessAbort(sess);
     }
