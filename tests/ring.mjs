@@ -26,9 +26,9 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FIX = join(HERE, 'fixtures', 'stari-grad');
+const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const HEAVY = process.argv[2] === 'heavy';
 const session = JSON.parse(readFileSync(join(FIX, 'session.json'), 'utf8'));
 const gz = f => gunzipSync(readFileSync(join(FIX, f))).toString('utf8');
@@ -86,18 +86,7 @@ const boxOf = q => { const m = q.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+
   return m ? { s: +m[1], w: +m[2], n: +m[3], e: +m[4] } : null; };
 const near = (a, t) => a && Math.abs((a.s + a.n) / 2 - (t.s + t.n) / 2) < 3e-3 &&
                             Math.abs((a.w + a.e) / 2 - (t.w + t.e) / 2) < 4e-3;
-const chromeExe = () => {
-  if (process.env.CHROMIUM) return process.env.CHROMIUM;
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-  if (!existsSync(root)) return null;
-  for (const d of readdirSync(root)) for (const rel of ['chrome-linux/chrome', 'chrome']) {
-    const f = join(root, d, rel);
-    if (existsSync(f)) return f;
-  }
-  return null;
-};
-const exe = chromeExe();
-const br = await chromium.launch(exe ? { executablePath: exe } : {});
+const br = await chromium.launch({ executablePath: CHROME });
 const ctx = await br.newContext({ ...devices['iPhone 13'] });
 const p = await ctx.newPage();
 const errs = [];
@@ -151,7 +140,7 @@ await p.route('**/api/interpreter', async r => {
   return r.fulfill({ contentType: 'application/json', body: EMPTY });
 });
 
-await p.goto('file://' + (process.env.GAME || '/home/user/GoogleMapsGTA/index.html'));
+await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.tap('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 180000 });

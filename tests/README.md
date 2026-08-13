@@ -7,21 +7,18 @@ failed.
 
 ```
 npm install --prefix tests          # playwright
-node tests/real.mjs                 # the replay, on real Belgrade map data
-node tests/real.mjs emptyMirror     # with a mirror that answers 200 and nothing
-node tests/mapfill.mjs              # the big map, at four shapes of screen
-node tests/ring.mjs                 # the opening ring of street tiles
-node tests/ring.mjs heavy           # ...and an area whose streets really are slow
-node tests/daynight.mjs             # the two themes: star colour, and rush hour
-node tests/traffic.mjs              # traffic that drives instead of detonating
+node tests/run.mjs                  # all of it, about 40 minutes
+node tests/run.mjs --fast           # skipping the long ones
+node tests/run.mjs real ring        # just those
+node tests/real.mjs emptyMirror     # a scenario, straight to the report
 ```
 
-Chromium is found automatically under `PLAYWRIGHT_BROWSERS_PATH` (default
-`/opt/pw-browsers`), or from `CHROMIUM`, or Playwright's own download. `GAME`
-points a run at a different `index.html`, which is how a test gets checked
-against a deliberately broken build — **a test that passes on broken code
-proves nothing**, and every assertion here has been run against a build with
-the fix taken out.
+`tests/harness.mjs` finds Chromium — under `PLAYWRIGHT_BROWSERS_PATH` (default
+`/opt/pw-browsers`), or `CHROMIUM`, or Playwright's own download — and resolves
+which build is under test. `GAME` points a run at a different `index.html`,
+which is how a fix gets checked against the version that lacks it: **a test that
+passes on broken code proves nothing**, and every assertion here has been run
+against a build with the fix taken out.
 
 ## What is here
 
@@ -73,7 +70,15 @@ comes from. Its own 200 km arterials reply was 44 MB and the log's 25 MB cap
 dropped it, so the skeleton still comes from `stari-grad` — the two centres are
 1.14 km apart and that box reaches 35 km around the newer one.
 
-The rest of the suite lives outside the repository and serves fixtures written
-by hand. This one is here because the fixture is irreplaceable: it is a
-recording, and nobody can write another one from a machine that cannot reach
-Overpass.
+## The rest of it
+
+Thirty-odd more, serving fixtures written by hand rather than recorded: the
+loading ladder through every way it can fail, the drivable mask, the drift, the
+HUD at five viewports, tile streaming and recycling over a long drive, the
+collision mask, memory, the menu at small sizes, the audio graph. They lived
+outside the repository for a while and that cost real work — four separate
+fixes to them were lost to a container being recycled, and each one came back
+as a mystery failure a day later. They are here now.
+
+Two files are helpers rather than tests, imported by the others: `fake.mjs`
+builds a synthetic city, and `wide.mjs` a wide one.

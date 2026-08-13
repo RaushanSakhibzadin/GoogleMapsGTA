@@ -16,6 +16,13 @@
    AND YOU COULD HEAR ALL OF IT. Crashes and explosions played at full volume
    wherever they happened, six hundred metres away or under the bonnet.
 
+   THEN THEY DROVE IN CIRCLES. Cutting the steering gain to stop the weaving made
+   it worse: a car aiming at the next node, unable to turn tightly enough, sails
+   past it — and the node is then behind, so it turns back, misses from the other
+   side and loops. Aiming a few car-lengths DOWN the road instead of at the node
+   is what makes anything follow a path, and "are they on the road" is a question
+   the drivable mask can answer directly.
+
    Usage: node tests/traffic.mjs [GAME=/path/to/index.html]
 */
 import { chromium, devices } from 'playwright';
@@ -23,9 +30,9 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FIX = join(HERE, 'fixtures', 'stari-grad');
+const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const session = JSON.parse(readFileSync(join(FIX, 'session.json'), 'utf8'));
 const gz = f => gunzipSync(readFileSync(join(FIX, f))).toString('utf8');
 const rep = {};
@@ -37,18 +44,7 @@ const boxOf = q => { const m = q.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+
   return m ? { s: +m[1], w: +m[2], n: +m[3], e: +m[4] } : null; };
 const near = (a, t) => a && Math.abs((a.s + a.n) / 2 - (t.s + t.n) / 2) < 3e-3 &&
                             Math.abs((a.w + a.e) / 2 - (t.w + t.e) / 2) < 4e-3;
-const chromeExe = () => {
-  if (process.env.CHROMIUM) return process.env.CHROMIUM;
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-  if (!existsSync(root)) return null;
-  for (const d of readdirSync(root)) for (const rel of ['chrome-linux/chrome', 'chrome']) {
-    const f = join(root, d, rel);
-    if (existsSync(f)) return f;
-  }
-  return null;
-};
-const exe = chromeExe();
-const br = await chromium.launch(exe ? { executablePath: exe } : {});
+const br = await chromium.launch({ executablePath: CHROME });
 const ctx = await br.newContext({ ...devices['iPhone 13'] });
 const p = await ctx.newPage();
 const errs = [];
@@ -68,7 +64,7 @@ await p.route('**/api/interpreter', r => {
   else if (kind === 'buildings' && near(box, rep.buildings.bbox)) body = rep.buildings.body;
   return r.fulfill({ contentType: 'application/json', body });
 });
-await p.goto('file://' + (process.env.GAME || '/home/user/GoogleMapsGTA/index.html'));
+await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.tap('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 90000 });
@@ -102,6 +98,13 @@ const runIn = theme => p.evaluate(async name => {
   const t0 = performance.now();
   let frames = 0, samples = 0;
   let minGap = Infinity, sumSpd = 0, sumStopped = 0, maxOut = 0, sumOnScreen = 0;
+  let onRoad = 0, seenCars = 0;
+  /* STRAIGHTNESS. A car driving in circles covers ground without getting
+     anywhere, so the telling number is how far it actually MOVED against how far
+     it drove: near 1 on a road, near 0 going round and round. Tracked per car by
+     id, since traffic comes and goes under it. */
+  const track = new Map();
+  let straightSum = 0, turnSum = 0, straightN = 0;
   await new Promise(res => {
     const tick = () => {
       /* City pace, not flat out. At 300 km/h the car crosses the whole traffic
@@ -114,6 +117,9 @@ const runIn = theme => p.evaluate(async name => {
       if (frames % 12 === 0) {
         samples++;
         const cars = window.__traffic(), me = window.__p();
+        // are they ON the road? the mask knows, and it is the whole complaint
+        for (const c of cars) if (window.__onRoad(c.x, c.y)) onRoad++;
+        seenCars += cars.length;
         const r = window.__traf().radius;
         let stopped = 0;
         for (let i = 0; i < cars.length; i++) {
@@ -132,6 +138,22 @@ const runIn = theme => p.evaluate(async name => {
           }
         }
         sumStopped += cars.length ? stopped / cars.length : 0;
+        for (const c of cars) {
+          let s = track.get(c.id);
+          if (!s) { track.set(c.id, { x0: c.x, y0: c.y, px: c.x, py: c.y, ph: c.h, path: 0, turn: 0 }); continue; }
+          s.path += Math.hypot(c.x - s.px, c.y - s.py);
+          let dh = c.h - s.ph;
+          while (dh > Math.PI) dh -= 2 * Math.PI;
+          while (dh < -Math.PI) dh += 2 * Math.PI;
+          s.turn += Math.abs(dh);
+          s.px = c.x; s.py = c.y; s.ph = c.h;
+          if (s.path > 90) {                       // a good long stretch to judge on
+            straightSum += Math.hypot(c.x - s.x0, c.y - s.y0) / s.path;
+            turnSum += s.turn;                     // radians of wheel per 90 m
+            straightN++;
+            track.set(c.id, { x0: c.x, y0: c.y, px: c.x, py: c.y, ph: c.h, path: 0, turn: 0 });
+          }
+        }
       }
       if (performance.now() - t0 < 16000) requestAnimationFrame(tick);
       else { window.__setInput(null); res(); }
@@ -147,6 +169,9 @@ const runIn = theme => p.evaluate(async name => {
            avgKmh: +(sumSpd / Math.max(samples * cars, 1) * 3.6).toFixed(1),
            stoppedPct: +(sumStopped / Math.max(samples, 1) * 100).toFixed(0),
            onScreen: +(sumOnScreen / Math.max(samples, 1)).toFixed(1),
+           onRoadPct: +(onRoad / Math.max(seenCars, 1) * 100).toFixed(1),
+           straightness: +(straightSum / Math.max(straightN, 1)).toFixed(3), straightN,
+           turnPer90m: +(turnSum / Math.max(straightN, 1)).toFixed(2),
            beyondRingM: +maxOut.toFixed(1),
            fps: Math.round(frames / el) };
 }, theme);
@@ -194,6 +219,23 @@ out.pass =
   out.run.minGap > 1.9 &&
   // and they are still driving, not parked in a queue
   out.run.avgKmh > 6 && out.run.stoppedPct < 60 &&
+  // ON the roads, in both themes — driving in circles across open ground was
+  // the report, and this is the number that says it is not happening
+  out.run.onRoadPct > 88 && out.dusk.onRoadPct > 88 &&
+  /* And they GET somewhere: over 90 m of driving, the distance actually covered
+     is most of the distance driven, and the wheel does not wind through more
+     than a couple of radians doing it. A car going round in circles scores near
+     zero on the first and four or five on the second, however much tarmac it
+     manages to stay on.
+
+     Honest about what these are: a guard, not a reproduction. Chasing the next
+     node instead of a look-ahead point measures 0.77/3.22 against 0.82/2.22
+     here — the right direction and consistent across runs, but this fixture's
+     short dense city-centre segments do not produce the dramatic circling that
+     was reported, so the thresholds sit where gross looping fails rather than
+     where the two builds happen to differ. */
+  out.run.straightness > .6 && out.dusk.straightness > .6 &&
+  out.run.turnPer90m < 3.6 && out.dusk.turnPer90m < 3.6 &&
   // nothing lives more than a whisker outside the ring
   out.run.beyondRingM < 25 &&
   // daylight is busier than dusk, and neither is empty

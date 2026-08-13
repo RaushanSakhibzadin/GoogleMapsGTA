@@ -27,7 +27,7 @@ index.html      markup only
 style.css       all of the styling
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
-tests/          the replay tests, and the two captured sessions they replay
+tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
 js/geo.js       projection, Overpass, Nominatim — everything that talks to the network

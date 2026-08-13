@@ -826,30 +826,62 @@ function updateTraffic(t, dt) {
   const r = t.road_;
   if (!r || r.pts.length < 2) { rehome(t); return; }
 
-  // Walk past every node we've already reached. Turning round at a dead end has
-  // to step back TWO nodes, not one: stepping back one lands on the node the car
-  // is stood on, atan2 of a zero vector is noise, and the car spins on the spot
-  // for ever without escaping the arrival radius.
+  /* FOLLOW THE ROAD, DON'T CHASE THE NEXT NODE.
+
+     Aiming straight at the next node and steering hard at it is how a car ends
+     up driving in circles: it cannot turn tightly enough at speed, sails past,
+     and the node is then BEHIND it — so it turns back, misses again from the
+     other side, and loops. Weakening the steering to stop the weaving made that
+     worse, because a car that turns even less overshoots even further.
+
+     So the aim point is a few car-lengths DOWN the road rather than on it, walked
+     along the polyline and interpolated. On a straight that point is dead ahead
+     and the wheel stays still; into a corner it rounds the corner before the car
+     does, which is how anything follows a path smoothly. The wheel gets its full
+     authority back — drive() already tapers steering with speed. */
   t.idx = clamp(t.idx, 0, r.pts.length - 1);
+  const spd = Math.hypot(t.vx, t.vy);
+  const reach = 6 + spd * .35;                 // a node counts as reached sooner at speed
+  const fx = Math.cos(t.h), fy = Math.sin(t.h);
   let guard = 0;
-  while (guard++ < 8 && dist(t.x, t.y, r.pts[t.idx].x, r.pts[t.idx].y) < 8) {
+  while (guard++ < 8) {
+    const n = r.pts[t.idx];
+    const dx0 = n.x - t.x, dy0 = n.y - t.y;
+    // reached it, or gone past it — passing one used to leave the car turning
+    // round to come back for a node it had already driven over
+    const done = (dx0 * dx0 + dy0 * dy0) < reach * reach ||
+                 (dx0 * fx + dy0 * fy < 0 && (dx0 * dx0 + dy0 * dy0) < 900);
+    if (!done) break;
     t.idx += t.dir;
     if (t.idx < 0 || t.idx >= r.pts.length) {
+      // dead end: turn round, stepping back TWO so the car is not stood on its
+      // own target with atan2 of a zero vector for a heading
       t.dir *= -1;
       t.idx = clamp(t.idx + 2 * t.dir, 0, r.pts.length - 1);
       break;
     }
   }
-  const target = r.pts[t.idx];
-  const dx = target.x - t.x, dy = target.y - t.y;
+
+  // the point LOOK metres further along the way, wherever that falls
+  const LOOK = 10 + spd * .6;
+  let ax = r.pts[t.idx].x, ay = r.pts[t.idx].y;
+  let left = LOOK - dist(t.x, t.y, ax, ay), k = t.idx;
+  while (left > 0) {
+    const nk = k + t.dir;
+    if (nk < 0 || nk >= r.pts.length) break;   // end of the way: aim at the end
+    const a = r.pts[k], b = r.pts[nk];
+    const seg = dist(a.x, a.y, b.x, b.y);
+    if (seg >= left) {
+      const u = left / seg;
+      ax = a.x + (b.x - a.x) * u; ay = a.y + (b.y - a.y) * u;
+      break;
+    }
+    ax = b.x; ay = b.y; left -= seg; k = nk;
+  }
+  const dx = ax - t.x, dy = ay - t.y;
   if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast
   const want = Math.atan2(dy, dx);
-  /* Gentler on the wheel than 2.2. At full lock every frame a car overshoots the
-     node it is aiming at, comes back, overshoots again, and weaves down a
-     straight road like it is avoiding something — which is what "move straight
-     by roads mostly" was asking for. 1.25 settles instead of hunting, and the
-     cap keeps it from sawing at speed. */
-  const steer = clamp(angDiff(t.h, want) * 1.25, -.75, .75);
+  const steer = clamp(angDiff(t.h, want) * 2.2, -1, 1);
   let throttle = 1;
 
   // slow down for whatever is directly in front (usually the player)

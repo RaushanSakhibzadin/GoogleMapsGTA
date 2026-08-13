@@ -28,10 +28,9 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FIX = join(HERE, 'fixtures', 'stari-grad');
-const GAME = 'file://' + (process.env.GAME || '/home/user/GoogleMapsGTA/index.html');
+const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const VIEWPORTS = (process.env.VP || '1180x700,1440x900,390x700,700x1180')
   .split(',').map(s => s.split('x').map(Number));
 
@@ -47,18 +46,7 @@ const boxOf = q => { const m = q.match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+
 const near = (a, t) => a && Math.abs((a.s + a.n) / 2 - (t.s + t.n) / 2) < 3e-3 &&
                             Math.abs((a.w + a.e) / 2 - (t.w + t.e) / 2) < 4e-3;
 
-const chromeExe = () => {
-  if (process.env.CHROMIUM) return process.env.CHROMIUM;
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-  if (!existsSync(root)) return null;
-  for (const d of readdirSync(root)) for (const rel of ['chrome-linux/chrome', 'chrome']) {
-    const f = join(root, d, rel);
-    if (existsSync(f)) return f;
-  }
-  return null;
-};
-const exe = chromeExe();
-const br = await chromium.launch(exe ? { executablePath: exe } : {});
+const br = await chromium.launch({ executablePath: CHROME });
 
 /* Sample the canvas and count, per row and per column, whether anything that is
    not the bare ground colour appears. The ground is found as the modal colour

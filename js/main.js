@@ -250,7 +250,7 @@ window.__earshot = (x, y) => earshot(x, y);
 window.__gold = () => GOLD;
 window.__playerColour = c => { P.car.color = c; };                       // live palette, so tests can stain the ground
 window.__toScreen = (x, y) => toScreen(x, y);
-window.__traffic = () => traffic.map(t => ({ x: t.x, y: t.y, h: t.h,
+window.__traffic = () => traffic.map(t => ({ id: t.id, x: t.x, y: t.y, h: t.h,
   spd: Math.hypot(t.vx, t.vy), road: t.road_ ? t.road_.pts.length : 0, idx: t.idx, dir: t.dir }));
 window.__cars = () => ({
   traffic: traffic.map(t => ({ id: t.id, x: +t.x.toFixed(1), y: +t.y.toFixed(1), hp: +t.hp.toFixed(1),

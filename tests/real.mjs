@@ -28,10 +28,10 @@ import { gunzipSync } from 'zlib';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FIX = join(HERE, 'fixtures', 'stari-grad');
-const SHOTS = process.env.SHOTS || '/tmp';
+const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
+
 const EMPTY_MIRROR = process.argv[2] === 'emptyMirror';
 
 const session = JSON.parse(readFileSync(join(FIX, 'session.json'), 'utf8'));
@@ -70,20 +70,7 @@ const near = (b, t) => b && Math.abs((b.s + b.n) / 2 - (t.s + t.n) / 2) < 3e-3 &
 /* Playwright's own browser if it has one, otherwise whatever the environment
    put in PLAYWRIGHT_BROWSERS_PATH — this repo is normally driven from a sandbox
    where the download is disabled and the binary is already on disk. */
-const chromeExe = () => {
-  if (process.env.CHROMIUM) return process.env.CHROMIUM;
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-  if (!existsSync(root)) return null;
-  for (const d of readdirSync(root)) {
-    for (const rel of ['chrome-linux/chrome', 'chrome']) {
-      const f = join(root, d, rel);
-      if (existsSync(f)) return f;
-    }
-  }
-  return null;
-};
-const exe = chromeExe();
-const b = await chromium.launch(exe ? { executablePath: exe } : {});
+const b = await chromium.launch({ executablePath: CHROME });
 const ctx = await b.newContext({ ...devices['iPhone 13'] });
 const p = await ctx.newPage();
 const errs = [];
@@ -151,7 +138,7 @@ await p.route('**/api/interpreter', r => {
   return r.fulfill({ contentType: 'application/json', body: payload });
 });
 
-await p.goto('file://' + (process.env.GAME || '/home/user/GoogleMapsGTA/index.html'));
+await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.tap('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 90000 });
