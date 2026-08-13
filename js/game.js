@@ -326,10 +326,10 @@ async function startGame(query, lat, lon, label) {
 
   prog(.95, 'Starting the engine…');
   await new Promise(r => setTimeout(r, 60));
-  // Every road the world will ever have is in by now. From here tiles carry
-  // scenery and nothing else — unless no skeleton landed, in which case the old
-  // streaming is all that stands between the player and a fence 900 m away.
-  SCENERY_ONLY = !!W.skelRect;
+  // The wide map is in, so recycling a district may drop its scenery and keep its
+  // roads. Tiles go on carrying streets either way: the skeleton is arterials, and
+  // the street you live on is not an arterial.
+  WIDE_MAP = !!W.skelRect;
   resetRun();
 
   prog(1, 'Ready.');

@@ -166,8 +166,8 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   grid: W.gw + 'x' + W.gh, maskBytes: W.grid ? W.grid.length : 0,
   maskBox: { x0: W.gx0, y0: W.gy0, x1: W.gx0 + W.gw * W.cell, y1: W.gy0 + W.gh * W.cell },
   maskHalf: MASK_HALF,
-  skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2 }, sceneryOnly: SCENERY_ONLY,
-  fixed: [...W.fixed], roadIds: W.roadIds.size,
+  skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2 }, wideMap: WIDE_MAP,
+  fixed: [...W.fixed], roaded: ROADED.size, roadIds: W.roadIds.size,
   mapScale: +W.mapScale.toFixed(4), mapWhole: !!W.mapWhole,
   mapOrigin: { x: Math.round(W.mapOrigin.x), y: Math.round(W.mapOrigin.y) },
   vbuckets: W.vbuckets.size, dbuckets: W.dbuckets.size, lights: (W.lights || []).length });
@@ -235,6 +235,21 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedg
   arterialsQueryTimeout: +(overpassQL(0,0,0,0,'arterials').match(/timeout:(\d+)/)||[])[1],
   arterialsClauses: (overpassQL(0,0,0,0,'arterials').match(/\b(?:way|node|nwr|relation)\[/g) || []),
   arterialsHasResidential: /residential|service|unclassified|living_street/.test(overpassQL(0,0,0,0,'arterials')),
+  /* The widest rung asks over three concentric boxes, not one — see SKEL_NEAR.
+     Reported as the real query the ladder would send, boxes and all, so a test
+     can check the outer box carries only the roads that are cheap out there. */
+  arterialsWide: (() => {
+    const R = SKELETON_RADII[0];
+    const q = overpassQL(unprojLat(R), unprojLon(-R), unprojLat(-R), unprojLon(R),
+                         'arterials', { radius: R });
+    const boxes = q.match(/\(([-\d.]+,){3}[-\d.]+\)/g) || [];
+    const widest = `(${unprojLat(R)},${unprojLon(-R)},${unprojLat(-R)},${unprojLon(R)})`;
+    // which highway classes ride on the full-radius box
+    const outer = (q.match(/way\["highway"~"\^\(([^)]*)\)\$"\]\(([^)]*)\)/g) || [])
+      .filter(c => c.endsWith(widest))
+      .map(c => c.match(/\^\(([^)]*)\)\$/)[1]);
+    return { rings: new Set(boxes).size, outerClasses: outer.join('|') };
+  })(),
   mapWin: MAP_WIN, mapPx: MAP_PX, mapRedraw: MAP_REDRAW,
   slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,
   loadSweepWait: LOAD_SWEEP_WAIT });

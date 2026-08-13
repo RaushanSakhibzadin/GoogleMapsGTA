@@ -80,12 +80,12 @@ const fps = await p.evaluate(() => new Promise(r => {
 
 const last = samples[samples.length - 1], maxTiles = await p.evaluate(() => window.__chunks().maxTiles);
 const dist = s => Math.hypot(s.x, s.y);
-const skel = await p.evaluate(() => ({ skel: window.__chunks().skel, sceneryOnly: window.__chunks().sceneryOnly }));
+const skel = await p.evaluate(() => ({ skel: window.__chunks().skel, wideMap: window.__chunks().wideMap }));
 const out = {
   mode: REFUSE_SKELETON ? 'no-skeleton' : 'skeleton', ...skel,
   // the refusal has to actually take effect, or this run silently retests the other path
-  modeAsExpected: REFUSE_SKELETON ? (skel.skel === null && skel.sceneryOnly === false)
-                                  : (skel.skel !== null && skel.sceneryOnly === true),
+  modeAsExpected: REFUSE_SKELETON ? (skel.skel === null && skel.wideMap === false)
+                                  : (skel.skel !== null && skel.wideMap === true),
   samples, fps, maxTiles,
   // the bug: the world stopped growing and fence() pinned the car at the edge
   stillMoving: last.spd > 5,
@@ -95,6 +95,16 @@ const out = {
   recycled: last.evicted > 0,
   // eviction has to bound the arrays, not just the tile count
   roadsBounded: Math.max(...samples.map(s => s.roads)) < samples[3].roads * 3,
+  /* AND WITH A WIDE MAP IT MUST NOT TAKE THE ROADS WITH IT. Recycling a district
+     gives back its scenery; its streets stay, because un-marking a road from the
+     drivable mask cannot be done cell by cell and the only correct alternative is
+     to clear the mask and re-mark every road in the world — which over a 200 km
+     skeleton would run on nearly every tile load, for ever. So in skeleton mode
+     the road count only ever goes up, even across the evictions this run causes.
+     In no-skeleton mode the streets ARE the world and they go with their tile,
+     which is why that mode is exempt. */
+  roadsSurviveEviction: REFUSE_SKELETON ||
+    samples.every((s, i) => i === 0 || s.roads >= samples[i - 1].roads),
   landmarksSurvive: last.pois >= samples[3].pois,
   failed: last.failed,
   warnCount: warns.length, warns: warns.slice(0, 8), errs,
@@ -110,7 +120,7 @@ const out = {
 const realErrs = errs.filter(e => !/504|Gateway Timeout/.test(e));
 out.pass = out.modeAsExpected && out.stillMoving && out.keptTravelling &&
            out.tilesPastTheOldCap && out.budgetHeld && out.recycled &&
-           out.roadsBounded && out.landmarksSurvive &&
+           out.roadsBounded && out.roadsSurviveEviction && out.landmarksSurvive &&
            out.failed === 0 && out.fps >= 45 && realErrs.length === 0;
 console.log(JSON.stringify(out, null, 1));
 await b.close();

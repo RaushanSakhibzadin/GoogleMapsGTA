@@ -58,6 +58,15 @@ only half of it. It also holds that the cars you cannot see are free: daylight
 has ten times the traffic and has to cost the same per frame to draw as dusk,
 while putting more of them on the screen.
 
+`district.mjs` is the regression test for a report of **no roads**: a screenshot from
+Репиште, a residential district of Belgrade, with buildings drawn all around a
+stopped car and not one street between them. It drives out to a district the
+opening ring never covered and checks it arrives with streets in it — and that
+they are streets you can drive, not lines on the ground. Against a build with the
+fix taken out it reproduces the screenshot exactly: 14 km/h with the throttle
+down, 100% of frames off-road, and the streets request for that tile never sent.
+With it, 352 km/h and 0%.
+
 `traffic.mjs` drives daylight's rush hour for half a minute and watches: how
 many cars wreck, how close any two ever get, whether they are still moving or
 just queued, that nothing is simulated outside the ring, and — by wrapping the
@@ -71,6 +80,14 @@ dropped it, so the skeleton still comes from `stari-grad` — the two centres ar
 1.14 km apart and that box reaches 35 km around the newer one.
 
 ## The rest of it
+
+Two of these had **no exit code at all** until this round — `cfg.mjs` and
+`loading.mjs` printed their findings and exited 0 whatever they said. That is not
+a small thing: `loading.mjs` carried a scenario asserting, in as many words, that
+no streets request may fire once the loading screen is down, which is the "no
+roads" bug written up as an expectation, and `cfg.mjs` reported its own
+`arterialsLean` flag as false for a release and a half. Both now fail. A test that
+cannot fail is a log.
 
 Thirty-odd more, serving fixtures written by hand rather than recorded: the
 loading ladder through every way it can fail, the drivable mask, the drift, the

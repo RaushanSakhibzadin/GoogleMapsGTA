@@ -109,8 +109,11 @@ function snapshot() {
                 parks: W.parks.length, pois: W.pois.length, grid: W.gw + 'x' + W.gh,
                 bounds: { x0: W.minX, y0: W.minY, x1: W.maxX, y1: W.maxY },
                 skeleton: W.skelRect ? (W.skelRect.x1 - W.skelRect.x0) / 2 : null,
-                sceneryOnly: typeof SCENERY_ONLY !== 'undefined' ? SCENERY_ONLY : null };
-    s.tiles = { loaded: CHUNK.loaded, failed: CHUNK.failed, evicted: CHUNK.evicted, live: W.tiles.size };
+                wideMap: typeof WIDE_MAP !== 'undefined' ? WIDE_MAP : null };
+    // roaded is the count of tiles whose STREETS have landed, which is the
+    // question a report of "no roads here" is really asking
+    s.tiles = { loaded: CHUNK.loaded, roaded: ROADED.size, failed: CHUNK.failed,
+                evicted: CHUNK.evicted, live: W.tiles.size };
   } catch (e) { s.worldError = String(e && e.message || e); }
   try {
     const c = P.car;

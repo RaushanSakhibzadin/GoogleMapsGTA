@@ -619,7 +619,8 @@ function buildWorld(data, name, procedural) {
   W.pois = []; addPOIs(data.pois || []);
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.tiles = new Map(); W.fixed = new Set();
-  W.skelRect = null; SCENERY_ONLY = false;   // a new city starts with no wide map
+  W.skelRect = null; WIDE_MAP = false;       // a new city starts with no wide map
+  ROADED.clear();                            // and none of its tiles have streets yet
   W.bundled = false;                         // and streams, unless it came from disk
   RESERVED = '';                             // and reserves its own ground again
   // a real map streams; the generated city is a fixed island
@@ -669,11 +670,26 @@ function reindexWorld() {
 const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, evicted: 0, note: '', mergeMs: 0, mapMs: 0,
                 retryAt: new Map(), tries: new Map() };
 
-/* Once the loading screen is down, tiles stop carrying roads and carry only
-   scenery. Set only when a skeleton actually landed: if the whole ladder failed
-   the wide world doesn't exist, and streaming roads the old way is then strictly
-   better than fencing the player into the opening tile. */
-let SCENERY_ONLY = false;
+/* True once an arterial skeleton has landed, which changes what recycling a tile
+   is allowed to throw away — see evictFarTiles. It used to mean more than that:
+   tiles stopped carrying roads at all, on the reasoning that the skeleton was the
+   road network and nothing else needed asking for.
+
+   THAT WAS WRONG, AND IT IS WHY A NEIGHBOURHOOD ARRIVES AS BUILDINGS ON BARE
+   GROUND. The skeleton is arterials — motorway, trunk, primary, secondary — and
+   deliberately so, because residential lanes are the overwhelming majority of a
+   city's ways and asking for them over a 200 km box is a query no server will
+   answer. But residential lanes are also every street in the district you
+   actually live in. Drive one tile out of the detailed opening ring into
+   somewhere like Репиште and the skeleton has nothing to say: the buildings
+   stream in and the streets between them never do, so the car sits on open
+   ground at walking pace with a city drawn around it. */
+let WIDE_MAP = false;
+
+/* Tiles whose streets have already been folded in. Roads outlive the tile that
+   brought them (see evictFarTiles), so driving back into a recycled district
+   needs its scenery again but never its streets. */
+const ROADED = new Set();
 
 const tileKey = (i, j) => i + ',' + j;
 const tileOf = (x, y) => [Math.round(x / TILE), Math.round(y / TILE)];
@@ -721,32 +737,26 @@ async function loadTile(i, j) {
     const s = unprojLat(cy + RADIUS), w = unprojLon(cx - RADIUS);   // south, west
     const n = unprojLat(cy - RADIUS), e = unprojLon(cx + RADIUS);   // north, east (+y is south)
 
-    /* Once you're driving, the road network is finished — the skeleton covers
-       everywhere you can reach and never has to be asked for again. All a tile
-       does from here is dress the place with buildings. Roads are only fetched
-       while the loading screen is still up. */
-    if (SCENERY_ONLY) {
-      const bels = await overpassArea(s, w, n, e, sess, { kind: 'buildings' });
-      const bdata = parseOSM(bels);
-      // An empty answer is an ANSWER out here: plenty of real ground has nothing
-      // built on it. Treating it as a failure would retry open countryside
-      // forever, on backoff, for the rest of the drive.
+    /* Streets first: that's what extends the drivable world, and every tile needs
+       them. The one tile that does not is one we have already had the streets of
+       and then recycled the scenery from — its roads never left. */
+    if (!ROADED.has(key)) {
+      const els = await overpassArea(s, w, n, e, sess, { kind: 'streets' });
+      const data = parseOSM(els);
+      /* An empty answer means two different things depending on what is behind
+         it. With a wide map there is a road network already and this tile is
+         simply open country — plenty of real ground has no streets on it, and
+         failing here would retry a field forever on backoff. With no skeleton the
+         streets ARE the world, and a tile without them is a tile that has not
+         arrived. (An empty reply from a broken mirror never reaches this: geo.js
+         hands those to the next mirror and only resolves empty once they all
+         agree the ground is empty.) */
+      if (!data.roads.length && !W.skelRect) throw new Error('empty tile');
       const t0 = performance.now();
-      if (bdata.buildings.length || bdata.parks.length) mergeChunk(bdata, key);
+      mergeChunk(data, key);
       CHUNK.mergeMs = Math.round(performance.now() - t0);
-      W.tiles.set(key, 'loaded');
-      CHUNK.loaded++;
-      CHUNK.note = '';
-      return true;
+      ROADED.add(key);
     }
-
-    // streets first: that's what extends the drivable world
-    const els = await overpassArea(s, w, n, e, sess, { kind: 'streets' });
-    const data = parseOSM(els);
-    if (!data.roads.length) throw new Error('empty tile');
-    const t0 = performance.now();
-    mergeChunk(data, key);
-    CHUNK.mergeMs = Math.round(performance.now() - t0);
     W.tiles.set(key, 'loaded');
     // Only tiles that predate play are permanent. In the fallback case — no
     // skeleton landed, so roads still stream — marking these too would make every
@@ -803,29 +813,45 @@ function evictFarTiles(px, py, budget) {
   for (const k of drop) W.tiles.delete(k);
 
   const keep = f => !drop.has(f.tile);
-  // Let the ids go with them, or driving back into a recycled district finds every
-  // building deduped away against a copy that no longer exists.
-  for (const arr of [W.roads, W.buildings])
+  /* WHAT A RECYCLED TILE ACTUALLY GIVES BACK IS ITS SCENERY.
+
+     Buildings are the bulk of both the bytes and the draw, and a district you
+     are 20 km away from can go. Its ROADS stay, and that is not a concession —
+     it is what makes streaming them affordable at all. Dropping a road means
+     un-marking it from the drivable mask, and the mask cannot un-mark: cells are
+     shared between overlapping ways, so the only correct answer is to clear it
+     and re-mark every road in the world. Over a 200 km skeleton that is tens of
+     thousands of ways, and with a tile budget this size it would run on nearly
+     every tile load — a stutter every few hundred metres, for ever.
+
+     Keeping them costs geometry and nothing else. The mask is already at full
+     size the moment the skeleton lands and never resizes again, so folding in a
+     new tile only marks that tile's own roads: mergeChunk is additive, and this
+     stays out of its way. */
+  const shed = WIDE_MAP ? [W.buildings] : [W.roads, W.buildings];
+  // Let the ids go with whatever is actually leaving, or driving back into a
+  // recycled district finds every building deduped away against a copy that no
+  // longer exists. Roads that stay keep their ids, so their tile is never
+  // re-downloaded for them either.
+  for (const arr of shed)
     for (const f of arr) if (!keep(f) && f.id != null) W.roadIds.delete(f.id);
   W.buildings = W.buildings.filter(keep);
   W.parks = W.parks.filter(keep);
   // landmarks stay: a handful of points, they never touch the grid bounds, and
   // dropping them would throw away the wide sweep and leave a bust nowhere to go
 
-  if (SCENERY_ONLY) {
-    /* Only scenery was dropped, so only the building hash is stale. reindexWorld()
-       used to run here unconditionally — over an 18 km skeleton that re-marks the
-       whole drivable mask and rebuilds every hash mid-drive, which is a visible
-       stutter for no gain: roads, the mask, driveRoads, the road hashes and the
-       lights cannot change any more once the skeleton is in. */
+  if (WIDE_MAP) {
+    // Only scenery went, so only the building hash is stale. The roads, the mask,
+    // driveRoads, the road hashes and the lights are all untouched.
     W.buckets.clear();
     indexBuildings(0);
     markPOIBuildings();
   } else {
-    // No skeleton, so tiles still carry roads and dropping one really does change
-    // the network. Everything derived has to be rebuilt, exactly as before.
+    // No skeleton, so the world is only ever as big as the tiles in hand and
+    // roads have to go with them. Everything derived is rebuilt, as it always was.
     W.roads = W.roads.filter(keep);
     W.places = W.places.filter(keep);
+    for (const k of drop) ROADED.delete(k);
     reindexWorld();
   }
   prerenderMap();
@@ -1243,7 +1269,7 @@ async function loadSkeleton(onMsg) {
       if (onMsg) onMsg('Mapping ' + Math.round(R / 1000) + ' km of city…');
       const s = unprojLat(R), w = unprojLon(-R), n = unprojLat(-R), e = unprojLon(R);
       const els = await overpassArea(s, w, n, e, sess, {
-        kind: 'arterials', totalMs: Math.min(SKELETON_MS[rung], until - Date.now()),
+        kind: 'arterials', radius: R, totalMs: Math.min(SKELETON_MS[rung], until - Date.now()),
         label: 'Mapping ' + Math.round(R / 1000) + ' km of city…', onMsg
       });
       const data = parseOSM(els);

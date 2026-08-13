@@ -60,37 +60,54 @@ const TILE_COOLDOWN = 2500;   // be a good Overpass citizen between chunk reques
    you'd actually take to cross a city, fetched once over an 18 km half-width.
    Asking for every street in a box that size is 15-40 MB and times out in any
    real city; the trunk roads alone are a few, and they're what makes the place
-   feel like somewhere with a horizon. Nothing about the road network is ever
-   requested again after this — once you're driving, only scenery loads. */
-/* 100 km out, so the city has a horizon you can drive to rather than one you
+   feel like somewhere with a horizon. Streets go on streaming with the tiles
+   underneath it, because the street you live on is not an arterial. */
+/* 200 km out, so the city has a horizon you can drive at rather than one you
    reach. The rungs below it are not decoration: the box grows with the SQUARE of
-   the radius, so a 200 km box is nearly eight times the area of the 72 km one
-   that came before it, and there are servers and networks that will not carry
-   it. First one to land wins, and the one that lands is the one you get — which
-   is why the rung under the new one is 36 km exactly: when the big ask is
-   refused, what you get is precisely the world the game had before it was asked
-   for, not some worse compromise.
+   the radius, and there are servers and networks that will not carry the big one.
+   First to land wins, and the one that lands is the one you get — which is why
+   the rungs step through the worlds the game has actually shipped with rather
+   than through round numbers, so a refusal costs you the previous release's map
+   and not some worse compromise.
 
-   What made 100 km possible on the client was uncoupling the drivable mask from
-   the world (see MASK_HALF). At 8 m cells and two bits it would have been 156 MB
-   over a 200 km box, against 19.4 over 72 — the download was never the binding
-   constraint, the bitmap was. */
-const SKELETON_RADII = [100000, 36000, 18000, 9000];  // tried in order; first one to land wins
+   What made this possible on the client was uncoupling the drivable mask from
+   the world (see MASK_HALF). At 8 m cells and two bits the mask over a 400 km box
+   would be 625 MB — the download was never the binding constraint, the bitmap
+   was, and the bitmap now stops at 36 km whatever the world does. */
+const SKELETON_RADII = [200000, 100000, 36000, 18000, 9000];  // tried in order; first to land wins
 /* The per-rung caps are generous because the big box is a big download; the
    SHARED deadline is what the player actually feels, and it is the thing to keep
-   short. The 100 km rung gets 30 s — a mirror that can serve a 200 km box at all
-   serves it in well under that, and one that cannot is not going to start in the
-   twenty-ninth second — which still leaves 18 s for the 36 km rung, more than
-   twice the eight seconds it is known to take. The cost of asking for 100 km is
-   therefore bounded and paid only by people whose servers refuse it: up to half
-   a minute more loading screen, and then the same city as before. */
-const SKELETON_MS = [30000, 18000, 12000, 8000];   // per attempt, so the ladder can't run away
-const SKELETON_WAIT = 62000;                       // shared deadline over the whole ladder
+   short. The widest rung gets 35 s — a mirror that can serve it at all serves it
+   in well under that, and one that cannot is not going to start in the
+   thirty-fourth second — which still leaves 30 s for the 100 km rung and 18 for
+   the 36 km one, more than twice the eight seconds that is known to take. The
+   cost of asking for 200 km is therefore bounded and paid only by people whose
+   servers refuse it: some more loading screen, and then the same city as before. */
+const SKELETON_MS = [35000, 30000, 18000, 12000, 8000];  // per attempt, so the ladder can't run away
+const SKELETON_WAIT = 80000;                       // shared deadline over the whole ladder
+
+/* THE SKELETON IS THREE RINGS, NOT ONE BOX, AND IT HAS TO BE.
+
+   Road classes are not spread evenly through a country. Secondary roads are the
+   dense half of the arterial set and they are dense everywhere there are people;
+   motorways are sparse and go somewhere. Asking for all of it flat over a 400 km
+   box is four times the area of the 200 km box that already came back as 45.7 MB
+   of JSON — call it 180 MB, which an iPhone would spend a minute downloading and
+   might not survive parsing.
+
+   So the ask narrows as it widens, which is also just what the map should look
+   like: the motorway network over the whole 200 km, primaries and slip roads over
+   100, and the full arterial set over the 36 km the drivable mask covers — past
+   there roads are scenery on the big map, since the mask has stopped and there is
+   nothing to be on or off. Estimated against the same recording that measured
+   45.7 MB, three rings over 200 km come to rather less than one box over 100. */
+const SKEL_NEAR = 36000;     // full arterial detail — exactly MASK_HALF
+const SKEL_MID = 100000;     // primaries and the junctions between them
 
 /* Two queries, not one. Streets are small and quick and are all you need to start
    driving; buildings are the bulk of the payload and arrive afterwards. Splitting
    them means a slow or refused building fetch costs you scenery, not the city. */
-function overpassQL(s, w, n, e, kind) {
+function overpassQL(s, w, n, e, kind, opt) {
   const bb = `${s},${w},${n},${e}`;
   // Buildings, and the green stuff that goes under them. Both are decoration, and
   // decoration belongs off the request the game cannot start without.
@@ -101,14 +118,30 @@ function overpassQL(s, w, n, e, kind) {
       `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
       `);out geom qt;`;
   }
-  // The wide skeleton: the roads you'd cross a city on, over an area 400x the
-  // detailed one. Deliberately NOT the full drivable set — residential lanes are
-  // the overwhelming majority of a city's ways, and including them here is the
-  // difference between a few megabytes and a query the server refuses outright.
+  /* The wide skeleton: the roads you'd cross a country on. Deliberately NOT the
+     full drivable set — residential lanes are the overwhelming majority of a
+     city's ways, and including them here is the difference between a few
+     megabytes and a query the server refuses outright.
+
+     Three rings in one union, so it stays one request and one round trip. The
+     rings are built from the radius the ladder asked for, because that is the
+     only thing that knows how far out this box reaches; without one, every ring
+     collapses to the whole box and this is exactly the flat query it used to be —
+     which is what the bundled city and the tests want. */
   if (kind === 'arterials') {
-    return `[out:json][timeout:120];(` +
-      `way["highway"~"^(motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link)$"](${bb});` +
-      `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet|village|town|city)$"](${bb});` +
+    const R = (opt && opt.radius) || 0;
+    // +y is south, so the south edge is at +r and the north edge at -r
+    const ring = r => (!R || r >= R) ? bb
+      : `${unprojLat(r)},${unprojLon(-r)},${unprojLat(-r)},${unprojLon(r)}`;
+    const near = ring(SKEL_NEAR), mid = ring(SKEL_MID);
+    return `[out:json][timeout:180];(` +
+      `way["highway"~"^(motorway|trunk)$"](${bb});` +
+      `way["highway"~"^(primary|motorway_link|trunk_link)$"](${mid});` +
+      `way["highway"~"^(secondary|primary_link|secondary_link)$"](${near});` +
+      // Somewhere to aim at from a long way off, then the district names you only
+      // ever read from inside a district.
+      `node["place"~"^(city|town|village)$"](${bb});` +
+      `node["place"~"^(suburb|neighbourhood|quarter|borough|city_block|hamlet)$"](${near});` +
       `);out geom qt;`;
   }
   // Landmarks over a much wider area than we could ever load streets for. These
@@ -144,7 +177,7 @@ const HEDGE = 2200;
 const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
-const ARTERIALS = { mirrorMs: 55000, totalMs: 62000 };  // query says timeout:120, huge box
+const ARTERIALS = { mirrorMs: 70000, totalMs: 78000 };  // query says timeout:180, huge box
 const MAX_TRIES = 2;     // retries per mirror, on transient failures only
 
 /* Which mirrors are actually answering, learned as we go. Every request used to
@@ -234,7 +267,7 @@ function overpassArea(s, w, n, e, sess, opt) {
      bbox with the retry number in it and a query to match. The request body
      already had to be built out here for the same reason; the log needs the same
      treatment or it quietly describes a different area than the one fetched. */
-  const ql = overpassQL(s, w, n, e, kind);
+  const ql = overpassQL(s, w, n, e, kind, opt);
   const bbox = { s, w, n, e };
   const body = 'data=' + encodeURIComponent(ql);
   const onMsg = opt.onMsg || (() => {});

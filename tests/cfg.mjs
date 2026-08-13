@@ -22,21 +22,33 @@ const streetsMinimal = c.streetsOuts === 1 && c.streetsHasRelation === false &&
   c.streetsClauses.length === 2 &&
   c.streetsClauses.every(x => x === 'way[' || x === 'node[') &&
   !/water|leisure|landuse|amenity|shop|building/.test(JSON.stringify(c.streetsClauses));
-/* The skeleton is one request covering 400x the area of a tile. It stays cheap
-   only by NOT asking for residential lanes -- they are the overwhelming majority
-   of a city's ways, and putting them back is the difference between a few
-   megabytes and a query the server refuses. Same two-clause shape as streets:
-   roads to drive, and the place names for the district banner. */
-const arterialsLean = c.arterialsClauses.length === 2 &&
-  c.arterialsClauses.every(x => x === 'way[' || x === 'node[') &&
-  c.arterialsHasResidential === false &&
-  c.skeletonRadii[0] === 36000 &&
+/* The skeleton is one request covering a box hundreds of kilometres across. It
+   stays cheap only by NOT asking for residential lanes -- they are the
+   overwhelming majority of a city's ways, and putting them back is the
+   difference between a few megabytes and a query the server refuses. */
+const arterialsLean = c.arterialsHasResidential === false &&
+  c.skeletonRadii[0] === 200000 &&
   // the ladder must descend, and its rungs must fit inside the shared deadline
   c.skeletonRadii.every((r, i) => i === 0 || r < c.skeletonRadii[i - 1]) &&
   c.skeletonMs.reduce((a, x) => a + x, 0) >= c.skeletonWait;
+/* AND IT NARROWS AS IT WIDENS. Area goes with the square of the radius, so the
+   200 km ask is four times the ground of the 100 km one that already came back
+   as 45.7 MB. Three concentric boxes in the one union are what make it payable:
+   the motorway network over the whole radius, primaries over 100 km, the full
+   arterial set over the 36 km the drivable mask covers. If the outer box ever
+   picks up secondary roads again, that is the flat query back, and the number
+   it costs is the one this comment is made of. */
+const arterialsTiered = c.arterialsWide.rings === 3 &&
+  /motorway/.test(c.arterialsWide.outerClasses) &&
+  !/secondary|primary|_link/.test(c.arterialsWide.outerClasses);
 // The radar window must be small enough to stay legible: 0.2 px/m is the floor
 // at which a 460 m view still resolves individual streets.
 const radarLegible = c.mapPx / c.mapWin >= 0.2 && c.mapRedraw < c.mapWin / 2;
+/* This file used to print its findings and exit 0 regardless, which meant it sat
+   in the suite reporting arterialsLean:false for a release and a half without
+   anyone being told. A test that cannot fail is a log. */
+const pass = ok && streetsMinimal && arterialsLean && arterialsTiered && radarLegible;
 console.log(JSON.stringify({ ...c, clientOutlastsServer: ok, streetsMinimal,
-                             arterialsLean, radarLegible }, null, 1));
+                             arterialsLean, arterialsTiered, radarLegible, pass }, null, 1));
 await b.close();
+process.exit(pass ? 0 : 1);

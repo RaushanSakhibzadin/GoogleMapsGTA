@@ -52,7 +52,7 @@ const out = { mode: MODE };
 out.world = await p.evaluate(() => {
   const c = window.__chunks();
   return { skel: c.skel, bounds: c.bounds, roads: c.roads, drive: c.drive,
-           grid: c.grid, sceneryOnly: c.sceneryOnly, fixed: c.fixed.length,
+           grid: c.grid, wideMap: c.wideMap, fixed: c.fixed.length,
            roadIds: c.roadIds, vbuckets: c.vbuckets, dbuckets: c.dbuckets };
 });
 const wantR = MODE === 'fallback' ? 18000 : 36000;

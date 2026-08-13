@@ -308,10 +308,17 @@ results.push(await scenario('slow-area-shrinks-ring',
              distinctTiles: tiles, live: c.live, askedFewer: tiles < 9 };
   }));
 
-/* 3h. the wide skeleton is fetched during loading, and the road network is
-   FINISHED when the loading screen goes down. This is the whole point of the
-   change: no streets request, and no arterials request, may fire while driving. */
-results.push(await scenario('skeleton-then-scenery-only',
+/* 3h. the wide skeleton is fetched during loading, ONCE, and never asked for
+   again — it covers 200 km and there is nothing left to add to it.
+
+   Streets are the opposite and this scenario used to have it backwards. It
+   asserted that no streets request may fire while driving, on the reasoning that
+   the skeleton was the road network; what that actually bought was a
+   neighbourhood arriving as buildings on bare ground, because the skeleton is
+   arterials and a residential street is not an arterial. Driving across several
+   tile boundaries must now produce street requests — that is the fix — and still
+   no second arterials request, which is the part that was right. */
+results.push(await scenario('skeleton-once-streets-keep-coming',
   async (p, hits) => {
     p.__afterPlay = null;
     await p.route('**/nominatim.openstreetmap.org/**', r => r.fulfill(json([{ lat: String(LAT0), lon: String(LON0), display_name: 'Riga' }])));
@@ -340,10 +347,11 @@ results.push(await scenario('skeleton-then-scenery-only',
     const after = p.__afterPlay;
     const spanKm = +((c0.bounds.x1 - c0.bounds.x0) / 1000).toFixed(2);
     return { secs: +((Date.now() - t0) / 1000).toFixed(1), spanKm, skel: c0.skel,
-             sceneryOnly: c0.sceneryOnly, fixedTiles: c0.fixed.length,
+             wideMap: c0.wideMap, fixedTiles: c0.fixed.length,
              afterPlay: [...new Set(after)], afterPlayCount: after.length,
-             wideCityLoaded: spanKm > 17 && c0.sceneryOnly === true,
-             noRoadsAfterPlay: !after.includes('streets') && !after.includes('arterials') };
+             wideCityLoaded: spanKm > 17 && c0.wideMap === true,
+             streetsKeepComing: after.includes('streets'),
+             skeletonAskedOnce: !after.includes('arterials') && hits.arterials === 1 };
   }));
 
 // 3i. every rung of the skeleton ladder refused: the game must still start, on the
@@ -366,10 +374,10 @@ results.push(await scenario('skeleton-fails-entirely',
     const w = await played(p, 90000);
     const c = await p.evaluate(() => window.__chunks());
     return { secs: +((Date.now() - t0) / 1000).toFixed(1), procedural: w.procedural,
-             roads: w.roads, skel: c.skel, sceneryOnly: c.sceneryOnly,
-             // no wide world, so tile streaming has to stay switched on
+             roads: w.roads, skel: c.skel, wideMap: c.wideMap,
+             // no wide world, so tiles carry roads AND are recycled with them
              startedAnyway: w.procedural === false && w.roads > 0,
-             keptStreaming: c.skel === null && c.sceneryOnly === false };
+             keptStreaming: c.skel === null && c.wideMap === false };
   }));
 
 // 4. buildings arrive late and must appear without a reload
@@ -450,3 +458,30 @@ results.push(await scenario('double-click',
 
 
 await BROWSER.close();
+
+/* THIS FILE HAD NO EXIT CODE. Twelve scenarios, every one of them printing its
+   findings and the script exiting 0 whatever they said — so the suite has been
+   reporting it green while 3h asserted, in as many words, that no streets
+   request may fire after the loading screen goes down. That is the bug the log
+   from Репиште was about, written down as an expectation and rubber-stamped for
+   a release and a half. A test that cannot fail is a log.
+
+   The gate is the named flags each scenario already computed, plus a page that
+   did not throw and a scenario that did not blow up in the harness.
+
+   NOT the console, though. Half of these scenarios exist to serve a 429, a 504,
+   a 403 or a refused connection, and Chrome logs every one of them as a console
+   error — so counting those is counting the fixture as a failure. Only a real
+   page error or a game-side console.error means anything here. */
+const FLAGS = ['routedAround', 'onlyRoadsAndPlaces', 'movedFeaturesStillArrive',
+               'askedFewer', 'wideCityLoaded', 'streetsKeepComing', 'skeletonAskedOnce',
+               'startedAnyway', 'keptStreaming'];
+const SERVED = /Failed to load resource|ERR_CONNECTION_REFUSED|ERR_FAILED|ERR_ABORTED/;
+const bad = [];
+for (const r of results) {
+  if (r.failed) { bad.push(`${r.name}: harness error — ${r.FAILED}`); continue; }
+  for (const e of (r.errs || [])) if (!SERVED.test(e)) bad.push(`${r.name}: ${e}`);
+  for (const f of FLAGS) if (f in r && r[f] !== true) bad.push(`${r.name}.${f} = ${r[f]}`);
+}
+console.log(JSON.stringify({ scenarios: results.length, pass: !bad.length, bad }, null, 1));
+process.exit(bad.length ? 1 : 0);

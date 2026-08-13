@@ -148,7 +148,7 @@ const out = { mode: EMPTY_MIRROR ? 'with the empty mirror' : 'clean' };
 out.world = await p.evaluate(() => {
   const c = window.__chunks(), w = window.__w();
   return { roads: w.roads, drive: w.drive, buildings: w.buildings, parks: w.parks, grid: w.grid,
-           skel: c.skel, sceneryOnly: c.sceneryOnly, tilesLoaded: c.loaded, tilesFailed: c.failed,
+           skel: c.skel, wideMap: c.wideMap, tilesLoaded: c.loaded, tilesFailed: c.failed,
            live: c.live, pois: c.pois };
 });
 
