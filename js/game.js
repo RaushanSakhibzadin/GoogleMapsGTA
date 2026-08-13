@@ -288,7 +288,7 @@ async function startGame(query, lat, lon, label) {
        later: everything downstream of it — the grid, the fence, the radar window
        — is sized from its rectangle, and growing all of that mid-drive is a
        stutter. The ring is detail, and takes whatever budget is left. */
-    prog(.84, 'Mapping the whole city…', 'roads out to ' + (SKELETON_RADII[0] / 1000) + ' km');
+    prog(.86, 'Mapping the whole city…', 'roads out to ' + (SKELETON_RADII[0] / 1000) + ' km');
     const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
     if (gen !== loadGen) return;
     // Note, don't act on it: the ring that follows is full street detail and still
@@ -301,27 +301,36 @@ async function startGame(query, lat, lon, label) {
                                 Math.round(skel.radius / 1000) + ' km'
                               : Math.round(skel.radius / 1000) + ' km of city');
 
-    // Raced, not just deadlined between tiles: one slow district would otherwise
-    // run to the streets budget and hold the loading screen for a minute. What is
-    // still in flight when the race ends simply lands while you're driving.
-    /* The ring is sized off the STREETS request alone. It used to be
-       `openingMs + skelMs`, and once the skeleton went out to 36 km that sum was
-       past the "this area is too heavy for eight more requests" threshold in
-       essentially every city — the skeleton is eleven megabytes of motorways and
-       takes eight seconds in Belgrade on a good mirror. The opening ring was
-       therefore skipped almost always, and the detailed city came out ONE tile
-       wide instead of nine: 1.8 km of real streets and then nothing but trunk
-       roads, which is exactly what "the streets are not loaded well" looks like.
-       The skeleton is a fixed cost everywhere and says nothing about the density
-       of the streets here, which is the only thing this decision is about. */
-    await Promise.race([
-      preloadRing(openingMs,
-                  (g, n) => prog(.89 + .03 * (g / Math.max(n, 1)), 'Filling in the streets…', g + ' of ' + n + ' districts')),
-      new Promise(r => setTimeout(r, LOAD_RING_WAIT)),
-    ]);
-    prog(.94, 'Finding the hospitals…');
-    await Promise.race([sweep, new Promise(r => setTimeout(r, 2500))]);
-    if (gen !== loadGen) return;
+    /* AND NOTHING ELSE BLOCKS. The loading screen is over the moment there is a
+       city to drive in, which is the opening streets and the wide map that sizes
+       the world around them.
+
+       These two used to be awaited here and were most of the wait: the ring is
+       eight sequential street requests against a twelve second cap, and the
+       landmark sweep another two and a half. Measured against a captured
+       session's own latencies, the whole load came to nearly twenty seconds, and
+       on the phone that reported it — with slower mirrors, retries, and the
+       skeleton at 200 km — it was still on the loading screen at forty-nine.
+
+       Neither is anything the player is waiting FOR. The ring is the ground a few
+       seconds' driving away, and the streamer would fetch it anyway. The
+       landmarks are a garage you want when you are damaged, not when you start.
+       So they run behind the wheel, and the only thing that changed for them is
+       that nobody is watching a bar while they do.
+
+       The ring is sized off the STREETS request alone. It used to be
+       `openingMs + skelMs`, and once the skeleton went wide that sum was past the
+       "too heavy for eight more requests" threshold in essentially every city, so
+       the ring was skipped almost always and the detailed city came out ONE tile
+       wide. The skeleton is a fixed cost everywhere and says nothing about the
+       density of the streets here, which is the only thing this decision is
+       about. */
+    preloadRing(openingMs, (g, n) => {
+      // the in-game indicator, not the loading bar — that is already gone
+      CHUNK.note = 'Filling in the streets… ' + g + ' of ' + n;
+    }).then(() => { CHUNK.note = ''; }, () => { CHUNK.note = ''; });
+    // started above so it overlaps the skeleton; nothing waits on it now
+    sweep.catch(() => {});
   }
 
   prog(.95, 'Starting the engine…');

@@ -147,6 +147,19 @@ await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { tim
 await p.waitForTimeout(600);
 
 const out = { mode: HEAVY ? 'slow streets' : 'the reported session', centreMs: CENTRE_MS };
+/* WAITED FOR, NOT ASSUMED. The ring used to be the last thing the loading screen
+   blocked on, so it was all in by the time 'play' arrived and this could read the
+   counts straight away. It streams behind the wheel now — eight sequential street
+   requests is most of a twelve second cap, and none of it is ground the player is
+   waiting for. What the ring is FOR has not changed a bit, so neither has
+   anything below: all eight neighbours, dressed, with real streets out there.
+   Only the moment it is fair to ask has moved, exactly as it already had for the
+   scenery further down. In heavy mode the ring is deliberately trimmed to four
+   tiles or none, so there is nothing to wait for and waiting would only burn the
+   timeout on every run. */
+if (!HEAVY)
+  await p.waitForFunction(() => window.__chunks().loaded >= 9, null, { timeout: 90000 })
+    .catch(() => {});
 out.chunks = await p.evaluate(() => {
   const c = window.__chunks();
   return { loaded: c.loaded, failed: c.failed, live: c.live, roads: c.roads, drive: c.drive };

@@ -67,6 +67,17 @@ fix taken out it reproduces the screenshot exactly: 14 km/h with the throttle
 down, 100% of frames off-road, and the streets request for that tile never sent.
 With it, 352 km/h and 0%.
 
+`firstload.mjs` is a stopwatch, and it is the test three rounds of "fix the map
+load" went without. Every other mock in this suite answers instantly, so the
+whole suite ran green through a session that was still on the loading screen at
+forty-nine seconds. This one serves the captured session's own latencies —
+streets back in 1.4 s, buildings in 3.6, the landmark sweep in 4.7, the skeleton
+at what 8.7 MB costs on the 1.6 MB/s that log measured — and times the gap
+between pressing DRIVE and holding the wheel. It also checks the other half,
+which is the part that makes it a test rather than a stopwatch: everything the
+loading screen stopped waiting for has to turn up afterwards, or "faster" just
+means "less". Measured 19.9 s before the deferral and 7.7 s after.
+
 `traffic.mjs` drives daylight's rush hour for half a minute and watches: how
 many cars wreck, how close any two ever get, whether they are still moving or
 just queued, that nothing is simulated outside the ring, and — by wrapping the

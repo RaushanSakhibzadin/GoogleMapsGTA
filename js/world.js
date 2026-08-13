@@ -669,8 +669,8 @@ function reindexWorld() {
    The opening download is tile (0,0). As the player nears the edge of what's
    loaded, the neighbouring tiles are fetched in the background and folded in,
    so the world keeps going instead of stopping at a fence.                  */
-const CHUNK = { busy: false, last: 0, loaded: 1, failed: 0, evicted: 0, note: '', mergeMs: 0, mapMs: 0,
-                retryAt: new Map(), tries: new Map() };
+const CHUNK = { busy: false, preloading: false, last: 0, loaded: 1, failed: 0, evicted: 0,
+                note: '', mergeMs: 0, mapMs: 0, retryAt: new Map(), tries: new Map() };
 
 /* True once an arterial skeleton has landed, which changes what recycling a tile
    is allowed to throw away — see evictFarTiles. It used to mean more than that:
@@ -909,7 +909,7 @@ function updateChunks() {
   // before the busy/cooldown guards: the fence must keep up with the car even
   // while a request is in flight, which is precisely when it used to trap you
   reserveAhead(P.car.x, P.car.y);
-  if (CHUNK.busy) return;
+  if (CHUNK.busy || CHUNK.preloading) return;
   if (Date.now() - CHUNK.last < TILE_COOLDOWN) return;
   const want = wantedTiles(P.car.x, P.car.y);
   if (!want.length) return;
@@ -1321,6 +1321,20 @@ async function loadSkeleton(onMsg) {
   return null;
 }
 
+/* THIS RUNS WHILE YOU ARE DRIVING, not while you are watching a bar.
+
+   It used to be the last thing the loading screen waited for, raced against a
+   twelve second cap — and eight sequential street requests is most of that cap
+   in any real city. What it buys is the difference between starting in a 1.8 km
+   square and a 5.4 km one, which is worth having and is not worth twelve seconds
+   of a player's attention, because the ground it covers is ground you reach
+   seconds later anyway.
+
+   The proximity streamer would eventually fetch all eight on its own — standing
+   at the origin, every neighbour is inside the look-ahead — but it takes them one
+   per cooldown, so the ring would trickle in over twenty seconds. Back to back is
+   the point of doing it here, and CHUNK.preloading holds the streamer off
+   meanwhile so the two never have two requests in the air at once. */
 async function preloadRing(openingMs, onEach) {
   let ring = [];
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (i || j) ring.push([i, j]);
@@ -1332,11 +1346,21 @@ async function preloadRing(openingMs, onEach) {
   else if (openingMs > SLOW_AREA_MS) ring = ring.filter(([i, j]) => !i || !j);
   const until = Date.now() + LOAD_RING_WAIT;
   let got = 0;
-  for (const [i, j] of ring) {
-    if (Date.now() > until) break;
-    if (await loadTile(i, j)) got++;
-    if (onEach) onEach(got, ring.length);
-  }
+  CHUNK.preloading = true;
+  try {
+    for (const [i, j] of ring) {
+      if (Date.now() > until) break;
+      if (await loadTile(i, j)) {
+        // The opening city is permanent however late it arrives. loadTile only
+        // marks tiles fixed before play starts, and this no longer runs before
+        // play starts — without saying so here, the nine tiles you began in
+        // would become the first things recycled.
+        W.fixed.add(tileKey(i, j));
+        got++;
+      }
+      if (onEach) onEach(got, ring.length);
+    }
+  } finally { CHUNK.preloading = false; }
   return got;
 }
 
