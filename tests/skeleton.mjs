@@ -55,8 +55,18 @@ out.world = await p.evaluate(() => {
            grid: c.grid, wideMap: c.wideMap, fixed: c.fixed.length,
            roadIds: c.roadIds, vbuckets: c.vbuckets, dbuckets: c.dbuckets };
 });
-const wantR = MODE === 'fallback' ? 18000 : 36000;
+/* READ THE RUNG, DON'T PIN IT. This was hardcoded to 36 km and has been wrong
+   since the ladder's top rung moved — which nothing noticed, because this file
+   computed `pass` and then exited 0 regardless (see the bottom). How wide the
+   widest rung is is the game's business; what this test checks is that the world
+   ended up exactly as wide as the rung that actually landed. */
+const rungs = await p.evaluate(() => window.__cfg().skeletonRadii);
+// fallback mode refuses anything over 12 km half-width, so the ladder walks down
+// to the first rung at or under it
+const wantR = MODE === 'fallback' ? rungs.filter(r => r <= 12000)[0] : rungs[0];
 const span = out.world.bounds.x1 - out.world.bounds.x0;
+out.world.rungs = rungs;
+out.world.wantR = wantR;
 out.world.halfSpanKm = Math.round(span / 2 / 100) / 10;
 out.world.rightSize = Math.abs(span / 2 - wantR) < 400;
 
@@ -92,7 +102,15 @@ out.afterPlay = {
   arterials: after.filter(r => r.kind === 'arterials').length,
   buildings: after.filter(r => r.kind === 'buildings').length,
 };
-out.noRoadsAfterPlay = out.afterPlay.streets === 0 && out.afterPlay.arterials === 0;
+/* THE INVARIANT IS ABOUT THE SKELETON, NOT ABOUT STREETS.
+   It used to be both, and that was the bug: the skeleton is arterials, so out in
+   a residential district it has nothing to say and the streets have to keep
+   coming. What must never happen twice is the WIDE request — it covers the whole
+   world in one go, and asking again mid-drive would be tens of megabytes and a
+   full re-mark of the drivable mask for nothing. */
+out.skeletonAskedOnce = out.afterPlay.arterials === 0;
+// and this drive crosses tile seams, so the district ahead must be arriving
+out.streetsKeepComing = out.afterPlay.streets > 0;
 
 // ---------- 4. it is a real, drivable place 12 km from the start ----------
 out.farOut = await p.evaluate(async () => {
@@ -136,7 +154,12 @@ await p.screenshot({ path: `${OUT}/shot-skeleton-${MODE}.png` });
 const real = errs.filter(e => !(MODE === 'fallback' && /504|Gateway/.test(e)));
 out.errs = real.slice(0, 6);
 out.noisyErrs = errs.length - real.length;
-out.pass = out.world.rightSize && out.laddered && out.noRoadsAfterPlay &&
-           out.radarUsable && out.fps >= 45 && !real.length;
+out.pass = out.world.rightSize && out.laddered && out.skeletonAskedOnce &&
+           out.streetsKeepComing && out.radarUsable && out.fps >= 45 && !real.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+/* This file worked out `pass` and then exited 0 whatever it said, so the suite
+   has been calling it green while it reported false — through a hardcoded world
+   size that stopped matching the ladder, and then through an invariant that the
+   streets fix deliberately reversed. A test that cannot fail is a log. */
+process.exit(out.pass ? 0 : 1);

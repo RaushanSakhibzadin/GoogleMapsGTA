@@ -98,8 +98,8 @@ const out = {
   /* AND WITH A WIDE MAP IT MUST NOT TAKE THE ROADS WITH IT. Recycling a district
      gives back its scenery; its streets stay, because un-marking a road from the
      drivable mask cannot be done cell by cell and the only correct alternative is
-     to clear the mask and re-mark every road in the world — which over a 200 km
-     skeleton would run on nearly every tile load, for ever. So in skeleton mode
+     to clear the mask and re-mark every road in the world — which at skeleton
+     scale would run on nearly every tile load, for ever. So in skeleton mode
      the road count only ever goes up, even across the evictions this run causes.
      In no-skeleton mode the streets ARE the world and they go with their tile,
      which is why that mode is exempt. */

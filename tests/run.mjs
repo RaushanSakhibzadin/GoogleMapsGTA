@@ -20,8 +20,15 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const NOT_TESTS = new Set(['harness.mjs', 'run.mjs', 'fake.mjs', 'wide.mjs']);
 // minutes each, roughly; the loading ladder and the long drive earn their names
 const SLOW = new Set(['loading', 'longdrive', 'chunks', 'real', 'ring', 'traffic', 'daynight', 'mapfill']);
-// the ones that take an argument for a second scenario
-const MODES = { real: ['', 'emptyMirror'], ring: ['', 'heavy'] };
+/* The ones that take an argument for a second scenario. Every one of these
+   branches is a fallback path — the mirror that answers nothing, the area too
+   heavy for the ring, the skeleton refused down to its smallest rung, the drive
+   with no wide map at all — so they are exactly the code that only runs when
+   something has already gone wrong, and exactly the code nobody exercises by
+   hand. `skeleton fallback` and `longdrive no-skeleton` were written and then
+   never invoked by the runner at all. */
+const MODES = { real: ['', 'emptyMirror'], ring: ['', 'heavy'],
+                skeleton: ['', 'fallback'], longdrive: ['', 'no-skeleton'] };
 
 const args = process.argv.slice(2);
 const fast = args.includes('--fast');

@@ -314,7 +314,7 @@ function gridSet(i, v) {
    It is 8 m cells at two bits each, so its cost is the square of how far it
    reaches: 19.4 MB across 72 km, 39 MB across 100, and 156 MB across 200. The
    world itself is only road geometry and spatial hashes, which cost what the
-   roads cost — a 200 km skeleton is sparse motorways and weighs a few megabytes.
+   roads cost — a wide skeleton is sparse motorways and weighs a few megabytes.
    So the mask is the one thing that cannot follow the world outwards, and it is
    given its own box: centred on where you started, MASK_HALF in each direction,
    and it simply stops there.
@@ -623,8 +623,10 @@ function buildWorld(data, name, procedural) {
   ROADED.clear();                            // and none of its tiles have streets yet
   W.bundled = false;                         // and streams, unless it came from disk
   RESERVED = '';                             // and reserves its own ground again
-  // a real map streams; the generated city is a fixed island
-  if (!procedural) { W.tiles.set('0,0', 'loaded'); W.fixed.add('0,0'); stampTile(data, '0,0'); }
+  // a real map streams; the generated city is a fixed island. The opening tile's
+  // streets arrive here rather than through loadTile, so it has to book itself in
+  // as roaded or driving back to where you started re-downloads them.
+  if (!procedural) { W.tiles.set('0,0', 'loaded'); W.fixed.add('0,0'); ROADED.add('0,0'); stampTile(data, '0,0'); }
 
   reindexWorld();
   applyTheme(themeName);   // resolves every building's material and prerenders the map
@@ -820,7 +822,7 @@ function evictFarTiles(px, py, budget) {
      it is what makes streaming them affordable at all. Dropping a road means
      un-marking it from the drivable mask, and the mask cannot un-mark: cells are
      shared between overlapping ways, so the only correct answer is to clear it
-     and re-mark every road in the world. Over a 200 km skeleton that is tens of
+     and re-mark every road in the world. At skeleton scale that is tens of
      thousands of ways, and with a tile budget this size it would run on nearly
      every tile load — a stutter every few hundred metres, for ever.
 
@@ -944,7 +946,23 @@ function mergeChunk(data, key) {
   // Sized before the emptiness check: a skeleton that turned out to be all
   // duplicates still has to grow the world to its rectangle.
   const grew = fitGrid(r.x0, r.y0, r.x1, r.y1);
-  if (!(data.roads.length || data.buildings.length || data.parks.length)) return 0;
+  /* A TILE WITH NOTHING IN IT STILL GREW THE MASK, AND GROWING THE MASK EMPTIES
+     IT. fitGrid hands back a fresh zeroed Uint8Array whenever the box changes
+     size — every caller re-marks afterwards for exactly that reason — and this
+     early return was jumping over the re-mark. The whole drivable world went
+     blank, silently, and stayed blank until the player next crossed a tile seam
+     in a direction that happened to grow the grid again.
+
+     "Nothing in it" is not rare, either. It is open water, it is countryside,
+     and it is any neighbour tile whose ways all carry ids we already hold — a
+     way lying along a seam arrives with both its tiles, so a small fixture or a
+     sparse area dedupes to nothing routinely. The symptom is a car crawling at
+     14 km/h down the middle of a road that is drawn perfectly, which is the
+     third separate way this game has found to report "no roads". */
+  if (!(data.roads.length || data.buildings.length || data.parks.length)) {
+    if (grew) markRoads(W.roads);
+    return 0;
+  }
   stampTile(data, tk);
   // The GRID is sized by the tile, but passability is a geometry question — which
   // buildings a road actually runs through — so it works off where the features
@@ -1255,7 +1273,7 @@ async function widenLandmarkSearch() {
    up so you start in a 5.4 km city rather than a 1.8 km one. Sequential, because
    Overpass gives roughly two slots per IP and a burst just earns 429s, and bounded
    by a deadline so a slow city starts with whatever landed rather than not at all. */
-/* The wide city, fetched once. Walks 200 km, then 100, 36, 18, 9 — a server that
+/* The wide city, fetched once. Walks 60 km, then 36, 18, 9 — a server that
    won't answer for the big box will often answer for a smaller one, and the
    biggest world that server would give us is the one we want. First success wins;
    if the whole ladder fails you still have the detailed centre and the game

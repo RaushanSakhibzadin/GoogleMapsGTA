@@ -157,9 +157,9 @@ for (const [VPW, VPH] of VIEWPORTS) {
   });
 
   /* The ink is a separate question from the clamp, and asking it at maximum
-     zoom-out would now be asking it of the FIXTURE: the game requests a 200 km
-     skeleton and the capture is a 72 km box, so most of the world out there is
-     empty because nobody recorded it. Re-centre, zoom to what the capture
+     zoom-out would now be asking it of the FIXTURE: the game asks for a skeleton
+     wider than the 72 km box the capture covers, so most of the world out there
+     is empty because nobody recorded it. Re-centre, zoom to what the capture
      actually covers, and read the ink inside that. */
   o.dataFit = await p.evaluate(() => {
     const v0 = window.__mapView();

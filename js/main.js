@@ -248,7 +248,7 @@ window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedg
     const outer = (q.match(/way\["highway"~"\^\(([^)]*)\)\$"\]\(([^)]*)\)/g) || [])
       .filter(c => c.endsWith(widest))
       .map(c => c.match(/\^\(([^)]*)\)\$/)[1]);
-    return { rings: new Set(boxes).size, outerClasses: outer.join('|') };
+    return { rings: new Set(boxes).size, outerClasses: outer.join('|'), query: q };
   })(),
   mapWin: MAP_WIN, mapPx: MAP_PX, mapRedraw: MAP_REDRAW,
   slowAreaMs: SLOW_AREA_MS, ringWait: LOAD_RING_WAIT,

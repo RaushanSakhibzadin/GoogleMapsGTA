@@ -309,7 +309,7 @@ results.push(await scenario('slow-area-shrinks-ring',
   }));
 
 /* 3h. the wide skeleton is fetched during loading, ONCE, and never asked for
-   again — it covers 200 km and there is nothing left to add to it.
+   again — it covers the whole world in one go and there is nothing to add to it.
 
    Streets are the opposite and this scenario used to have it backwards. It
    asserted that no streets request may fire while driving, on the reasoning that

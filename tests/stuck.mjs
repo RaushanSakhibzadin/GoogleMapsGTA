@@ -100,9 +100,16 @@ out.wantedOneStar = await shove(1);
 out.getsPast = out.clearRoad.movedM > 60 && out.wantedOneStar.movedM > 60 &&
                out.wantedOneStar.topKmh > 40;
 
-// and a head-on shunt must still hurt both, i.e. mass didn't break the crashes
+/* And a head-on shunt must still hurt both, i.e. mass didn't break the crashes.
+
+   STAGED NEXT TO THE PLAYER, NOT 300 m AWAY. It used to be 300 m, and that quietly
+   stopped testing anything the day traffic outside the view stopped being
+   simulated: both cars were culled on the frame after they were placed, the loop
+   watched an empty list for 1.8 s, and "neither car was damaged" came back as a
+   failure of the collision model rather than of the staging. 28 m keeps them on
+   screen and still clear of the player's own collision radius. */
 out.headOn = await p.evaluate(async () => {
-  window.__tp(0, -300, 0);
+  window.__tp(0, -28, 0);
   window.__putTraffic(0, 0, 0, 0, null, 15, 0);
   window.__putTraffic(1, 9, 0, Math.PI, null, -15, 0);
   window.__setCarHp('traffic', 0, 100); window.__setCarHp('traffic', 1, 100);
@@ -124,3 +131,7 @@ out.errs = errs.slice(0, 4);
 out.pass = out.getsPast && out.escapesAWedge && out.headOn.bothHurt && !errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+/* Worked out `pass` and then exited 0 whatever it said, so a failure here has
+   only ever been visible to someone reading the JSON by eye. A test that cannot
+   fail is a log. */
+process.exit(out.pass ? 0 : 1);

@@ -272,3 +272,7 @@ out.pass = out.oneEighty.monotonic && out.everyTime &&
            out.fps >= 55 && !errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+/* Worked out `pass` and then exited 0 whatever it said, so a failure here has
+   only ever been visible to someone reading the JSON by eye. A test that cannot
+   fail is a log. */
+process.exit(out.pass ? 0 : 1);

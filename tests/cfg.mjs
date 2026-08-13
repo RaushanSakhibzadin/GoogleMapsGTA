@@ -27,20 +27,27 @@ const streetsMinimal = c.streetsOuts === 1 && c.streetsHasRelation === false &&
    overwhelming majority of a city's ways, and putting them back is the
    difference between a few megabytes and a query the server refuses. */
 const arterialsLean = c.arterialsHasResidential === false &&
-  c.skeletonRadii[0] === 200000 &&
+  c.skeletonRadii[0] === 60000 &&
   // the ladder must descend, and its rungs must fit inside the shared deadline
   c.skeletonRadii.every((r, i) => i === 0 || r < c.skeletonRadii[i - 1]) &&
   c.skeletonMs.reduce((a, x) => a + x, 0) >= c.skeletonWait;
-/* AND IT NARROWS AS IT WIDENS. Area goes with the square of the radius, so the
-   200 km ask is four times the ground of the 100 km one that already came back
-   as 45.7 MB. Three concentric boxes in the one union are what make it payable:
-   the motorway network over the whole radius, primaries over 100 km, the full
-   arterial set over the 36 km the drivable mask covers. If the outer box ever
-   picks up secondary roads again, that is the flat query back, and the number
-   it costs is the one this comment is made of. */
-const arterialsTiered = c.arterialsWide.rings === 3 &&
+/* AND IT NARROWS AS IT WIDENS. Measured on the captured Belgrade skeleton over
+   the +/-36 km box, `secondary` is 55.7% of the arterial bytes and
+   `motorway|trunk` only 15% — so what the outer box carries decides what the
+   loading screen costs, and a 200 km ask with secondary in it was 36.7 MB and
+   twenty-three seconds on a real phone.
+
+   The count of rings is NOT the invariant: a ring wider than the radius collapses
+   onto the whole box, so at the 60 km default this is legitimately two rings, and
+   asserting three would only be asserting the radius twice. What has to hold is
+   that the outer box never carries the dense classes. If `secondary` appears out
+   there again, the flat query is back and so is the twenty-three seconds. */
+const arterialsTiered = c.arterialsWide.rings >= 2 &&
   /motorway/.test(c.arterialsWide.outerClasses) &&
-  !/secondary|primary|_link/.test(c.arterialsWide.outerClasses);
+  // the one that matters, and the only one that matters
+  !/secondary/.test(c.arterialsWide.outerClasses) &&
+  // ...and it is confined rather than dropped: you still want it where you drive
+  /secondary/.test(c.arterialsWide.query);
 // The radar window must be small enough to stay legible: 0.2 px/m is the floor
 // at which a 460 m view still resolves individual streets.
 const radarLegible = c.mapPx / c.mapWin >= 0.2 && c.mapRedraw < c.mapWin / 2;
