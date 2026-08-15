@@ -89,7 +89,15 @@ const out = {
   samples, fps, maxTiles,
   // the bug: the world stopped growing and fence() pinned the car at the edge
   stillMoving: last.spd > 5,
-  keptTravelling: dist(last) > dist(samples[3]) + 1500,
+  /* THE FURTHEST IT GOT, not where it happened to be at the end. Four minutes
+     flat out into unstreamed ground gets the car wasted sooner or later, and a
+     respawn puts it back at the start point — so end-versus-sample-3 was really
+     measuring how long ago the last respawn was. Every build tested does it: one
+     reset at sample 5 passed, the same reset at sample 10 failed, and the code
+     under test was identical. What this is actually asking is whether the world
+     kept growing enough for the car to keep going, and the high-water mark
+     answers that without caring when it last died. */
+  keptTravelling: Math.max(...samples.map(dist)) > dist(samples[3]) + 1500,
   tilesPastTheOldCap: last.loaded > maxTiles,
   budgetHeld: samples.every(s => s.live <= maxTiles),
   recycled: last.evicted > 0,

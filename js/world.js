@@ -909,6 +909,13 @@ function updateChunks() {
   // before the busy/cooldown guards: the fence must keep up with the car even
   // while a request is in flight, which is precisely when it used to trap you
   reserveAhead(P.car.x, P.car.y);
+  /* Deliberately NOT held off by a retry in flight, though it was tried. A
+     skeleton retry holds its session for as long as the ladder runs, and blocking
+     the streamer for that meant the tiles ahead of a car at 90 m/s stopped
+     arriving — trading a rare stale map for a reliable hole in the road, which is
+     the worse half of the deal. Two requests is also exactly the budget Overpass
+     hands out per IP, and the retry already refuses to start while a tile or its
+     scenery is in the air, so this is at most one of each and never a burst. */
   if (CHUNK.busy || CHUNK.preloading) return;
   if (Date.now() - CHUNK.last < TILE_COOLDOWN) return;
   const want = wantedTiles(P.car.x, P.car.y);

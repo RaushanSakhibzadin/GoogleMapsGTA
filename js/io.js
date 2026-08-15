@@ -292,9 +292,18 @@ function resize() {
   // the pads move with the layout, and this is also the call that runs right
   // after the touch UI is first shown — before that they measure as nothing
   padBoxes = null;
-  // the big map is drawn only when it moves, so a rotation while it is open
-  // would otherwise leave it stretched across the new viewport until touched
-  if (state === 'map') { mapClamp(); drawBigMap(); }
+  /* The big map is drawn only when it moves, so a rotation while it is open
+     would otherwise leave it stretched across the new viewport until touched.
+
+     Guarded, because this file is loaded BEFORE game.js and `state` is a let
+     declared there — so until that script has run the binding does not exist at
+     all. That used to be unreachable: a window resize cannot fire before the
+     page has finished parsing. Adding the visualViewport listeners made it
+     reachable, because the visual viewport settles while the document is still
+     loading, and on a machine slow enough to stretch the gap between two script
+     tags it fires in it. It showed up as `state is not defined` from a suite run
+     under load, and never once on an idle machine. */
+  if (typeof state !== 'undefined' && state === 'map') { mapClamp(); drawBigMap(); }
 }
 addEventListener('resize', resize);
 addEventListener('orientationchange', resize);
