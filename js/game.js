@@ -173,6 +173,11 @@ function backToMenu(msg) {
 
 async function startGame(query, lat, lon, label) {
   const gen = ++loadGen;                 // a second DRIVE press abandons this one
+  // the place they actually asked for, kept before the fallback path reassigns
+  // any of it, so a retry later knows what it is retrying
+  const want = { query, lat, lon, label };
+  // a new city gets its own attempts; the last one's are none of its business
+  RETRY.city = null; RETRY.at = 0; RETRY.n = 0;
   audioStart();
   $('menuErr').classList.remove('on');
   showLoad('Locating…', query || label || '');
@@ -188,6 +193,7 @@ async function startGame(query, lat, lon, label) {
     try {
       const g = await geocode(query);
       lat = g.lat; lon = g.lon; name = g.name;
+      want.lat = lat; want.lon = lon; want.label = g.name;
     } catch (err) {
       if (gen !== loadGen) return;
       console.warn('geocode failed:', err);
@@ -361,11 +367,165 @@ async function startGame(query, lat, lon, label) {
     // and it stays on the pause card for the rest of the session, so it is still
     // answerable ten minutes later when you wonder why you are in Belgrade
     FELLBACK = { asked: askedFor, why, city: name };
+    /* The servers said no ONCE. That is a moment in a network's day, not a
+       verdict — and the player is now driving a city they did not choose, with
+       no way back to the one they did short of pressing DRIVE again and sitting
+       through another load. So ask again later, from behind the wheel. */
+    retryLater({ city: want });
   } else {
     FELLBACK = null;
     toast('WELCOME TO\n' + name.toUpperCase(), 2600);
   }
+  /* Not only the fallback. A city can load perfectly and still be missing the
+     wide map, or every garage and hospital, or all of its buildings — each of
+     which is one refused request, and each of which the player would otherwise
+     live with until they started again. */
+  if (retryWanted()) retryLater();
   if (!raf) { raf = true; requestAnimationFrame(loop); }
+}
+
+/* ---------------------------------------------------------------------------
+   WHAT DIDN'T ARRIVE, ASKED FOR AGAIN LATER.
+
+   Every failure in this game's loading is a network failure, and network
+   failures are moments rather than verdicts: a mirror rate-limits for a minute,
+   a host is unreachable from one carrier, a 200 comes back with nothing in it.
+   The game has always coped by carrying on with less — the offline city instead
+   of the one you asked for, no wide map, no garages, bare ground where the
+   buildings should be — and then never asking again for the whole session. The
+   only cure was to press DRIVE a second time and sit through another load.
+
+   So it asks again, from behind the wheel, and drops the fallback the moment the
+   real answer turns up.
+
+   THE DELAYS ARE THE WHOLE DESIGN. Overpass hands out about two slots per IP and
+   answers a burst with 429s, and a retry that hammers is worse than no retry —
+   it gets the host to refuse the tile streaming too, so trying to recover the map
+   would break the part of it that still worked. Ninety seconds, then five
+   minutes, then fifteen, then it stops: far longer than any rate-limit window,
+   and three attempts across twenty minutes is a rounding error against the
+   traffic one session's tile streaming already makes.
+
+   One job at a time, and never while a tile or its scenery is in the air, for
+   the same reason. --------------------------------------------------------- */
+const RETRY_DELAYS = [90000, 300000, 900000];   // 1.5 min, 5 min, 15 min, then stop
+const RETRY = { city: null, at: 0, n: 0, busy: false, log: [] };
+
+function retryLater(what) {
+  if (what && what.city) RETRY.city = what.city;
+  if (!RETRY.at) RETRY.at = Date.now() + RETRY_DELAYS[0];
+}
+
+/* The first thing still missing, in the order it matters. City first: everything
+   below it is a detail of a city you did not want. */
+function retryWanted() {
+  if (RETRY.city && FELLBACK) return 'city';
+  if (W.procedural || W.bundled) return null;   // nothing to fetch for these
+  if (!W.skelRect) return 'skeleton';
+  // the two that a wasted run actually needs somewhere to send you
+  const gone = missingKinds();
+  if (gone.includes('hospital') || gone.includes('police')) return 'landmarks';
+  if (!W.buildings.length) return 'buildings';
+  return null;
+}
+
+async function runRetry(kind) {
+  if (kind === 'city') return retryCity();
+  if (kind === 'skeleton') {
+    const skel = await loadSkeleton();
+    if (!skel) return false;
+    WIDE_MAP = true;
+    prerenderMap();
+    toast('MAP EXTENDED\n' + Math.round(skel.radius / 1000) + ' KM OF ROADS', 2600);
+    return true;
+  }
+  if (kind === 'landmarks') {
+    // measured on what is still missing rather than on a count: the load's own
+    // sweep can land while this one is in flight, and then a count says nothing
+    const before = missingKinds().length, had = W.pois.length;
+    await sweepLandmarks();
+    if (missingKinds().length >= before && W.pois.length <= had) return false;
+    prerenderMap();
+    toast('FOUND ' + (W.pois.length - had) + ' MORE LANDMARKS', 2200);
+    return true;
+  }
+  if (kind === 'buildings') {
+    const before = W.buildings.length;
+    await loadOpeningBuildings(GEO.lat0, GEO.lon0, loadGen);
+    return W.buildings.length > before;
+  }
+  return false;
+}
+
+/* The city itself. Nothing is torn down until the replacement is in hand: the
+   streets are fetched and parsed first, and only a reply with roads in it is
+   allowed to touch the world. A failed retry leaves the player exactly where
+   they were, driving the fallback, none the wiser. */
+async function retryCity() {
+  const want = RETRY.city;
+  let lat = want.lat, lon = want.lon, name = want.label || want.query;
+  if (lat == null) {
+    const g = await geocode(want.query);
+    lat = g.lat; lon = g.lon; name = g.name;
+  }
+  const gen = loadGen;
+  // the projection has to move before the reply can be parsed into metres
+  const prev = { lat0: GEO.lat0, lon0: GEO.lon0, mLat: GEO.mLat, mLon: GEO.mLon };
+  setOrigin(lat, lon);
+  let data;
+  try {
+    data = parseOSM(await fetchStreets(lat, lon, () => {}, () => {}));
+    if (!data.roads.length) throw new Error('nothing is mapped there');
+  } catch (err) {
+    // put the projection back, or the city we are still driving moves under us
+    GEO.lat0 = prev.lat0; GEO.lon0 = prev.lon0; GEO.mLat = prev.mLat; GEO.mLon = prev.mLon;
+    throw err;
+  }
+  if (gen !== loadGen || state === 'menu') return false;
+
+  buildWorld(data, name, false);
+  applyTheme(themeName);
+  WIDE_MAP = false;
+  resetRun();                       // cash is read back from storage, so it survives
+  resize();
+  FELLBACK = null; RETRY.city = null;
+  toast('GOT ' + String(name).split(',')[0].toUpperCase() + '\n' +
+        'the map servers came back — leaving the offline city', 5000);
+
+  // and everything the opening load would have done next, behind the wheel
+  loadOpeningBuildings(lat, lon, gen);
+  preloadRing(LOAD.replyMs || 0, (g, n) => { CHUNK.note = 'Filling in the streets… ' + g + ' of ' + n; })
+    .then(() => { CHUNK.note = ''; }, () => { CHUNK.note = ''; });
+  loadSkeleton().then(skel => { if (skel && gen === loadGen) { WIDE_MAP = true; prerenderMap(); } })
+    .catch(() => {});
+  sweepLandmarks().catch(() => {});
+  return true;
+}
+
+// Called every frame; does nothing on almost all of them.
+function updateRetries() {
+  if (state !== 'play' || RETRY.busy) return;
+  if (RETRY.n >= RETRY_DELAYS.length) return;
+  if (!RETRY.at || Date.now() < RETRY.at) return;
+  // never add to the pile while the streamer already has something in the air
+  if (CHUNK.busy || CHUNK.preloading || SIDE.busy) return;
+  const kind = retryWanted();
+  if (!kind) { RETRY.at = 0; return; }
+
+  RETRY.busy = true;
+  RETRY.n++;
+  RETRY.at = Date.now() + RETRY_DELAYS[Math.min(RETRY.n, RETRY_DELAYS.length - 1)];
+  runRetry(kind)
+    .then(ok => {
+      RETRY.log.push({ kind, ok: !!ok, at: Date.now() });
+      // it worked, so whatever is missing next gets a fresh set of attempts
+      if (ok) { RETRY.n = 0; RETRY.at = retryWanted() ? Date.now() + RETRY_DELAYS[0] : 0; }
+    })
+    .catch(err => {
+      RETRY.log.push({ kind, ok: false, why: err && err.message });
+      console.warn('retry ' + kind + ':', err && err.message);
+    })
+    .finally(() => { RETRY.busy = false; });
 }
 
 function resetRun() {
@@ -821,6 +981,7 @@ function update(dt) {
 
   updateNav(dt);
   updateChunks();
+  updateRetries();
   updateMapWindow();
 
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }

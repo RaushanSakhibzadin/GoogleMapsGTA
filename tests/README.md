@@ -83,6 +83,23 @@ then every element is measured against what is really on screen. Against the
 build that was live it reports eleven separate things off the bottom, including
 all five pads and every full-screen layer.
 
+`retry.mjs` covers the four things that can be missing after a load and are
+asked for again from behind the wheel: the city itself, the wide map, the
+landmarks, the buildings. Each is refused during the load and answered
+afterwards, and the assertion is on the scheduler's own log rather than on the
+world alone — because twice while writing it the world recovered by a completely
+different route and the test would happily have called that a pass. First the
+landmark sweep and the opening buildings simply succeeded on a later mirror,
+since `overpassArea` retries its own hosts with backoff. Then, once the refusal
+was held until those had gone quiet, the scenery queue turned out to be serial: a
+refused buildings request holds it for the eighty seconds of its own budget while
+making no requests at all, so twelve seconds of silence still had eight more
+lined up behind it. The refusal now lifts only when nothing is queued, in flight
+or preloading, at which point anything that arrives can only have come from the
+scheduler. It also reads the delay schedule off the running game and asserts it
+is minutes and bounded, since "try again" without either is how a game gets a
+mirror to block it.
+
 `firstload.mjs` is a stopwatch, and it is the test three rounds of "fix the map
 load" went without. Every other mock in this suite answers instantly, so the
 whole suite ran green through a session that was still on the loading screen at

@@ -158,6 +158,9 @@ window.__theme = () => ({ name: themeName, ground: PAL.ground, lights: PAL.light
   places: W.places.length, namedRoads: W.roads.filter(r => r.name).length });
 // find a building by its exact material colour (the test payload seeds a pure-red one)
 window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHUNK.busy,
+  // scenery waits its turn in a serial queue, so "nothing in flight" is this
+  // number and not the absence of recent requests
+  side: SIDE.q.length + (SIDE.busy ? 1 : 0), preloading: CHUNK.preloading,
   evicted: CHUNK.evicted, live: W.tiles.size, maxTiles: MAX_TILES, pois: W.pois.length,
   mergeMs: CHUNK.mergeMs, mapMs: CHUNK.mapMs,
   note: CHUNK.note, tiles: [...W.tiles.entries()],
@@ -171,6 +174,14 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   mapScale: +W.mapScale.toFixed(4), mapWhole: !!W.mapWhole,
   mapOrigin: { x: Math.round(W.mapOrigin.x), y: Math.round(W.mapOrigin.y) },
   vbuckets: W.vbuckets.size, dbuckets: W.dbuckets.size, lights: (W.lights || []).length });
+/* The retry scheduler: what is still missing, when the next attempt is due, and
+   what every attempt so far did. */
+window.__retry = () => ({ wanted: retryWanted(), n: RETRY.n, busy: RETRY.busy,
+  inMs: RETRY.at ? RETRY.at - Date.now() : null, delays: RETRY_DELAYS,
+  city: RETRY.city && (RETRY.city.label || RETRY.city.query), log: RETRY.log,
+  fellBack: FELLBACK && FELLBACK.asked });
+// so a test does not have to sit through ninety seconds to see one fire
+window.__retryNow = () => { RETRY.at = Date.now() - 1; return RETRY.n; };
 window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
