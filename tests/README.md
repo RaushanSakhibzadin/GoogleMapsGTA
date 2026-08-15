@@ -67,6 +67,22 @@ fix taken out it reproduces the screenshot exactly: 14 km/h with the throttle
 down, 100% of frames off-road, and the streets request for that tile never sent.
 With it, 352 km/h and 0%.
 
+`android.mjs` is the one that needed a trick to be possible at all. Reported as
+thumb pads chopped off along the bottom edge in Chrome on Android — and the
+layout was fine, the layout was just the wrong size. `position:fixed` pins to the
+LAYOUT viewport, which Chrome for Android reports as the tall one, the height the
+page would have if the URL bar were hidden, whether it is hidden or not. On a
+Pixel the accelerator's bottom edge lands at 825 in an 851 layout and the phone
+can show 751 of it.
+
+Headless Chromium has no URL bar, so asking for a smaller window does not
+reproduce it — that just makes a smaller viewport where everything fits. The
+condition is made the way the phone makes it: `visualViewport` is overridden
+before the page loads to report a height 100 px shorter than `innerHeight`, and
+then every element is measured against what is really on screen. Against the
+build that was live it reports eleven separate things off the bottom, including
+all five pads and every full-screen layer.
+
 `firstload.mjs` is a stopwatch, and it is the test three rounds of "fix the map
 load" went without. Every other mock in this suite answers instantly, so the
 whole suite ran green through a session that was still on the loading screen at

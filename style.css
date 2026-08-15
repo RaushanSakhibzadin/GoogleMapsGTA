@@ -22,14 +22,30 @@
   --edgeB:max(26px,calc(env(safe-area-inset-bottom) + 6px));
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:var(--ui);
+/* THE VISIBLE HEIGHT, NOT THE LAYOUT HEIGHT.
+
+   position:fixed pins to the LAYOUT viewport, and on Chrome for Android that is
+   the tall one — the size the page would be if the URL bar were hidden — whether
+   the URL bar is showing or not. So a full-screen layer at inset:0 with
+   height:100% is about a hundred pixels taller than the screen, and everything
+   anchored to its bottom edge is underneath the fold: on a Pixel the thumb pads
+   measure a bottom of 825 in an 851 layout, and the phone can only show 751 of
+   it. Which is a game you cannot steer.
+
+   --vh is set from visualViewport.height in io.js and is the truth wherever it
+   exists; 100dvh is the same answer from the browser for the frames before the
+   first script runs, and 100% is the answer for anything older than both. Note
+   the ORDER matters as much as the fallback: --vh is only applied while nothing
+   is focused, so the on-screen keyboard cannot squash the game while you are
+   typing a city name into the menu. */
+html,body{height:100%;height:100dvh;height:var(--vh,100dvh);overflow:hidden;background:var(--bg);color:#fff;font-family:var(--ui);
   overscroll-behavior:none;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
 canvas{display:block}
-#game{position:fixed;inset:0;width:100%;height:100%}
+#game{position:fixed;inset:0;width:100%;height:var(--vh,100dvh)}
 
 /* ---------- CRT / neon post overlay ---------- */
-#post{position:fixed;inset:0;pointer-events:none;z-index:40;
+#post{position:fixed;inset:0;height:var(--vh,100dvh);pointer-events:none;z-index:40;
   background:
     repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0 1px,transparent 1px 3px),
     radial-gradient(ellipse at 50% 45%,transparent 42%,rgba(20,0,40,.55) 92%,rgba(8,0,18,.9) 100%);
@@ -52,7 +68,7 @@ canvas{display:block}
    Auto margins on the first and last child do the same job and were the first
    attempt — but .credit is position:fixed, so it takes :last-child while
    contributing nothing to the flow, and the menu ended up bottom-aligned. */
-.screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
+.screen{position:fixed;inset:0;height:var(--vh,100dvh);z-index:60;display:flex;flex-direction:column;
   align-items:center;padding:22px;text-align:center;
   justify-content:center;justify-content:safe center;
   overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;
@@ -137,7 +153,7 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
 #skip.on{display:inline-block}
 
 /* ---------- HUD ---------- */
-#hud{position:fixed;inset:0;z-index:30;pointer-events:none;display:none}
+#hud{position:fixed;inset:0;height:var(--vh,100dvh);z-index:30;pointer-events:none;display:none}
 #hud.on{display:block}
 .hudTxt{font-family:var(--hud);letter-spacing:1px;
   text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 22px rgba(255,79,216,.45)}
@@ -230,7 +246,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
 #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 
 /* big centred status: WASTED / BUSTED */
-#big{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+#big{position:fixed;inset:0;height:var(--vh,100dvh);z-index:50;display:none;align-items:center;justify-content:center;
   flex-direction:column;background:rgba(20,0,30,.55);backdrop-filter:blur(3px)}
 #big.on{display:flex}
 #bigT{font-family:var(--hud);font-size:clamp(52px,15vw,150px);line-height:.9;transform:skewX(-6deg)}
@@ -242,7 +258,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    canvas that has to fill the glass. touch-action:none because the map does its
    own panning and pinching, and the browser scrolling underneath it instead is
    the whole difference between a map and a picture. */
-#bigmap{position:fixed;inset:0;z-index:65;background:var(--bg);touch-action:none}
+#bigmap{position:fixed;inset:0;height:var(--vh,100dvh);z-index:65;background:var(--bg);touch-action:none}
 #bigmap.hide{display:none}
 #bigmapC{position:absolute;inset:0;width:100%;height:100%;display:block}
 #mapTop{position:absolute;top:calc(10px + env(safe-area-inset-top));left:14px;right:14px;
@@ -276,7 +292,7 @@ body.theme-day #mapHint{color:rgba(0,0,0,.45)}
   border-radius:16px;padding:30px 34px;display:flex;flex-direction:column;gap:10px;align-items:center}
 
 /* ---------- touch ---------- */
-#touch{position:fixed;inset:0;z-index:35;display:none;pointer-events:none}
+#touch{position:fixed;inset:0;height:var(--vh,100dvh);z-index:35;display:none;pointer-events:none}
 #touch.on{display:block}
 /* touch-action does not inherit, so it is set here as well as on body — leaving
    the pads on the default lets the browser treat a press as the start of a pan
@@ -322,7 +338,7 @@ body.theme-day #mini{border-color:rgba(60,45,85,.6);
   box-shadow:0 0 18px rgba(0,0,0,.18),inset 0 0 22px rgba(0,0,0,.15)}
 body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color:#22202a}
 
-.credit{position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:10.5px;
+.credit{position:fixed;left:0;right:0;top:var(--vh,100dvh);transform:translateY(calc(-100% - 8px));text-align:center;font-size:10.5px;
   color:rgba(255,255,255,.42);z-index:61}
 .credit a{color:rgba(51,230,255,.75)}
 /* Phones: everything has to clear the thumb pads along the bottom edge. */
@@ -360,12 +376,12 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      home-indicator strip costs vertical room, and on a 342px-tall screen there
      was none spare — a full-size steering pad pushed day/night up into the
      district name. --gas already sized this way for the same reason. */
-  :root{--gas:clamp(84px,30vh,116px);--pad:clamp(64px,22vh,92px)}
-  #mini{width:min(25vw,18vh);height:min(25vw,18vh)}
+  :root{--gas:clamp(84px,30dvh,116px);--pad:clamp(64px,22dvh,92px)}
+  #mini{width:min(25vw,18dvh);height:min(25vw,18dvh)}
   /* the only case where the column is tall enough to matter, so this is the
      only case that has to be kept out of the car's screen column */
   #hudTL{gap:6px;max-width:calc(50vw - 56px)}
-  #obj{min-height:2.2em;font-size:clamp(13px,3.4vh,18px)}
+  #obj{min-height:2.2em;font-size:clamp(13px,3.4dvh,18px)}
   /* There is no height to spare on a landscape phone, and the menu now carries
      a perk block too. The keyboard hint is the first thing to go — the controls
      on this screen are thumb pads. */
@@ -393,7 +409,7 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
   :root{--hudTop:12px}
   #logBtn{left:50%;right:auto;transform:translateX(-50%)}
   #logBtn:active{transform:translateX(-50%) translateY(1px)}
-  #speed{top:calc(16px + 22vh);right:14px;bottom:auto}
-  #zone{left:14px;right:auto;top:calc(14px + 40vh);bottom:auto;
-    text-align:left;max-width:38vw;font-size:clamp(15px,3.6vh,20px)}
+  #speed{top:calc(16px + 22dvh);right:14px;bottom:auto}
+  #zone{left:14px;right:auto;top:calc(14px + 40dvh);bottom:auto;
+    text-align:left;max-width:38vw;font-size:clamp(15px,3.6dvh,20px)}
 }

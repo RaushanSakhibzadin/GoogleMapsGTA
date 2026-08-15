@@ -249,13 +249,43 @@ for (const ev of ['visibilitychange', 'focus', 'pageshow'])
 const cv = $('game'), ctx = cv.getContext('2d');
 const mini = $('mini'), mctx = mini.getContext('2d');
 let VW = 0, VH = 0, DPR = 1, zoomK = 1, miniRect = null;
+/* WHAT THE PHONE CAN ACTUALLY SHOW.
+
+   innerHeight is the LAYOUT viewport, and on Chrome for Android that is the tall
+   one — the height the page would have if the URL bar were hidden — reported
+   whether the URL bar is showing or not. Sizing the canvas from it draws a
+   hundred pixels of game below the bottom of the screen, and pinning the HUD to
+   it puts the thumb pads down there with it.
+
+   visualViewport is the part you can see. It is published to CSS as --vh so the
+   layers and the pads move with it too, and it is deliberately NOT applied while
+   something is focused: the on-screen keyboard shrinks the visual viewport, and
+   a menu that folds in half while you are typing a city name into it is a
+   different bug from the one this fixes. */
+function syncViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const el = document.activeElement;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+  document.documentElement.style.setProperty('--vh', vv.height + 'px');
+}
+
 function resize() {
+  syncViewport();
   DPR = Math.min(devicePixelRatio || 1, 2);
-  VW = innerWidth; VH = innerHeight;
+  /* Measured off the canvas rather than read off the window, so CSS stays the one
+     place the visible size is decided and this cannot disagree with it. Which
+     means this must NOT then write an inline width and height back onto it: doing
+     that overrides the stylesheet, so the next resize measures the size this one
+     just set, and the canvas latches to whatever the viewport happened to be the
+     first time and never follows a rotation again. Only the backing store is set
+     here; the element's size is the stylesheet's business. */
+  const box = cv.getBoundingClientRect();
+  VW = Math.round(box.width) || innerWidth;
+  VH = Math.round(box.height) || innerHeight;
   // a phone screen shows far less world at the same px/m, so pull the camera back
   zoomK = clamp(Math.min(VW, VH) / 760, .48, 1);
   cv.width = Math.floor(VW * DPR); cv.height = Math.floor(VH * DPR);
-  cv.style.width = VW + 'px'; cv.style.height = VH + 'px';
   const mr = mini.getBoundingClientRect();
   mini.width = Math.floor(mr.width * DPR); mini.height = Math.floor(mr.height * DPR);
   miniRect = mr;                       // cached so the edge arrow can dodge the radar
@@ -267,6 +297,14 @@ function resize() {
   if (state === 'map') { mapClamp(); drawBigMap(); }
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', resize);
+/* The URL bar slides away as you scroll and back as you stop, and neither fires
+   a window resize on Android — the visual viewport is the only thing that
+   reports it. */
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', resize);
+  visualViewport.addEventListener('scroll', resize);
+}
 
 const cam = { x: 0, y: 0, s: 9.4, shake: 0 };
 
