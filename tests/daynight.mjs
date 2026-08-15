@@ -50,7 +50,7 @@ const br = await chromium.launch({ executablePath: CHROME });
 const ctx = await br.newContext({ ...devices['iPhone 13'] });
 const p = await ctx.newPage();
 const errs = [];
-p.on('pageerror', e => errs.push(String(e)));
+p.on('pageerror', e => errs.push(String(e) + ' :: ' + String(e.stack).split('\n').slice(0,4).join(' | ')));
 p.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 await p.route('**/nominatim.openstreetmap.org/**', r => r.fulfill({ contentType: 'application/json',
   body: JSON.stringify([{ lat: String(LAT0), lon: String(LON0), display_name: 'Stari grad' }]) }));
