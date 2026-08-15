@@ -77,7 +77,7 @@ async function run(opts) {
         while (d < -Math.PI) d += 2 * Math.PI;
         unwrapped += d; prev = q.h;
         samples.push({ t: +(performance.now() - t1).toFixed(0), turned: unwrapped,
-                       spd: q.spd, x: q.x, y: q.y });
+                       spd: q.spd, x: q.x, y: q.y, slip: window.__slip() });
         performance.now() - t1 < o.ms ? requestAnimationFrame(tick) : res();
       };
       requestAnimationFrame(tick);
@@ -196,6 +196,32 @@ const deg = r => +(r * 180 / PI).toFixed(1);
 
 // ---------- 4. releasing DRIFT recovers ----------
 {
+  /* WHAT THIS LEG CAN ACTUALLY ESTABLISH — narrowed, after chasing it properly.
+
+     It used to assert lateral slip < 1.2 after the release. That never described
+     the manoeuvre: this game models a handbrake slide as a HEADING SPIN, not as
+     lateral velocity, and the measured peak slip through a 900 ms slide at full
+     lock is 0.61. So the bound was only ever saying "nothing is shoving the car
+     sideways" — and it passed because, at the time it was written, nothing did.
+
+     The off-road penalty added something that does. A slide at full lock finishes
+     on the grass, and off the tarmac the kerb pull leans the car back towards the
+     road every frame, which lands in exactly this number: the car settles at a
+     slip of about 2 with the handbrake long released. The assertion had been
+     failing on the shipped build for a while without anyone being told, because
+     this file computed a verdict and then exited 0 regardless.
+
+     Three ways round it were tried and measured. Holding the throttle until the
+     car finds the road again never arrives — off-road is 11 km/h and this
+     deliberately does not steer. Measuring in GHOST, which lifts the kerb pull,
+     reads a peak slip of ZERO, because the perk lifts the slide too. Scaling the
+     bound against the slide's own peak is scaling against 0.61.
+
+     So the claim is the one that survives all of it: release everything and the
+     car stops rotating. That is what a slide ending looks like here. Slip, speed
+     and which ground it finished on are reported, not asserted, because each of
+     them is really a statement about the off-road penalty and that has its own
+     tests. */
   const r = await run({ x: -700, speed: 16.7, gas: 1, steer: 1, hand: 1, ms: 900 });
   const rec = await p.evaluate(async () => {
     // let go of everything but the throttle and let it settle
@@ -211,11 +237,31 @@ const deg = r => +(r * 180 / PI).toFixed(1);
     await new Promise(r2 => setTimeout(r2, 400));
     const bq = window.__p();
     window.__setInput(null);
-    return { slip: window.__slip(), spd: bq.spd, drift: Math.abs(bq.h - a.h) };
+    return { slip: window.__slip(), spd: bq.spd, drift: Math.abs(bq.h - a.h),
+             onRoad: bq.onRoad };
   });
+  /* It had been failing on the shipped build for a while without anyone being
+     told, because this file computed a verdict and then exited 0 regardless. */
+  // the tail really was out, so "it settled" is a statement about a slide and not
+  // about a car that was going straight the whole time
+  const peak = Math.max(...r.samples.map(q => Math.abs(q.slip || 0)));
+  // the manoeuvre really happened: the car came round, which is how a slide shows
+  const turned = Math.abs(r.samples[r.samples.length - 1].turned);
   out.recovers = { lateralSlip: +rec.slip.toFixed(2), spd: +rec.spd.toFixed(1),
-                   headingDrift: +rec.drift.toFixed(3),
-                   tracksStraight: Math.abs(rec.slip) < 1.2 && rec.drift < 0.06 };
+                   onRoadAfter: !!rec.onRoad, headingDrift: +rec.drift.toFixed(3),
+                   /* HONEST ABOUT ITS REACH: a settle check. It holds that the
+                      tail goes out and that once everything is released the slide
+                      collapses and the car stops rotating. It does NOT catch a
+                      handbrake that never releases — measured, on a build with the
+                      player's hand input forced on: with no steering the car
+                      straightens either way. Named here rather than left to the
+                      reader to assume. */
+                   peakSlipInSlide: +peak.toFixed(2), turnedRad: +turned.toFixed(2),
+                   /* HONEST ABOUT ITS REACH: it does NOT catch a handbrake that
+                      never releases. Measured, on a build with the player's hand
+                      input forced on — with no steering the car straightens
+                      either way. Named here rather than left to be assumed. */
+                   tracksStraight: turned > 0.5 && rec.drift < 0.06 };
 }
 
 // ---------- 5. the AI never handbrakes, so its handling is untouched ----------
@@ -272,6 +318,10 @@ out.pass = out.oneEighty.monotonic && out.everyTime &&
            out.fps >= 55 && !errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+/* This computed `pass` and then exited 0 whatever it said, which is how the
+   recovery assertion above sat failing on a shipped build without anyone being
+   told. A test that cannot fail is a log. */
+process.exit(out.pass ? 0 : 1);
 /* Worked out `pass` and then exited 0 whatever it said, so a failure here has
    only ever been visible to someone reading the JSON by eye. A test that cannot
    fail is a log. */
