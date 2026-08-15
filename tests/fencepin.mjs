@@ -176,8 +176,19 @@ out.driveOut = await p.evaluate(async () => {
   window.__setInput(null);
   return samples;
 });
-// after the opening second, nothing should ever drop the car back to a crawl
-out.pinnedWhileDriving = out.driveOut.filter(s => s.s > 1 && s.kmh < 60);
+/* PINNED MEANS SLOW *AT THE FENCE*, and the proximity clause is the whole
+   difference between this and a coin flip. The fault is an invisible wall: the
+   car reaches the edge of the loaded world and is clamped there with the
+   throttle down, so x sits on the boundary. Filtering on speed alone also caught
+   every ordinary collision — a run failed here with the car at 34 km/h at x=634
+   with the fence 7.5 km away, which is a lamppost, not a wall — and it did it
+   about one run in three, on identical code, on an idle machine.
+
+   Checked against the real fault rather than assumed: with reserveAhead disabled
+   and tiles 8 s slow, the car parks at x=912 with the fence at 940 doing 3 km/h,
+   28 metres out, and this still fires. The clause costs nothing it was catching. */
+out.pinnedWhileDriving = out.driveOut.filter(s =>
+  s.s > 1 && s.kmh < 60 && Math.abs(s.fence - s.x) < 400);
 
 /* 4. The genuine world edge, in skeleton mode: 18 km out there is nothing left
       to stream and the fence is real. It still has to stop the car — but it must
