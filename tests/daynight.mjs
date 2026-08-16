@@ -107,14 +107,41 @@ const sameHue = c => {
 out.unlitSameHue = sameHue(out.dusk.off) && sameHue(out.day.off);
 
 /* ---- ten times the traffic in daylight, and back again ---- */
+/* Drives for two and a half seconds and reports the frame rate, the render cost
+   and how many cars were on screen — all sampled DURING the drive, because each
+   of them only means anything while the game is being played.
+
+   Taken separately and afterwards they went wrong in two different directions.
+   PERF.ren is a rolling average over about ten frames, so one reading of it at
+   1.5 ms is mostly noise: across repeated runs of an unchanged build the daylight
+   figure came back between 1.29 and 2.00, a 55% spread against a 1.6x threshold,
+   and the comparison was decided by which instant it was asked on. And the count
+   of cars on screen, read once the car had been sitting still, would find the
+   traffic had driven off and report zero for both themes — which passes the
+   render check by having nothing left to draw, the one way it must not pass.
+   Medians over the drive itself for both. */
 const drive = () => p.evaluate(() => new Promise(res => {
   const t = performance.now();
   let n = 0;
+  const ren = [], upd = [], seen = [];
   const tick = () => {
     window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
     n++;
+    if (n % 6 === 0) {
+      const q = window.__perf();
+      ren.push(q.ren); upd.push(q.upd);
+      seen.push(window.__traffic().filter(c => {
+        const [sx, sy] = window.__toScreen(c.x, c.y);
+        return sx > -40 && sy > -40 && sx < innerWidth + 40 && sy < innerHeight + 40;
+      }).length);
+    }
     if (performance.now() - t < 2500) requestAnimationFrame(tick);
-    else { window.__setInput(null); res(Math.round(n / 2.5)); }
+    else {
+      window.__setInput(null);
+      const mid = a => a.slice().sort((x, y) => x - y)[a.length >> 1] || 0;
+      res({ fps: Math.round(n / 2.5), ren: mid(ren), upd: mid(upd), onScreen: mid(seen),
+            renSpread: +(Math.max(...ren) - Math.min(...ren)).toFixed(2) });
+    }
   };
   requestAnimationFrame(tick);
 }));
@@ -131,11 +158,18 @@ const settle = async theme => {
   const t0 = Date.now();
   await p.waitForFunction(w => Math.abs(window.__p().traffic - w) <= 8, want2, { timeout: 45000 })
     .catch(() => {});
+  /* Stopped HERE, not at the end of this function. settleMs is how long the
+     traffic took to reach its new count, and it was being read after drive() and
+     the perf sampling had also run — so it silently measured those too, and
+     lengthening the sampling pushed it past its own 4 s threshold. */
+  /* Stopped HERE, not at the end of this function. settleMs is how long the
+     traffic took to reach its new count, and it was being read after the driving
+     and the sampling had also run — so it silently measured those too. */
+  const settleMs = Date.now() - t0;
   const cars = await p.evaluate(() => window.__p().traffic);
-  const fps = await drive();
-  const perf = await p.evaluate(() => window.__perf());
-  return { cars, onScreen: await onScreen(), fps, settleMs: Date.now() - t0,
-           upd: +perf.upd.toFixed(2), ren: +perf.ren.toFixed(2) };
+  const d = await drive();
+  return { cars, onScreen: d.onScreen, fps: d.fps, settleMs,
+           upd: +d.upd.toFixed(2), ren: +d.ren.toFixed(2), renSpread: d.renSpread };
 };
 out.trafficDusk = await settle('dusk');
 out.trafficDay = await settle('day');

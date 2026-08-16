@@ -128,6 +128,19 @@ which is the part that makes it a test rather than a stopwatch: everything the
 loading screen stopped waiting for has to turn up afterwards, or "faster" just
 means "less". Measured 19.9 s before the deferral and 7.7 s after.
 
+`daynight.mjs` measures the frame rate, the render cost and the cars on screen
+*during* the drive, and all three had to move there. Read afterwards they were
+wrong in two different directions: `PERF.ren` is a rolling average over about ten
+frames, so a single reading at 1.5 ms is mostly noise — an unchanged build
+returned anywhere between 1.29 and 2.00 for daylight, a 55% spread against a
+1.6x threshold — and the count of cars on screen, taken once the car had been
+sitting still, found the traffic had driven off and reported zero for both
+themes, which passes the render check by having nothing left to draw. Medians
+over the drive itself now: the ratio sits at 0.85-0.99 across runs, and daylight
+puts 12-15 cars on screen against dusk's none. `settleMs` was also being read at
+the end of the function, so it had always included the driving and the sampling
+rather than the settling.
+
 `traffic.mjs` drives daylight's rush hour for half a minute and watches: how
 many cars wreck, how close any two ever get, whether they are still moving or
 just queued, that nothing is simulated outside the ring, and — by wrapping the
