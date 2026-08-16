@@ -63,26 +63,18 @@ for (const id of ['ghostM', 'ghostP'])
 wirePatreon();
 syncGhostUI();
 
-// lat/lon baked in: the preset buttons never need the geocoder, which is the
-// flakiest hop in the chain and rate-limits browsers hard
-const PRESETS = [
-  ['Miami Beach 🌴', 'Ocean Drive, Miami Beach', 25.7809, -80.1300],
-  ['Manhattan', 'Times Square, New York', 40.7580, -73.9855],
-  ['Monaco', 'Monte Carlo, Monaco', 43.7404, 7.4269],
-  ['Tokyo', 'Shibuya, Tokyo', 35.6595, 139.7005],
-  ['London', 'Piccadilly Circus, London', 51.5100, -0.1340],
-  ['Paris', 'Arc de Triomphe, Paris', 48.8738, 2.2950],
-  ['Los Santos', 'Vinewood, Los Angeles', 34.1016, -118.3269],
-  ['Venice 🚤', 'Piazza San Marco, Venice', 45.4341, 12.3388],
-  ['📍 My location', '@geo']
-];
-(function fillPresets() {
-  const box = $('presets');
-  for (const [label, q, lat, lon] of PRESETS) {
-    const d = document.createElement('div');
-    d.className = 'chip'; d.textContent = label;
-    d.onclick = () => { audioStart(); q === '@geo' ? useGeo() : startGame(q, lat, lon, q); };
-    box.appendChild(d);
+/* The preset chips are written into index.html rather than built here, so the
+   city names are in the page for anything that reads it without running scripts.
+   This binds what is already there; lat/lon ride along as data attributes so the
+   buttons never need the geocoder, which is the flakiest hop in the chain and
+   rate-limits browsers hard. */
+(function bindPresets() {
+  for (const el of document.querySelectorAll('#presets .chip')) {
+    const q = el.dataset.q, lat = +el.dataset.lat, lon = +el.dataset.lon;
+    el.onclick = () => {
+      audioStart();
+      q === '@geo' ? useGeo() : startGame(q, isFinite(lat) ? lat : null, isFinite(lon) ? lon : null, q);
+    };
   }
 })();
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One page, so this is a formality — but it is the thing you hand Search
+     Console, and auto-discovery cannot help here: robots.txt is only read from
+     the domain root, which for a project Pages site belongs to a different repo.
+     Submit this URL by hand at search.google.com/search-console. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://raushansakhibzadin.github.io/GoogleMapsGTA/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

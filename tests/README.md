@@ -83,6 +83,23 @@ then every element is measured against what is really on screen. Against the
 build that was live it reports eleven separate things off the bottom, including
 all five pads and every full-screen layer.
 
+`seo.mjs` reads the file rather than the rendered page, because the file is what
+a crawler is handed — a test that booted the page and read `document.head` would
+pass just as happily if every tag were injected at runtime, which is the one
+thing that does not work. It checks the description length, an absolute
+canonical, the whole Open Graph and Twitter set, that `og:image` names a file
+that exists and is *genuinely* 1200x630 with the width and height tags agreeing
+with the pixels, that the JSON-LD parses and carries no fabricated rating, and
+that the eight city names are in the served HTML. It also clicks a preset chip,
+because markup a crawler likes is worth nothing if the buttons stopped working.
+
+Two things it got wrong first, both worth keeping in mind for any test that takes
+a `GAME=` build: it read the repo's own `index.html` regardless of `GAME`, so the
+A/B against the shipped build graded the new file twice and reported a pass; and
+with no `og:image` tag the path resolved to the build *directory*, which exists,
+so it crashed on EISDIR instead of reporting the thirty things it had found.
+Against the shipped build it now reports all thirty.
+
 `retry.mjs` covers the four things that can be missing after a load and are
 asked for again from behind the wheel: the city itself, the wide map, the
 landmarks, the buildings. Each is refused during the load and answered

@@ -3,10 +3,78 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>VICE MAPS — drive any city on Earth</title>
+<title>VICE MAPS — drive any real city on Earth, in your browser</title>
+<meta name="description" content="An open-world driving sandbox built on real streets. Type any place on Earth and it pulls the actual roads and buildings from OpenStreetMap. Free, no install.">
+<link rel="canonical" href="https://raushansakhibzadin.github.io/GoogleMapsGTA/">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="theme-color" content="#120a1e">
+
+<!-- Sharing. Absolute URLs on purpose: relative ones are mishandled by enough
+     unfurlers (Slack, iMessage, several Discord versions) that they are simply
+     not worth the shorter line. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="VICE MAPS">
+<meta property="og:url" content="https://raushansakhibzadin.github.io/GoogleMapsGTA/">
+<meta property="og:title" content="VICE MAPS — drive any real city on Earth">
+<meta property="og:description" content="An open-world driving sandbox built on real streets. Type any place on Earth and it pulls the actual roads and buildings from OpenStreetMap. Free, no install.">
+<meta property="og:image" content="https://raushansakhibzadin.github.io/GoogleMapsGTA/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A neon-lit city of real Belgrade streets at dusk, seen from above, with a pink car on a main road.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="VICE MAPS — drive any real city on Earth">
+<meta name="twitter:description" content="An open-world driving sandbox built on real streets, pulled live from OpenStreetMap. Free, no install.">
+<meta name="twitter:image" content="https://raushansakhibzadin.github.io/GoogleMapsGTA/og.jpg">
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="style.css">
+
+<!-- Deliberately no aggregateRating. There are no ratings to report, and
+     inventing them is a Google guidelines violation with a manual action
+     attached — a rich-result star that costs you the whole listing. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "VICE MAPS",
+  "url": "https://raushansakhibzadin.github.io/GoogleMapsGTA/",
+  "description": "An open-world driving sandbox built on real streets. Type any place on Earth and it pulls the actual roads and buildings from OpenStreetMap.",
+  "image": "https://raushansakhibzadin.github.io/GoogleMapsGTA/og.jpg",
+  "applicationCategory": "GameApplication",
+  "genre": ["Driving", "Open world", "Sandbox"],
+  "operatingSystem": "Web browser",
+  "browserRequirements": "Requires JavaScript and HTML5 canvas",
+  "gamePlatform": "Web browser",
+  "playMode": "SinglePlayer",
+  "isAccessibleForFree": true,
+  "inLanguage": "en",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Raushan Sakhibzadin" },
+  "isBasedOn": "https://www.openstreetmap.org/"
+}
+</script>
 </head>
 <body>
+
+<!-- Real prose, for a reader that never runs the scripts — a crawler with the
+     budget spent, a text browser, someone with JS off. It says what the page is
+     rather than repeating keywords at it, because the version of this that lists
+     search terms invisible to a human is cloaking, and it is penalised. -->
+<noscript>
+  <div class="noscript">
+    <h2>VICE MAPS needs JavaScript</h2>
+    <p>VICE MAPS is a free open-world driving game that runs in the browser on
+    real streets. Type any place on Earth — your own road, Miami Beach, Shibuya —
+    and it downloads the actual road network and building footprints for that
+    spot from <a href="https://www.openstreetmap.org/">OpenStreetMap</a> and turns
+    them into a drivable neon city, with deliveries to run, traffic to dodge and
+    police to outrun. There is nothing to install and no account to make.</p>
+    <p>The game is drawn with HTML5 canvas and needs JavaScript enabled to run.</p>
+  </div>
+</noscript>
 
 <canvas id="game"></canvas>
 <div id="post"></div>
@@ -41,21 +109,40 @@
 </div>
 
 <!-- ===================== menu ===================== -->
-<div class="screen" id="menu">
-  <div class="logo">VICE&nbsp;MAPS</div>
+<div class="screen" id="menu" role="main">
+  <!-- The one h1 in the document. The other two .logo uses — LOADING and PAUSED
+       — stay divs: they are states of this screen, not headings of their own. -->
+  <h1 class="logo">VICE&nbsp;MAPS</h1>
   <div class="tag">Any city on Earth · 1986</div>
   <div class="rule"></div>
   <div class="row">
-    <input type="text" id="q" placeholder="Miami Beach, Florida…" autocomplete="off" spellcheck="false">
+    <input type="text" id="q" placeholder="Miami Beach, Florida…" autocomplete="off" spellcheck="false"
+           aria-label="Type any place on Earth to drive there">
     <button id="go" class="pink">DRIVE</button>
   </div>
-  <div class="presets" id="presets"></div>
+  <!-- WRITTEN OUT, NOT BUILT BY SCRIPT. These were created in a loop from a
+       PRESETS array, which meant the only city names on the page were invisible
+       to anything that does not run JavaScript — and "drive around Tokyo" is
+       exactly the sort of thing somebody types into a search box. The
+       coordinates live here now too, so a new city is one line in one file
+       rather than a label here and a lat/lon somewhere else. -->
+  <div class="presets" id="presets">
+    <button class="chip" data-q="Ocean Drive, Miami Beach" data-lat="25.7809" data-lon="-80.1300">Miami Beach 🌴</button>
+    <button class="chip" data-q="Times Square, New York" data-lat="40.7580" data-lon="-73.9855">Manhattan</button>
+    <button class="chip" data-q="Monte Carlo, Monaco" data-lat="43.7404" data-lon="7.4269">Monaco</button>
+    <button class="chip" data-q="Shibuya, Tokyo" data-lat="35.6595" data-lon="139.7005">Tokyo</button>
+    <button class="chip" data-q="Piccadilly Circus, London" data-lat="51.5100" data-lon="-0.1340">London</button>
+    <button class="chip" data-q="Arc de Triomphe, Paris" data-lat="48.8738" data-lon="2.2950">Paris</button>
+    <button class="chip" data-q="Vinewood, Los Angeles" data-lat="34.1016" data-lon="-118.3269">Los Santos</button>
+    <button class="chip" data-q="Piazza San Marco, Venice" data-lat="45.4341" data-lon="12.3388">Venice 🚤</button>
+    <button class="chip" data-q="@geo">📍 My location</button>
+  </div>
   <div id="menuErr"></div>
-  <div class="hint">
+  <p class="hint">
     <b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>N</kbd> day/night · <kbd>Esc</kbd> pause<br>
     Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
     ram a cop and find out what five stars feels like.
-  </div>
+  </p>
 
   <!-- supporter perk: a switch and an ask, side by side -->
   <div class="perk" id="perkM">

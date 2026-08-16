@@ -100,10 +100,26 @@ button:active{transform:translateY(3px);box-shadow:0 1px 0 #0a6d84}
 button.pink{background:linear-gradient(180deg,var(--pink),#c01c94);box-shadow:0 4px 0 #7d0f5f,0 8px 22px rgba(255,79,216,.32)}
 button.ghost{background:rgba(255,255,255,.09);color:#fff;box-shadow:none;border:1px solid rgba(255,255,255,.22);font-weight:600}
 
+/* Only ever seen with scripts off, so it is styled just enough to be readable
+   rather than to match the game. */
+.noscript{max-width:min(640px,90vw);margin:14vh auto;padding:0 20px;line-height:1.6;
+  font-size:16px;color:rgba(255,255,255,.86);position:relative;z-index:100}
+.noscript h2{font-family:var(--hud);font-size:28px;letter-spacing:1px;margin-bottom:14px;color:var(--gold)}
+.noscript p{margin-bottom:12px}
+.noscript a{color:var(--cyan)}
+
 .presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:min(620px,94vw);margin-top:16px}
+/* The chips are real <button>s now — they are in the markup rather than built by
+   script, so the city names are readable without JavaScript, and a button is
+   what a thing you click should be for the keyboard and a screen reader. That
+   means the generic button rule above applies to them, so the two properties it
+   sets that a chip does not want are turned off here: the cyan drop shadow, and
+   the same in the pressed state. */
 .chip{padding:9px 14px;font-size:13px;font-weight:600;border-radius:999px;cursor:pointer;
-  color:var(--gold);background:rgba(255,227,106,.08);border:1px solid rgba(255,227,106,.35);transition:.15s}
+  color:var(--gold);background:rgba(255,227,106,.08);border:1px solid rgba(255,227,106,.35);
+  box-shadow:none;transition:.15s}
 .chip:hover{background:rgba(255,227,106,.2);transform:translateY(-1px)}
+.chip:active{box-shadow:none;transform:translateY(1px)}
 #menuErr{display:none;margin-top:16px;max-width:min(560px,92vw);padding:11px 15px;
   border-radius:10px;font-size:13px;line-height:1.6;color:#ffd2a0;
   background:rgba(255,120,80,.10);border:1px solid rgba(255,120,80,.4)}

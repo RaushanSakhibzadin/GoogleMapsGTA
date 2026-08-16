@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="VICE MAPS">
+  <!-- A road bending away to a horizon, in the game's own palette: the violet
+       ground of style.css --bg, the pink of --pink, the gold of --gold. Drawn as
+       plain shapes so it stays legible at 16px in a browser tab. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a0f3f"/><stop offset="1" stop-color="#120a1e"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff4fd8"/><stop offset="1" stop-color="#ffe36a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="13" fill="url(#sky)"/>
+  <circle cx="32" cy="25" r="11" fill="#ff4fd8" opacity=".28"/>
+  <path d="M25 56 L30 22 L34 22 L39 56 Z" fill="url(#road)"/>
+  <g fill="#120a1e">
+    <rect x="31" y="26" width="2" height="5" rx="1"/>
+    <rect x="31" y="35" width="2" height="6" rx="1"/>
+    <rect x="31" y="46" width="2" height="7" rx="1"/>
+  </g>
+  <rect x="8"  y="30" width="9"  height="26" rx="2" fill="#33e6ff" opacity=".55"/>
+  <rect x="47" y="24" width="9"  height="32" rx="2" fill="#33e6ff" opacity=".38"/>
+</svg>
