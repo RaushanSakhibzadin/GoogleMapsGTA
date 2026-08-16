@@ -24,6 +24,16 @@ function makeCar(x, y, h, kind) {
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
     steer: 0, road: true, dead: false, hitCd: 0,
+    /* THE 3D BODY — see body3d.js. Height above the terrain, attitude, and the
+       rates that carry a tumble through the air. Declared here so every car has
+       one shape whichever view is running; in the 2D view TERRAIN is off and
+       nothing ever writes to any of them. z starts undefined on purpose: the
+       first ground step reads that as "never been placed" and snaps the car to
+       whatever the terrain is under it, which is also how a respawn on the far
+       side of a valley avoids being launched. */
+    z: undefined, vz: 0, pitch: 0, roll: 0, pv: 0, rv: 0,
+    air: false, flip: 0, climb: 0, gz: 0,
+    bh: isCop ? 1.5 : rand(1.32, 1.58),          // body height, for the cuboid
     // traffic path state
     road_: null, idx: 0, dir: 1, blink: 0
   };
@@ -204,6 +214,20 @@ const STRAY_TOL = 10;               // metres of slack before any of it applies
    indistinguishable from not being there at all. */
 const KERB_PULL = 20;
 function drive(c, throttle, brake, steerIn, hand, dt) {
+  /* AIRBORNE. Everything in this function below this line is about tyres on
+     tarmac — grip, drag, the kerb pull, the off-road crawl — and there are no
+     tyres on anything. body3d.js takes the whole step instead. */
+  if (TERRAIN && c.air) { flyCar(c, throttle, brake, steerIn, dt); return; }
+  /* ON ITS ROOF. The controls are disconnected until it rights itself, and what
+     is left is a car sliding on its own bodywork — which is the extra drag added
+     below, not a separate model. */
+  const flipped = TERRAIN && c.flip > 0;
+  if (flipped) {
+    c.flip -= dt;
+    if (c.flip <= 0) c.flip = 0;
+    throttle = false; brake = false; steerIn = 0; hand = false;
+  }
+
   const cs = Math.cos(c.h), sn = Math.sin(c.h);
   // decompose velocity into forward / lateral against the car's heading
   let vf = c.vx * cs + c.vy * sn;
@@ -258,7 +282,26 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
 
   vf -= vf * decay(c.road ? .32 : stray ? STRAY_DRAG : 1.5, dt);   // drag / rough ground
   if (hand) vf -= vf * decay(.5, dt);        // a locked rear axle scrubs speed
-  vf = clamp(vf, -top * .45, top);                              // maxSpeed means maxSpeed
+  if (flipped) vf -= vf * decay(3.4, dt);    // bodywork on tarmac is not a tyre
+
+  /* THE HILL. Gravity's component along the road: it takes speed away climbing
+     and gives it back descending, which is the whole reason a hill is worth
+     driving over rather than looking at. It applies with the engine off and at a
+     standstill too, so leaving the car on a grade rolls it down one.
+
+     The ceiling lifts downhill rather than staying put. Clamping a descent to
+     the same top speed as the flat means the hill you can see is steep produces
+     a speedometer that does not move, which reads as the slope not being
+     modelled at all — and a fifth over, bled straight back off by drag at the
+     bottom, is exactly what a real car does. */
+  let topK = 1;
+  if (TERRAIN) {
+    const g = terrainGrad(c.x, c.y);
+    const fall = -(g.gx * cs + g.gy * sn);     // positive when the ground drops ahead
+    vf += fall * SLOPE_G * dt;
+    topK += clamp(fall, 0, .35) * 1.2;
+  }
+  vf = clamp(vf, -top * .45, top * topK);                       // maxSpeed means maxSpeed
 
   /* Lateral grip: the handbrake lets the back end go, which is half of a drift.
      Through a committed 180 it is released almost entirely, so the car keeps the
@@ -323,6 +366,10 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   }
 
   c.x += c.vx * dt; c.y += c.vy * dt;
+
+  /* And now the vertical half of the step: what height the wheels are at, which
+     way the body is leaning, and whether that last crest just launched it. */
+  if (TERRAIN) groundCar(c, throttle, brake, dt);
 
   /* Tyre lines. The old threshold wanted 5.5 m/s of lateral slip — more than the
      old handbrake could ever produce, so a drift laid no rubber at all. Held, the

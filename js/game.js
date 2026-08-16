@@ -347,6 +347,12 @@ async function startGame(query, lat, lon, label) {
   if (touchUI) $('touch').classList.add('on');
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
+  /* The remembered view, applied here rather than on page load. Creating the
+     first WebGL context and building a dozen cells of geometry is a real stall,
+     and doing it while the menu is on screen makes the menu look broken; doing
+     it on the frame the city appears hides it inside the transition that is
+     already there. */
+  restoreView3D();
   /* SAY WHY, EVERY TIME. Landing somewhere you did not ask for with nothing but
      a welcome banner reads as the game ignoring you — the reason used to flash
      past on the loading bar at 82% and was gone before the city appeared. So the

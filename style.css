@@ -43,6 +43,13 @@ html,body{height:100%;height:100dvh;height:var(--vh,100dvh);overflow:hidden;back
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
 canvas{display:block}
 #game{position:fixed;inset:0;width:100%;height:var(--vh,100dvh)}
+/* The WebGL canvas, underneath. Hidden until the chase view is switched on, and
+   with it on, #game keeps its place on top as a transparent overlay — the
+   objective arrow is drawn there in both views. z-index rather than DOM order
+   alone so nothing depends on which script appended what. */
+#gl{position:fixed;inset:0;width:100%;height:var(--vh,100dvh);display:none;z-index:0}
+#gl.on{display:block}
+body.mode-3d #game{background:transparent;z-index:1}
 
 /* ---------- CRT / neon post overlay ---------- */
 #post{position:fixed;inset:0;height:var(--vh,100dvh);pointer-events:none;z-index:40;
@@ -181,13 +188,22 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
    12px, so the column starts underneath the button instead of behind it. Three
    separately tuned offsets in one corner is exactly how they end up 3px inside
    each other, which has happened here before. */
-#logBtn{position:fixed;top:12px;right:14px;z-index:70;
+/* A row, so a second button can join without a second set of hand-tuned offsets
+   — which is exactly how the three things in this corner ended up inside each
+   other last time. The container is what moves on a phone; the buttons only ever
+   know how to look like buttons. */
+#topBtns{position:fixed;top:12px;right:14px;z-index:70;display:flex;gap:7px;align-items:flex-start}
+#logBtn,#modeBtn{
   font-family:var(--hud);font-size:13px;letter-spacing:.12em;color:rgba(255,255,255,.82);
   padding:6px 11px;border-radius:9px;cursor:pointer;
   background:rgba(20,10,32,.5);border:1px solid rgba(255,255,255,.3);box-shadow:none;
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none}
-#logBtn:active{transform:translateY(1px)}
-body.theme-day #logBtn{color:#22202a;background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.3)}
+#logBtn:active,#modeBtn:active{transform:translateY(1px)}
+/* The view you are NOT in is the one on the button, because a button says what
+   it does. In the chase view it also lights up, so there is never a doubt about
+   which one you are looking at on a screenshot. */
+body.mode-3d #modeBtn{color:#fff;border-color:var(--pink);background:rgba(255,79,216,.28)}
+body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.3)}
 :root{--hudTop:46px}          /* 12px inset + the button + a gap */
 #cash{position:absolute;top:var(--hudTop);right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
 /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
@@ -423,8 +439,7 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      taking one put the speedo through the DRIFT pad. The top centre is the one
      part of this layout with nothing in it. */
   :root{--hudTop:12px}
-  #logBtn{left:50%;right:auto;transform:translateX(-50%)}
-  #logBtn:active{transform:translateX(-50%) translateY(1px)}
+  #topBtns{left:50%;right:auto;transform:translateX(-50%)}
   #speed{top:calc(16px + 22dvh);right:14px;bottom:auto}
   #zone{left:14px;right:auto;top:calc(14px + 40dvh);bottom:auto;
     text-align:left;max-width:38vw;font-size:clamp(15px,3.6dvh,20px)}

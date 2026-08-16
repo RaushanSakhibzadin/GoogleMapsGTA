@@ -7,13 +7,25 @@
    Load order is fixed in index.html and matters. */
 
 /* ------------------------------ 13. render ------------------------------ */
+/* THESE THREE ARE SHARED WITH THE 3D VIEW. rot/cs/sn are the radar's rotation
+   and the radar is drawn by drawMini() below whichever renderer is running, so
+   render3d.js sets them from its own camera heading using the same convention.
+   HX/HY are this projection's origin on the canvas; in 3D they are the screen
+   centre, because a perspective projection has no such thing. */
 let rot = 0, cs = 1, sn = 0, HX = 0, HY = 0;
-function toScreen(wx, wy) {
+
+/* Named for the view they belong to, because there are two now. The unqualified
+   render() and toScreen() live in render3d.js and pick between the pair — see
+   the note at the top of that file for why both ship rather than one replacing
+   the other. Everything inside THIS file calls toScreen() rather than
+   toScreen2D(); that is not an oversight, the dispatcher returns this one
+   whenever the 2D renderer is the one running. */
+function toScreen2D(wx, wy) {
   const dx = (wx - cam.x) * cam.s, dy = (wy - cam.y) * cam.s;
   return [HX + dx * cs - dy * sn, HY + dx * sn + dy * cs];
 }
 
-function render() {
+function render2D() {
   const c = P.car;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = PAL.ground;

@@ -76,12 +76,21 @@
   </div>
 </noscript>
 
+<!-- The WebGL canvas sits UNDER the 2D one and is empty until the 3D view is
+     switched on. #game stays the 2D renderer's canvas in the top-down view and
+     becomes a transparent overlay in the chase view, carrying the objective
+     arrow — which is why there are two canvases and not one: a canvas gets a
+     2d or a webgl2 context once and for the rest of its life. -->
+<canvas id="gl"></canvas>
 <canvas id="game"></canvas>
 <div id="post"></div>
 
 <!-- Above every screen on purpose: the log worth having most is the one from a
      load that failed, and by then the HUD has never appeared. -->
-<button id="logBtn" title="Save the session log">⤓ LOG</button>
+<div id="topBtns">
+  <button id="modeBtn" title="Switch to the chase view"><span id="modeN">3D</span></button>
+  <button id="logBtn" title="Save the session log">⤓ LOG</button>
+</div>
 
 <!-- ===================== HUD ===================== -->
 <div id="hud">
@@ -208,10 +217,19 @@
 <script src="js/log.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/world.js"></script>
+<!-- terrain before body3d before entities: the driving physics reads the grade
+     under the car, and the body that rides it is written in terms of both. -->
+<script src="js/terrain.js"></script>
+<script src="js/body3d.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/io.js"></script>
 <script src="js/game.js"></script>
+<!-- gl before render3d, and render3d last of the three: it is the file that owns
+     the unqualified render() and toScreen() and dispatches to one view or the
+     other. -->
+<script src="js/gl.js"></script>
 <script src="js/render.js"></script>
+<script src="js/render3d.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

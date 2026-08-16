@@ -118,6 +118,12 @@ $('mapClose').onclick = closeMap;
 })();
 
 $('logBtn').onclick = () => saveLog();
+/* THE VIEW SWITCH. Both renderers are in the build and this picks one — see the
+   note at the top of render3d.js. The choice is remembered, but it is NOT
+   restored on load: a first WebGL context and a dozen cell builds on the same
+   frame as the menu appearing is a stall on the one screen where a stall reads
+   as a broken page. It is applied when play starts instead. */
+$('modeBtn').onclick = () => setMode3D(!MODE3D);
 $('resume').onclick = togglePause;
 $('newLoc').onclick = () => {
   state = 'menu';
@@ -229,6 +235,34 @@ window.__visRoads = () => {
   return roadsIn(cam.x - r, cam.y - r, cam.x + r, cam.y + r).length;
 };
 window.__clearMarks = () => { marks = []; };
+
+/* ---- the 3D view ---- */
+// Switching returns false when WebGL2 isn't there, which is a legitimate answer
+// on a headless box — a test that asserts on the 3D view has to skip, not fail.
+window.__mode3d = () => MODE3D;
+window.__setMode3d = on => setMode3D(on);
+window.__gl3 = () => ({ ok: !!GL.gl, fail: GL.fail, ready: G3.ready,
+                        cells: G3.cells.size, built: G3.built, drawn: G3.drawn,
+                        tris: Math.round(G3.tris), view: VIEW3, cell: CELL3 });
+// where the camera actually is, so a test can check it is behind the car and
+// above the hill rather than inside it
+window.__cam3 = () => ({ h: G3.cam.h, d: G3.cam.d, y: G3.cam.y,
+                         eye: [G3.cam.ex, G3.cam.ey, G3.cam.ez] });
+// the car's third dimension: height, attitude, and whether it is off the ground
+window.__body = () => {
+  const c = P.car;
+  return { z: c.z === undefined ? null : +c.z.toFixed(2), vz: +(c.vz || 0).toFixed(2),
+           pitch: +(c.pitch || 0).toFixed(3), roll: +(c.roll || 0).toFixed(3),
+           air: !!c.air, flip: +(c.flip || 0).toFixed(2), climb: +(c.climb || 0).toFixed(2),
+           ground: +terrainH(c.x, c.y).toFixed(2), terrain: TERRAIN };
+};
+window.__terrain = (x, y) => {
+  const g = terrainGrad(x, y);
+  return { h: +g.h.toFixed(3), gx: +g.gx.toFixed(4), gy: +g.gy.toFixed(4) };
+};
+// the eight corners of the car's cuboid, for checking it is where it is drawn
+window.__carBox = () => carBox(P.car, []).map(v => +v.toFixed(2));
+window.__project = (x, y) => toScreen(x, y).map(v => +v.toFixed(1));
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],

@@ -32,6 +32,7 @@ addEventListener('keydown', e => {
     state === 'map' ? closeMap() : openMap();
   if (e.key.toLowerCase() === 'h') SFX.horn();
   if (e.key.toLowerCase() === 'n' && state === 'play') toggleTheme();
+  if (e.key.toLowerCase() === 'v' && state === 'play') setMode3D(!MODE3D);
   if (state === 'play') audioStart();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = 0; });
@@ -286,6 +287,10 @@ function resize() {
   // a phone screen shows far less world at the same px/m, so pull the camera back
   zoomK = clamp(Math.min(VW, VH) / 760, .48, 1);
   cv.width = Math.floor(VW * DPR); cv.height = Math.floor(VH * DPR);
+  // and the WebGL canvas behind it, if the 3D view has ever been switched on.
+  // Guarded by typeof for the same reason `state` is below: this file loads
+  // before the one that declares it.
+  if (typeof resize3D === 'function') resize3D();
   const mr = mini.getBoundingClientRect();
   mini.width = Math.floor(mr.width * DPR); mini.height = Math.floor(mr.height * DPR);
   miniRect = mr;                       // cached so the edge arrow can dodge the radar
