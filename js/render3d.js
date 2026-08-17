@@ -287,6 +287,9 @@ const G3 = {
   planes: [],
   cars: null, fxm: null,                          // per-frame streams
   cam: { h: 0, d: 15, y: 7, ex: 0, ey: 0, ez: 0 },
+  // set by the test hook only: renders the identical frame with the sun's
+  // shadows switched off, so a difference can be attributed to exactly one thing
+  noShadow: false,
   built: 0, drawn: 0, tris: 0, shadowTris: 0
 };
 
