@@ -151,7 +151,7 @@ measurements had to be thrown away and rebuilt before they measured anything:
   distant ground to *exactly* the clear colour. It read 24% of the frame either
   way. The top fifth of the frame does work — the camera looks a few degrees
   below level, so nothing is up there unless it is standing in front of the sky
-  and surviving the depth test. 78.8% solid with the buildings, 5.3% without.
+  and surviving the depth test. About 79% solid with the buildings, 5% without.
 - **shadows, A against B**, one uniform apart via `__noShadow`, measured 1.2% of
   the frame getting *brighter* when shadows were switched on — which is
   impossible, and was entirely cars driving between the two readings. Three
