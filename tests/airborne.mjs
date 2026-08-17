@@ -141,7 +141,12 @@ const coast = dir => p.evaluate(async a => {
 }, [out.slope, dir]);
 out.coastUp = await coast(1);
 out.coastDown = await coast(-1);
-out.fasterDownhill = out.coastDown > out.coastUp * 1.25;
+/* 1.4, not 1.25. The two runs start at the same place and drive opposite ways
+   down the same street, so they meet different junctions and different kerbs —
+   a build with the grade force removed entirely still came out at 1.21 from road
+   conditions alone, against 1.67 with it. The threshold sits between them rather
+   than just above the noise. */
+out.fasterDownhill = out.coastDown > out.coastUp * 1.4;
 
 /* ---------- 5. the speed ceiling lifts downhill ---------- */
 /* A visible descent that leaves the speedometer pinned to exactly the same
