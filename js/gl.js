@@ -41,6 +41,19 @@ const M4 = {
     return o;
   },
 
+  /* Orthographic, for the shadow pass. The sun is 150 million kilometres away, so
+     its rays are parallel and its projection has no vanishing point — a
+     perspective shadow map would put the shadows of distant buildings in the
+     wrong place and make near ones enormous. */
+  ortho(o, l, r, b, t, near, far) {
+    const lr = 1 / (l - r), bt = 1 / (b - t), nf = 1 / (near - far);
+    o[0] = -2 * lr; o[1] = 0; o[2] = 0; o[3] = 0;
+    o[4] = 0; o[5] = -2 * bt; o[6] = 0; o[7] = 0;
+    o[8] = 0; o[9] = 0; o[10] = 2 * nf; o[11] = 0;
+    o[12] = (l + r) * lr; o[13] = (t + b) * bt; o[14] = (far + near) * nf; o[15] = 1;
+    return o;
+  },
+
   lookAt(o, ex, ey, ez, cx, cy, cz, ux, uy, uz) {
     let zx = ex - cx, zy = ey - cy, zz = ez - cz;
     let l = Math.hypot(zx, zy, zz) || 1;
@@ -157,8 +170,18 @@ const GL = {
     return gl;
   },
 
+  /* EVERY PROGRAM AGREES ABOUT WHERE THE ATTRIBUTES LIVE.
+
+     A vertex array remembers attribute LOCATIONS, not names, and the linker is
+     free to assign them however it likes — so a mesh built with the positions of
+     one program's `aPos` can quietly feed them into another program's `aNrm`.
+     That is exactly what the shadow pass does: it draws the same buffers the
+     lighting pass built, through a different program. Binding the names to fixed
+     slots before linking makes every VAO usable by every program, which is the
+     difference between one vertex buffer per mesh and one per pass. */
   program(vsSrc, fsSrc) {
     const gl = this.gl;
+    const SLOT = { aPos: 0, aNrm: 1, aCol: 2, aPal: 3, aUV: 4 };
     const sh = (type, src) => {
       const s = gl.createShader(type);
       gl.shaderSource(s, src); gl.compileShader(s);
@@ -168,7 +191,9 @@ const GL = {
     };
     const p = gl.createProgram();
     const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
-    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+    gl.attachShader(p, vs); gl.attachShader(p, fs);
+    for (const nm in SLOT) gl.bindAttribLocation(p, SLOT[nm], nm);
+    gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS))
       throw new Error('link: ' + gl.getProgramInfoLog(p));
     gl.deleteShader(vs); gl.deleteShader(fs);
@@ -253,6 +278,41 @@ const GL = {
     if (!m || !this.gl) return;
     this.gl.deleteVertexArray(m.vao);
     this.gl.deleteBuffer(m.buf);
+  },
+
+  /* A depth-only render target: what the sun can see.
+
+     COMPARE_REF_TO_TEXTURE is the part worth knowing about. With it set, the
+     texture is sampled through a sampler2DShadow and the hardware does the
+     depth comparison AND bilinear filtering of the RESULT — so one tap already
+     costs four samples' worth of softening, for free, on hardware that has done
+     this since 2004. Sampling raw depths and comparing them by hand gives hard,
+     stair-stepped shadow edges and costs more.
+
+     A colour attachment is deliberately absent; the fragment shader writes
+     nothing and the whole pass is depth. */
+  shadowMap(size) {
+    const gl = this.gl;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, size, size, 0,
+                  gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // CLAMP_TO_EDGE, so ground beyond the map's edge reads the border depth
+    // rather than wrapping a building's shadow round to the other side
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    if (!ok) { gl.deleteFramebuffer(fb); gl.deleteTexture(tex); return null; }
+    return { fb, tex, size };
   }
 };
 

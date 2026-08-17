@@ -243,11 +243,26 @@ window.__mode3d = () => MODE3D;
 window.__setMode3d = on => setMode3D(on);
 window.__gl3 = () => ({ ok: !!GL.gl, fail: GL.fail, ready: G3.ready,
                         cells: G3.cells.size, built: G3.built, drawn: G3.drawn,
-                        tris: Math.round(G3.tris), view: VIEW3, cell: CELL3 });
+                        tris: Math.round(G3.tris), view: VIEW3, cell: CELL3,
+                        // the sun: is there a shadow map, and is anything casting into it
+                        shadow: !!G3.sm, shadowSize: G3.sm ? G3.sm.size : 0,
+                        shadowTris: Math.round(G3.shadowTris), shadowR: SHADOW_R,
+                        lights: (W.lights || []).length, lit: !!PAL.lights });
 // where the camera actually is, so a test can check it is behind the car and
 // above the hill rather than inside it
 window.__cam3 = () => ({ h: G3.cam.h, d: G3.cam.d, y: G3.cam.y,
                          eye: [G3.cam.ex, G3.cam.ey, G3.cam.ez] });
+/* The one light: which way it points and where its disc is drawn. Both come off
+   the same vector on purpose, so a test can assert the moon is on the side the
+   shadows point away from rather than trusting that it looks right. */
+window.__sun = () => {
+  const th = SKY[themeName] || SKY.dusk, l = Math.hypot(th.ld[0], th.ld[1], th.ld[2]) || 1;
+  const d = [th.ld[0] / l, th.ld[1] / l, th.ld[2] / l];
+  const C = G3.cam, D = VIEW3 * .82;
+  return { dir: d.map(v => +v.toFixed(3)), theme: themeName, r: th.orb.r,
+           shadowK: th.shadowK,
+           at: [C.ex + d[0] * D, C.ey + d[1] * D, C.ez + d[2] * D].map(v => +v.toFixed(1)) };
+};
 // the car's third dimension: height, attitude, and whether it is off the ground
 window.__body = () => {
   const c = P.car;
