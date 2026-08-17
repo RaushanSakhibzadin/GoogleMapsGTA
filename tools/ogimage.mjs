@@ -109,7 +109,9 @@ await p.evaluate(() => {
   // pull back a little so the shot is a piece of city rather than one junction
   cam.s = 6.2;
   // chrome that dates the shot or means nothing at thumbnail size
-  for (const id of ['logBtn', 'touch', 'chunk']) {
+  // topBtns, not logBtn: the LOG button gained a neighbour (the 2D/3D switch) and
+  // hiding it by name now leaves the other one sitting in the corner of the card
+  for (const id of ['topBtns', 'touch', 'chunk']) {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   }
 });

@@ -30,11 +30,17 @@
    AND IT IS ALL OFF IN 2D. Every function here returns immediately unless
    TERRAIN is set, which happens only when the 3D view is on. */
 
-/* Gravity for the airborne case, well above the real number. At 9.81 a car
-   leaving a crest at 200 km/h hangs for two and a half seconds and travels 140
-   metres, which is not a jump, it is a flight. At 18 the same launch is a second
-   and a bit and lands where you can still see it. */
-const GRAV = 18;
+/* Gravity, a little above the real number. At 9.81 a car leaving a crest at
+   200 km/h hangs for two and a half seconds and travels 140 metres, which is not
+   a jump, it is a flight; at 11 the same launch is under two seconds and lands
+   where you can still see it.
+
+   It is deliberately not much higher than that, because this number is not only
+   the arc — it is also the THRESHOLD. A car leaves the ground exactly when
+   following the ground would need more downward acceleration than gravity can
+   supply, so a heavier gravity is a car that is harder to launch. 18 was the
+   first value here and nothing on any terrain ever got airborne under it. */
+const GRAV = 11;
 /* Gravity for the GRADE, kept separate and also above real. At 9.81 the steepest
    hill this terrain makes is worth 1.6 m/s² against an engine that pulls 40 —
    true to life, and completely imperceptible. At 11 a long climb costs you
@@ -44,6 +50,18 @@ const AIR_SPIN = 3.2;               // rad/s ceiling on a tumble, so it stays re
 const FLIP_SECS = 2.4;              // how long you lie on your roof before it rights you
 const LAND_HARD = 9;                // m/s of descent before a landing costs armour
 const LAUNCH_MIN = 9;               // below this speed a crest is a bump, not a ramp
+
+/* Back into (-π, π]. Roll is an accumulator — a barrel roll in the air adds to it
+   turn after turn, which is what makes counting rotations possible — so on the
+   ground it has to be brought back, or it walks off to several multiples of π and
+   every later comparison is against a number that is no longer an angle. It is
+   also why a car recovering from its roof used to right itself the LONG way
+   round: at exactly π the shortest way back is a coin toss, and it kept picking
+   the one that added another half turn. */
+function wrapAng(a) {
+  a = (a + Math.PI) % TAU;
+  return (a < 0 ? a + TAU : a) - Math.PI;
+}
 
 /* The car's own axes in world terms. Forward is the heading; lateral is a
    quarter turn from it. Which of those is "left" is a rendering question and the
@@ -76,31 +94,45 @@ function groundCar(c, throttle, brake, dt) {
      this, being rescued to a garage on the other side of a valley reads as being
      fired out of a cannon. */
   if (c.z === undefined || Math.abs(c.z - gz) > 40) {
-    c.z = gz; c.vz = 0; c.air = false; c.climb = 0; c.gz = gz; c.pv = c.rv = 0;
+    c.z = gz; c.vz = 0; c.air = false; c.climb = 0; c.gz = gz;
+    c.rise = 0; c.pv = c.rv = 0;
   }
 
+  // how fast the ground under the car is rising, and how fast THAT is changing
   const rise = dt > 0 ? (gz - c.gz) / dt : 0;
+  const need = dt > 0 ? (rise - (c.rise || 0)) / dt : 0;
   c.gz = gz;
+  c.rise = rise;
   c.climb += (rise - c.climb) * decay(16, dt);
 
-  /* THE CREST. The car has been climbing at c.climb; if the ground now drops
-     away faster than that, the car keeps going up and the road does not. The
-     smoothing is what makes this a ramp rather than a trampoline — an unfiltered
-     rise term is noisy enough to launch a car off a flat road.
+  /* THE CREST, stated the way it actually works.
 
-     The speed floor is there because at walking pace the same geometry is a
-     kerb, and a car popping into the air pulling out of a driveway is a bug. */
-  if (Math.hypot(c.vx, c.vy) > LAUNCH_MIN) {
-    const zPred = c.z + c.climb * dt;
-    if (zPred > gz + 0.22) {
-      c.air = true;
-      c.z = zPred;
-      c.vz = c.climb;
-      // it leaves the ramp still rotating the way the ramp was turning it
-      c.pv = clamp(-c.climb * 0.10, -1.1, 1.1);
-      c.rv = 0;
-      return;
-    }
+     Glued to the ground, a car's vertical acceleration is whatever the ground's
+     shape demands — v² times the curvature under it. Gravity is the only thing
+     pulling it down, so the moment the ground needs to accelerate the car
+     downwards harder than gravity can, the tyres stop touching. That is the
+     whole condition, and `need` is that demanded acceleration measured directly
+     off the last two frames of ground height.
+
+     Stating it this way rather than as "is the car higher than the road" is what
+     makes speed the thing that decides. The same crest is a bump you feel at
+     fifty and a ramp at three hundred, without a single speed-dependent constant
+     anywhere — because v² is already in the measurement. The earlier version
+     compared predicted height against ground height with a fixed 22 cm
+     threshold, which is not a physical quantity at all: it needed the ground to
+     drop 13 metres a second faster than the car was climbing, and nothing on any
+     terrain this generates has ever done that at any speed.
+
+     The speed floor is still there, because at walking pace the same geometry is
+     a kerb and a car hopping out of a driveway is a bug. */
+  if (!c.air && need < -GRAV && Math.hypot(c.vx, c.vy) > LAUNCH_MIN) {
+    c.air = true;
+    c.z = gz;
+    c.vz = Math.max(rise, 0.4);          // it leaves along the ramp, not off it
+    // and keeps rotating the way the ramp was turning it
+    c.pv = clamp(-c.climb * 0.10, -1.1, 1.1);
+    c.rv = 0;
+    return;
   }
 
   c.z = gz;
@@ -123,8 +155,8 @@ function groundCar(c, throttle, brake, dt) {
     tr += c.steer * clamp(spd / 28, 0, 1) * 0.10;
   }
   const k = decay(c.flip > 0 ? 5 : 9, dt);
-  c.pitch += angDiff(c.pitch, tp) * k;
-  c.roll  += angDiff(c.roll, tr) * k;
+  c.pitch = wrapAng(c.pitch + angDiff(c.pitch, tp) * k);
+  c.roll  = wrapAng(c.roll + angDiff(c.roll, tr) * k);
   c.pv = c.rv = 0;
 }
 
@@ -165,7 +197,9 @@ function flyCar(c, throttle, brake, steerIn, dt) {
    disagreed with the ground it hit. */
 function landCar(c, gz) {
   const drop = -c.vz;
-  c.z = gz; c.air = false; c.vz = 0; c.climb = 0;
+  // resync the ground tracker, or the frame after touchdown sees the whole
+  // height of the jump as one frame's worth of ground movement and launches again
+  c.z = gz; c.air = false; c.vz = 0; c.climb = 0; c.gz = gz; c.rise = 0;
 
   const t = groundAttitude(c, terrainGrad(c.x, c.y));
   const dr = Math.abs(angDiff(c.roll, t.roll));
@@ -175,9 +209,15 @@ function landCar(c, gz) {
      from the surface it landed on, or it is simply past its side already — a
      barrel roll that has gone three quarters of the way round lands on its roof
      however flat the ground is. */
-  if (dr > 1.0 || Math.abs(angDiff(c.roll, 0)) > 1.15) {
+  c.roll = wrapAng(c.roll);
+  c.pitch = wrapAng(c.pitch);
+  if (dr > 1.0 || Math.abs(c.roll) > 1.15) {
     c.flip = FLIP_SECS;
-    c.roll = (angDiff(c.roll, 0) >= 0 ? 1 : -1) * Math.PI;
+    /* Just short of a half turn, not exactly one. At exactly π the shortest way
+       back upright is undefined and the recovery picks a side at random — which
+       showed up as a car that righted itself by rolling on round through another
+       half turn. A tenth of a radian off reads identically and decides it. */
+    c.roll = (c.roll >= 0 ? 1 : -1) * (Math.PI - 0.12);
   }
   c.pv = c.rv = 0;
 

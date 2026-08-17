@@ -277,6 +277,29 @@ window.__terrain = (x, y) => {
 };
 // the eight corners of the car's cuboid, for checking it is where it is drawn
 window.__carBox = () => carBox(P.car, []).map(v => +v.toFixed(2));
+
+/* WHAT THE 3D VIEW ACTUALLY PUT ON THE SCREEN.
+
+   The WebGL canvas is created without preserveDrawingBuffer, because preserving
+   it costs a full-screen copy every frame for a buffer nothing normally reads.
+   That leaves the contents undefined once the frame is composited — so this
+   renders and reads back inside the same task, before the browser gets a chance
+   to composite anything, which is the one window where the buffer is
+   guaranteed live. readPixels is bottom-left origin and device pixels, and the
+   caller is expected to know that. */
+window.__px3 = (x, y, w, h) => {
+  render();
+  const gl = GL.gl;
+  if (!gl) return null;
+  const buf = new Uint8Array(w * h * 4);
+  gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  return Array.from(buf);
+};
+/* Turn the sun's shadows off without turning the sun off, so a test can render
+   the identical frame twice and attribute the difference to exactly one thing.
+   Comparing against a whole build without shadows would also change the light
+   values, the sun disc and the depth pass; this changes one uniform. */
+window.__noShadow = v => { G3.noShadow = !!v; return G3.noShadow; };
 window.__project = (x, y) => toScreen(x, y).map(v => +v.toFixed(1));
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,

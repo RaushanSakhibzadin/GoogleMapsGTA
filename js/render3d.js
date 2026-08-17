@@ -96,13 +96,13 @@ const SKY = {
   dusk: {
     // a shade above PAL.ground on purpose, so the horizon is a line rather than
     // the place two identical blacks meet
-    sky: [.105, .062, .175], amb: [.085, .070, .135], lc: [.17, .14, .19],
-    ld: [-.60, .375, -.44], shadowK: .82,
+    sky: [.105, .062, .175], amb: [.085, .070, .135], lc: [.15, .125, .17],
+    ld: [-.70, .26, -.58], shadowK: .82,
     orb: { col: [.80, .84, 1], r: 11, halo: 3.0, ha: .12 }       // the moon
   },
   day: {
-    sky: [.62, .70, .80], amb: [.32, .335, .37], lc: [.72, .68, .60],
-    ld: [-.55, .50, -.50], shadowK: .58,
+    sky: [.62, .70, .80], amb: [.34, .355, .39], lc: [.64, .60, .53],
+    ld: [-.66, .30, -.64], shadowK: .58,
     orb: { col: [1, .95, .78], r: 17, halo: 3.6, ha: .22 }       // the sun
   }
 };
@@ -635,7 +635,13 @@ function camera3D(dt) {
      follows the heading, but slowly, and slower still the faster you go. */
   C.h += angDiff(C.h, c.h) * decay(lerp(5.5, 2.6, k), dt);
   C.d += (lerp(13.5, 25, k) * lerp(1.22, 1, zoomK) - C.d) * decay(2.2, dt);
-  C.y += (lerp(6.2, 9.4, k) - C.y) * decay(2.2, dt);
+  /* LOW, AND LOOKING NEARLY LEVEL. The first version sat six metres up and
+     aimed at the car's roofline, which is an 18° downward tilt — a view of a lot
+     of tarmac, very little of what is coming, and no sky at all. Dropping the
+     eye and lifting the aim point brings it to about 5°, which is where every
+     chase camera in every driving game sits, and it is also what puts the
+     horizon and the low sun inside the frame instead of above it. */
+  C.y += (lerp(3.7, 5.9, k) - C.y) * decay(2.2, dt);
 
   const cz = c.z || 0;
   /* The TARGET is the 2D camera's point, which already leads the car. The EYE
@@ -643,13 +649,13 @@ function camera3D(dt) {
      cam.x/cam.y run up to 26 metres ahead at speed, so an eye placed relative to
      THEM ends up on the bonnet at exactly the moment you most want to see where
      you are going. */
-  const tx = cam.x, tz = cam.y, ty = cz + 1.9;
+  const tx = cam.x, tz = cam.y, ty = cz + 2.4;
   let ex = c.x - Math.cos(C.h) * C.d, ez = c.y - Math.sin(C.h) * C.d;
   /* The eye may never go under the hill behind you. On a climb the ground
      immediately behind the car is higher than the car, and an eye at a fixed
      height above the CAR ends up inside it — which draws the inside of a
      hillside across the whole screen. */
-  let ey = Math.max(cz + C.y, terrainH(ex, ez) + 3.2);
+  let ey = Math.max(cz + C.y, terrainH(ex, ez) + 2.6);
   if (cam.shake > 0) {
     const s = cam.shake * .9;
     ex += rand(-1, 1) * s; ey += rand(-1, 1) * s; ez += rand(-1, 1) * s;
@@ -890,7 +896,8 @@ function render3D() {
     gl.uniform3fv(pr.u.uFog, th.sky);
     gl.uniform2f(pr.u.uFogR, FOG0, VIEW3);
     gl.uniform1i(pr.u.uShadow, 0);
-    gl.uniform2f(pr.u.uSmap, G3.sm ? 1 / G3.sm.size : 0, G3.sm ? 1 : 0);
+    const on = G3.sm && !G3.noShadow;
+    gl.uniform2f(pr.u.uSmap, on ? 1 / G3.sm.size : 0, on ? 1 : 0);
   };
 
   gl.useProgram(G3.gnd.p);

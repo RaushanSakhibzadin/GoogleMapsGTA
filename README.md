@@ -36,10 +36,14 @@ js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
 js/geo.js       projection, Overpass, Nominatim — everything that talks to the network
 js/world.js     parsing OSM, spatial indexes, tile streaming, landmarks
+js/terrain.js   the heightfield the 3D view drives on
+js/body3d.js    the car as a cuboid: height, attitude, jumps, rollovers
 js/entities.js  cars, traffic, police, pedestrians, and the driving physics
 js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
-js/render.js    everything that draws
+js/gl.js        WebGL2 plumbing, matrices, ear clipping
+js/render.js    the top-down view
+js/render3d.js  the chase view, and the switch between the two
 js/main.js      the loop, the menus, the debug hooks
 ```
 
@@ -63,6 +67,7 @@ pulls in the rest.
 | **Space** | handbrake — hold it into a corner and the back end steps out |
 | **H** | horn |
 | **N** | switch between dusk and daylight (or the ☀ button on touch devices) |
+| **V** / the **3D** button | switch between the top-down view and the chase view behind the car |
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
 | GHOST MODE | the switch on the title screen and the pause card — supporter perk, see the top |
@@ -103,6 +108,37 @@ pulls in the rest.
 - **Dusk or daylight.** `N` switches the whole scene between the neon sunset and a bright
   daytime palette — asphalt roads, green parks, sunlit facades. Buildings store their
   material colour rather than a finished one, so the swap is instant.
+- **A 3D chase view, behind a button.** `V`, or the **3D** button next to ⤓ LOG, drops the camera
+  in behind the car and renders the same city in hand-written **WebGL2** — no library, no build
+  step, still opens off disk. Real footprints extruded to their real heights, with ear-clipped
+  roofs because OSM is full of L-shaped and courtyard blocks and a triangle fan fills in the
+  missing corner. Geometry is batched per 512 m cell, built one cell a frame and culled as a
+  unit, which matches how tiles already stream in and out.
+
+  **Both views ship, and that is the point.** The top-down game is untouched and still runs on
+  machines with no WebGL2; every 2D test in the suite stays meaningful; and a rendering bug can be
+  bisected by pressing a button. `render()` and `toScreen()` are a two-line dispatcher over the
+  pair. The radar, the city map and the whole HUD are shared — they were already separate canvases
+  and DOM.
+- **One light, and it casts.** A sun in daylight, a moon at dusk, drawn in the sky where its own
+  vector says it is, with a real shadow map under it: the world is rendered once more from the
+  sun's point of view and every surface asks that depth before deciding it is lit. The light sits
+  low, around 20°, which is a deliberate break from the 2D theme — the theme's numbers imply a
+  source almost overhead, and an overhead source casts a shadow the size of its own footprint.
+  Buildings cast with front faces culled so a sunlit wall cannot shade itself; cars cast the other
+  way round, because a car is a box a metre and a half tall whose far side from the sun *is* the
+  road.
+- **The ground has a shape.** Seeded value noise, so a place always has the same hills and two
+  people driving Belgrade meet the same crest on the same street. Gravity along the road takes
+  speed away climbing and gives it back descending, and the ceiling lifts downhill rather than
+  pinning a visible descent to the same number on the clock. Crests launch the car — the condition
+  is the honest one, v²·curvature against gravity, so the same crest is a bump at fifty and a ramp
+  at three hundred. In the air the controls roll and pitch the body instead of steering it, and
+  landing crooked puts you on your roof for a couple of seconds.
+
+  All of that is gated on the 3D view. In the top-down game the terrain height is a constant zero
+  and every vertical term is multiplied by nothing, so the physics — and the tests tuned against
+  it — are exactly what they were.
 - **Arcade physics, with inertia.** Velocity is split into forward and lateral components against
   the car's heading. Nothing happens the instant you ask for it: the engine takes a moment to come
   on song and a moment to fall off it, the brakes bite rather than grab, and the wheels take a

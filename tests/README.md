@@ -141,6 +141,48 @@ puts 12-15 cars on screen against dusk's none. `settleMs` was also being read at
 the end of the function, so it had always included the driving and the sampling
 rather than the settling.
 
+`mode3d.mjs` is a renderer test, which means it is mostly a test about how not to
+write one — a renderer test written against a working build passes just as
+happily on a black screen. Pixels come out of the WebGL back buffer through
+`__px3`, which renders and reads inside one task, and three of its four
+measurements had to be thrown away and rebuilt before they measured anything:
+
+- **counting sky** to prove buildings occlude does not work, because fog fades
+  distant ground to *exactly* the clear colour. It read 24% of the frame either
+  way. The top fifth of the frame does work — the camera looks a few degrees
+  below level, so nothing is up there unless it is standing in front of the sky
+  and surviving the depth test. 78.8% solid with the buildings, 5.3% without.
+- **shadows, A against B**, one uniform apart via `__noShadow`, measured 1.2% of
+  the frame getting *brighter* when shadows were switched on — which is
+  impossible, and was entirely cars driving between the two readings. Three
+  renders now, the shadowed pair bracketing the unshadowed one, and anything that
+  differs between them is thrown out.
+- **the sun disc** genuinely was not on screen: the light sat at 34° and the
+  camera looked 18° down, so it was permanently above the top edge. That is a
+  real finding from a test, not a broken test — the camera and the light are both
+  lower now, and facing the sun lifts the top band from 198 to 255.
+- **frame rate** on this box measures SwiftShader, not the renderer. The gate is
+  the CPU cost of building and issuing a frame, which is ours; fps is recorded and
+  checked only for a pulse.
+
+`airborne.mjs` covers the terrain, and its first version measured nothing at all
+because it drove across open country: off the tarmac the drag term is 1.5 rather
+than 0.32, which caps the car around 96 km/h and swamps a 4% grade — coasting
+uphill and downhill both stopped after 22 metres. Ghost mode does not rescue it,
+because ghost lifts the off-road *penalty* and not the off-road drag. Measured
+along a real street instead, downhill coasts 37.8 m against uphill's 23.2.
+
+It also found the two bugs worth having: the launch condition was a fixed 22 cm
+height threshold, which is not a physical quantity — it needed the ground to drop
+13 m/s faster than the car was climbing, and nothing on any terrain this
+generates does that at any speed, so **no car had ever left the ground**. And a
+car recovering from its roof righted itself the long way round, because roll is
+an accumulator and at exactly π the shortest way back is a coin toss.
+
+The first assertion in the file is that the 2D game is still perfectly flat. If
+that ever fails, every speed and distance in the rest of this suite has quietly
+changed meaning.
+
 `traffic.mjs` drives daylight's rush hour for half a minute and watches: how
 many cars wreck, how close any two ever get, whether they are still moving or
 just queued, that nothing is simulated outside the ring, and — by wrapping the

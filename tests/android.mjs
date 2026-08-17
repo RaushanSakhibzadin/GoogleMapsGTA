@@ -32,7 +32,7 @@ const PHONES = [
   ['small Android', 320, 658, 2, 96],
 ];
 // every HUD and control element that has to be reachable and readable
-const IDS = ['hudTL', 'obj', 'mini', 'cash', 'stars', 'logBtn', 'hpWrap', 'chunk',
+const IDS = ['hudTL', 'obj', 'mini', 'cash', 'stars', 'logBtn', 'modeBtn', 'hpWrap', 'chunk',
              'tL', 'tR', 'tB', 'tA', 'tH', 'tN'];
 // full-screen layers, which all have to be the size of the screen and not of the
 // taller layout the phone reports

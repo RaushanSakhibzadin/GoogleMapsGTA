@@ -217,7 +217,15 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   /* AIRBORNE. Everything in this function below this line is about tyres on
      tarmac — grip, drag, the kerb pull, the off-road crawl — and there are no
      tyres on anything. body3d.js takes the whole step instead. */
-  if (TERRAIN && c.air) { flyCar(c, throttle, brake, steerIn, dt); return; }
+  /* Returning the SAME SHAPE as the bottom of this function, because the caller
+     reads it — `P.slip = v.vl` in game.js. A bare `return` here type-errored on
+     the first frame of every jump, which is a crash you only meet once there is
+     something to jump off. */
+  if (TERRAIN && c.air) {
+    flyCar(c, throttle, brake, steerIn, dt);
+    const fc = Math.cos(c.h), fs = Math.sin(c.h);
+    return { vf: c.vx * fc + c.vy * fs, vl: -c.vx * fs + c.vy * fc };
+  }
   /* ON ITS ROOF. The controls are disconnected until it rights itself, and what
      is left is a car sliding on its own bodywork — which is the extra drag added
      below, not a separate model. */
@@ -452,7 +460,11 @@ function buildingCollide(c) {
     const arr = W.buckets.get(kx + ',' + ky); if (!arr) continue;
     for (const bi of arr) {
       const b = W.buildings[bi];
-      if (b.passable) continue;      // a road runs through it: tunnel or archway
+      // solidAt() a few lines up already guards this and this did not, which is
+      // the sort of difference that stays invisible until something empties
+      // W.buildings without clearing the hash — and then it throws once per
+      // bucket per frame, from inside the physics loop
+      if (!b || b.passable) continue;   // a road runs through it: tunnel or archway
       if (c.x < b.bb.x0 - 2 || c.x > b.bb.x1 + 2 || c.y < b.bb.y0 - 2 || c.y > b.bb.y1 + 2) continue;
       if (!pointInPoly(b.pts, c.x, c.y)) continue;
 

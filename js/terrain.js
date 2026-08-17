@@ -31,13 +31,31 @@
 
 let TERRAIN = false;
 
-/* Amplitude in metres against wavelength in metres. The steepest a sine of these
-   can be is 2πA/λ, so the octaves peak at 6.3%, 5.6% and 4.8% and can only stack
-   to about one in six where all three happen to agree. */
+/* Amplitude in metres against wavelength in metres.
+
+   THE STEEPNESS ARITHMETIC IS NOT THE SINE ONE, and getting that wrong is how
+   the first version of this came out as a billiard table. Smoothstepped value
+   noise moves 2·A over one wavelength with a peak derivative 1.5× the average,
+   so the steepest an octave can be is 3A/λ — not 2πA/λ. The first three below
+   peak at 3.0%, 2.7% and 2.3%, and measured over nine hundred samples of real
+   ground they stack to 4.7% at worst. That is a gentle roll, not a hill.
+
+   WHICH MATTERS MOST FOR THE LAST ONE. What throws a car into the air is not
+   slope but CURVATURE — a crest has to fall away faster than gravity can pull
+   the car down, and that is v²·κ against g, where κ goes as A/λ². The three long
+   octaves have κ around 2·10⁻⁵, so at three hundred km/h they are worth a fifth
+   of a metre per second squared and the car would never once leave the ground at
+   any speed it can reach. The 70 m octave is the one that makes a jump possible:
+   same 5.6% of slope as the others, a hundred times the curvature.
+
+   And it is speed that decides, which is the whole point — at city speed that
+   octave is an undulation you feel through the camera, and flat out over the
+   same crest it is a ramp. */
 const TERR_OCT = [
   { wl: 2200, amp: 22 },      // which side of the valley a district is on
   { wl:  700, amp:  6.2 },    // the hill your street goes over
-  { wl:  240, amp:  1.8 }     // the dip under a junction; what makes a car float
+  { wl:  240, amp:  1.8 },    // the dip under a junction
+  { wl:   70, amp:  1.3 }     // the crest that launches you, if you are quick enough
 ];
 
 /* Seeded per city, so the hills belong to the place rather than to the session.

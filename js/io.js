@@ -131,7 +131,16 @@ $('tN').addEventListener('click', tapTheme);
    combine over a second or two, and that needs the inputs held exactly. */
 let inputOverride = null;
 function readInput() {
-  if (inputOverride) return inputOverride;
+  /* A partial override is filled in rather than passed through. `steer` goes
+     straight into `c.steer += (steerIn - c.steer) * k`, so an override of
+     `{ gas: 1 }` — which is the obvious thing for a test to write, and what
+     several of them do — subtracts undefined and turns the steering into NaN.
+     One frame later the heading, the velocity and the position are all NaN, the
+     car is nowhere, and the only symptom is the engine sound throwing on a
+     non-finite frequency. Cheaper to make the hook safe than to make every
+     caller remember. */
+  if (inputOverride)
+    return { steer: 0, gas: 0, brake: 0, hand: 0, ...inputOverride };
   const L = keys['a'] || keys['arrowleft'] || touch.l;
   const R = keys['d'] || keys['arrowright'] || touch.r;
   const U = keys['w'] || keys['arrowup'] || touch.a;
