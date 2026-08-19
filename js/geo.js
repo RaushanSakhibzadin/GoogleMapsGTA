@@ -195,7 +195,19 @@ function overpassQL(s, w, n, e, kind, opt) {
    Overpass is not hammered by this: whoever answers first cancels the rest, and
    `sess.streaming` stops a new one starting once a body is on the way. */
 const HEDGE = 2200;
-const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
+/* mirrorMs is how long a mirror gets to send its FIRST BYTE, not how long it gets
+   to finish: the abort timer is cleared the moment the headers land, and the body
+   after that is bounded by totalMs. That changes what the number means. Overpass
+   computes the whole answer before it responds, so this is a compute budget, and
+   for the opening streets box it is a 1.8 km square — a healthy mirror returns one
+   in well under two seconds, and the two captured sessions in tests/fixtures
+   measure 0.4 s and 1.4 s.
+
+   Thirty seconds was therefore never patience. It was a mirror that had gone
+   quiet holding one of six slots for half a minute, and in the session that
+   prompted this two of them were doing exactly that. Twelve is still eight times
+   the worst honest answer on record. */
+const STREETS = { mirrorMs: 12000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
 const ARTERIALS = { mirrorMs: 22000, totalMs: 26000 };  // query says timeout:90, wide box
@@ -207,7 +219,50 @@ const MAX_TRIES = 2;     // retries per mirror, on transient failures only
    doing that, one unreachable mirror soaked up THIRTY connection attempts in a
    single load. Learn it once, and everything after goes to a host that works. */
 const MIRROR_MISS = new Map();
-const mirrorNote = (url, ok) => MIRROR_MISS.set(url, ok ? 0 : (MIRROR_MISS.get(url) || 0) + 1);
+
+/* AND IT IS KEPT ACROSS RELOADS, because a load throws away what it learned at
+   exactly the moment that knowledge is worth the most.
+
+   A mirror is not unreachable for a moment. It is unreachable from THIS network —
+   a DNS answer, a national block, a CORS header it does not send — and it will be
+   just as unreachable on the next load, and the one after. Likewise a host
+   serving an empty database serves an empty database tomorrow. A freshly loaded
+   page has no opinion about any of them, so it rediscovers all of it from
+   scratch, every time, on the loading screen: the reported session opened by
+   asking the one host that answers 200 with nothing in it.
+
+   Halved on the way in rather than restored exactly, and forgotten after three
+   days, so a mirror that was down yesterday is demoted rather than blacklisted
+   and climbs back the first time it answers. The cap does the same job from the
+   other end — no amount of failure can bury a host so deep it never gets another
+   chance. */
+const MIRROR_KEY = 'vmMirrorHealth';
+const MIRROR_TTL = 3 * 24 * 3600 * 1000;
+const MIRROR_CAP = 8;
+(() => {
+  try {
+    const j = JSON.parse(localStorage.getItem(MIRROR_KEY) || 'null');
+    if (!j || !j.at || Date.now() - j.at > MIRROR_TTL) return;
+    for (const u in j.miss) MIRROR_MISS.set(u, Math.floor(j.miss[u] / 2));
+  } catch (e) {}      // privacy mode, or a corrupt entry: start with no opinion
+})();
+let mirrorSaveT = 0;
+function mirrorSave() {
+  // debounced: a load produces a burst of these and the storage write is the
+  // only part of it that touches the disk
+  clearTimeout(mirrorSaveT);
+  mirrorSaveT = setTimeout(() => {
+    try {
+      const miss = {};
+      for (const [u, n] of MIRROR_MISS) if (n) miss[u] = Math.min(n, MIRROR_CAP);
+      localStorage.setItem(MIRROR_KEY, JSON.stringify({ at: Date.now(), miss }));
+    } catch (e) {}
+  }, 1500);
+}
+const mirrorNote = (url, ok) => {
+  MIRROR_MISS.set(url, ok ? 0 : Math.min((MIRROR_MISS.get(url) || 0) + 1, MIRROR_CAP));
+  mirrorSave();
+};
 const mirrorsByHealth = () =>
   OVERPASS.slice().sort((a, b) => (MIRROR_MISS.get(a) || 0) - (MIRROR_MISS.get(b) || 0));
 // Overpass says these when it's busy, not when the query is wrong
@@ -295,13 +350,16 @@ function overpassArea(s, w, n, e, sess, opt) {
   const onBytes = opt.onBytes || (() => {});
   let live = 0;
 
-  const attempt = (url, delay) => new Promise((resolve, reject) => {
+  const attempt = (url, resolve, reject) => {
     const run = async (n) => {
       if (sess.cancelled) return reject(new Error('cancelled'));
-      // if another mirror is already sending us the body, don't pile on — wait and
-      // re-check, so we still have a runner if that one dies mid-stream
+      /* If another mirror is already sending us the body, don't pile on — wait
+         and re-check, so we still have a runner if that one dies mid-stream.
+         Re-checked briskly rather than every five seconds: the streamer that
+         everyone is parked behind can fail in the first second, and waiting out
+         four more before anybody notices is four seconds of loading screen. */
       if (sess.streaming) {
-        const w8 = setTimeout(() => run(n), 5000);
+        const w8 = setTimeout(() => run(n), 1200);
         sess.timers.push(w8);
         return;
       }
@@ -387,7 +445,17 @@ function overpassArea(s, w, n, e, sess, opt) {
         // an empty answer is not transient — the same host will just say it
         // again, instantly. Give the query to a different mirror instead.
         const empty = !!(err && err.empty);
-        const retryable = !aborted && !empty && (err.status == null || TRANSIENT.has(err.status));
+        /* NOR IS "I COULD NOT REACH IT". fetch() rejects with a TypeError when the
+           request never got to the server at all: DNS, TLS, a refused connection,
+           or a CORS preflight the host does not answer. None of those is a busy
+           moment — it is this browser, on this network, being unable to talk to
+           that host, and it will be just as unable in two seconds. The reported
+           session spent three attempts and 2.2 s of loading screen rediscovering
+           that about one mirror while a working one sat further down the queue,
+           unasked. */
+        const unreachable = !!(err && err.name === 'TypeError');
+        const retryable = !aborted && !empty && !unreachable &&
+                          (err.status == null || TRANSIENT.has(err.status));
         // note who said no and what they said, for the loading screen to show
         mirrorNote(url, false);            // and this one goes to the back of the queue
         LOAD.lastErr = host(url) + ': ' +
@@ -396,6 +464,11 @@ function overpassArea(s, w, n, e, sess, opt) {
         // a refusal never reaches console.warn — the retry usually saves the day —
         // so it is recorded here or the log would show a clean load that wasn't
         LOG.note('mirror', kind + ' · ' + LOAD.lastErr + ' (' + (Date.now() - t0) + 'ms)');
+        /* HAND THE SLOT ON NOW, whatever happens to this host next. Whether it
+           earns another go after a backoff is a completely separate question from
+           whether the next host should still be sitting idle waiting for its
+           turn on the clock. */
+        startNext();
         if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled) {
           const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
           onMsg('Map server busy — retrying…');
@@ -404,11 +477,48 @@ function overpassArea(s, w, n, e, sess, opt) {
         } else reject(err);
       }
     };
-    const t = setTimeout(() => run(0), delay);
-    sess.timers.push(t);
-  });
+    run(0);
+  };
 
-  const tries = mirrorsByHealth().map((u, i) => attempt(u, i * HEDGE));
+  /* THE MIRRORS ARE A QUEUE, NOT A TIMETABLE.
+
+     What was here started mirror i at i × HEDGE and never deviated from it: six
+     hosts on a fixed 2.2 second grid, so the sixth was not contacted until eleven
+     seconds in no matter what the first five had done. A reported session shows
+     what that costs. By twelve seconds one mirror had served an empty database,
+     one was unreachable and had been retried twice more, one had returned 504
+     twice, two were sitting silent holding their slots — and the sixth had never
+     been asked at all. The player was still looking at the loading screen, and
+     gave up.
+
+     A failure now pulls the next mirror forward instead of letting its slot go
+     unused. THE SAME SIX REQUESTS GO TO THE SAME SIX HOSTS IN THE SAME ORDER —
+     nothing here asks more of Overpass than before, which matters, because the
+     way to actually get blocked is to answer flakiness by hammering. The only
+     thing that changes is that a host which says no in 400 ms hands its slot
+     straight on rather than leaving it empty for another 1.8 seconds. On the
+     reported session that is all six tried inside about five seconds instead of
+     three tried in twelve.
+
+     The HEDGE timer stays as the slow path, for the case a failure never comes:
+     a mirror that goes quiet is not a failure, and the next one still has to
+     start without waiting for it. */
+  const queue = mirrorsByHealth();
+  const starters = [];
+  const tries = queue.map(url => new Promise((res, rej) => {
+    starters.push(() => attempt(url, res, rej));
+  }));
+  let started = 0, hedgeT = 0;
+  function startNext() {
+    if (started >= starters.length || sess.cancelled) return;
+    starters[started++]();
+    clearTimeout(hedgeT);
+    if (started < starters.length) {
+      hedgeT = setTimeout(startNext, HEDGE);
+      sess.timers.push(hedgeT);
+    }
+  }
+  startNext();
   const deadline = new Promise((_, rej) => {
     const t = setTimeout(() => rej(new Error('timed out')), opt.totalMs || tune.totalMs);
     sess.timers.push(t);

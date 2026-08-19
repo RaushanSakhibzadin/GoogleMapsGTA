@@ -117,6 +117,37 @@ scheduler. It also reads the delay schedule off the running game and asserts it
 is minutes and bounded, since "try again" without either is how a game gets a
 mirror to block it.
 
+`mirrors.mjs` replays a reported iPhone session: twelve seconds in, still on the
+loading screen. Of six Overpass mirrors, one had served an empty database, one
+was unreachable and had been retried twice more, one had returned 504 twice, two
+were sitting silent holding their slots — and **the sixth had never been asked**.
+None of that is a rare alignment; it is six volunteer-run public servers on an
+ordinary evening.
+
+The fault was that mirror `i` started at `i × 2.2 s` and never deviated, so a
+host that said no in 400 ms left its slot idle for another 1.8 and the queue took
+eleven seconds to reach the end whatever happened along the way. Against the
+build without the fix this test reproduces the log exactly — the first-asked
+times come out 112 ms, 2311, 4511, 6711, **11111**, which is the grid, and the
+good mirror is not contacted until 11.1 s:
+
+|                                    | before  | after      |
+|------------------------------------|---------|------------|
+| time to play                       | 11.4 s  | **4.2 s**  |
+| good mirror first asked            | 11.1 s  | **3.9 s**  |
+| retries to an unreachable host     | 3       | **1**      |
+| remembers a working mirror         | no      | **yes**    |
+
+Two things it had to get right to mean anything. The roles are keyed by **host**,
+not by position, because the mirror list is shuffled per session — the order is
+read out of the running page and the good mirror is assigned to whichever host
+ended up last, which is the worst case and the one that happened. And a retry is
+counted per **question**, not per host: a load sends the streets, the skeleton,
+eight ring tiles, the scenery and the landmarks, each racing the mirrors
+independently, so counting a host's requests across the whole load counts
+separate questions and calls them retries. The first version did exactly that and
+reported three retries where there were none.
+
 `firstload.mjs` is a stopwatch, and it is the test three rounds of "fix the map
 load" went without. Every other mock in this suite answers instantly, so the
 whole suite ran green through a session that was still on the loading screen at
