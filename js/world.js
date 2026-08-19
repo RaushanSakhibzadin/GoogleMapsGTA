@@ -1266,6 +1266,23 @@ async function widenLandmarkSearch() {
     if (found) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
     return { radius: R, missing, found, stillMissing: missingKinds() };
   } catch (err) {
+    /* A RUNG THAT WAS REFUSED WAS NEVER SEARCHED, so it must not count as
+       searched. W.sweptTo only ever goes up, which is right for a radius that
+       came back with nothing in it — widening is the correct next move — and
+       wrong for one that never got an answer at all.
+
+       With every landmark request refused during a load, the sweep walked the
+       whole ladder in a few seconds, left sweptTo past the end of it, and from
+       then on widenLandmarkSearch returned null before sending anything. The
+       retry scheduler then logged three attempts, made zero requests, and the
+       session ended with no hospital and no police station anywhere — which is
+       the exact failure that scheduler exists to undo.
+
+       It stayed hidden while a refused query took twenty seconds to give up,
+       because the sweep's own six-second budget stopped it after one rung and
+       left three in hand. Making the mirrors fail fast is what turned a latent
+       bug into a certain one. */
+    W.sweptTo = Math.max(0, W.sweptTo - 1);
     return { radius: R, missing, found: 0, err: err.message };   // the start point covers us
   } finally {
     W.sweeping = false;
@@ -1381,6 +1398,13 @@ async function sweepLandmarks() {
     const r = await widenLandmarkSearch();
     if (!r) break;
     out.push(r);
+    /* A refused rung stops the sweep rather than moving on to a wider one. It
+       has just put its radius back in the pot (see the catch in
+       widenLandmarkSearch), so carrying on would ask the same servers the same
+       question again inside the same second — and every mirror has already said
+       no to it. Whether to ask again is the retry scheduler's decision, and it
+       makes it in minutes rather than milliseconds. */
+    if (r.err) break;
     // only keep widening while the two that matter for a respawn are still absent
     if (!missingKinds().some(k => k === 'police' || k === 'hospital')) break;
   }
