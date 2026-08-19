@@ -195,19 +195,25 @@ function overpassQL(s, w, n, e, kind, opt) {
    Overpass is not hammered by this: whoever answers first cancels the rest, and
    `sess.streaming` stops a new one starting once a body is on the way. */
 const HEDGE = 2200;
-/* mirrorMs is how long a mirror gets to send its FIRST BYTE, not how long it gets
-   to finish: the abort timer is cleared the moment the headers land, and the body
-   after that is bounded by totalMs. That changes what the number means. Overpass
-   computes the whole answer before it responds, so this is a compute budget, and
-   for the opening streets box it is a 1.8 km square — a healthy mirror returns one
-   in well under two seconds, and the two captured sessions in tests/fixtures
-   measure 0.4 s and 1.4 s.
+/* mirrorMs is how long a mirror gets to send its FIRST BYTE — the abort timer is
+   cleared the moment the headers land, and the body after that is bounded by
+   totalMs. Since Overpass computes the whole answer before it responds, this is
+   really a compute budget, and it MUST outlast the [timeout:25] the query itself
+   carries. tests/cfg.mjs holds that as an invariant.
 
-   Thirty seconds was therefore never patience. It was a mirror that had gone
-   quiet holding one of six slots for half a minute, and in the session that
-   prompted this two of them were doing exactly that. Twelve is still eight times
-   the worst honest answer on record. */
-const STREETS = { mirrorMs: 12000, totalMs: 42000 };   // query says timeout:25
+   It was briefly cut to 12 s here, on the reasoning that a 1.8 km streets box
+   comes back in under two seconds on a healthy mirror — the two captured sessions
+   measure 0.4 s and 1.4 s — so a host silent at twelve was a host holding one of
+   six slots for nothing. That reasoning was wrong in the way that matters: those
+   are the times of mirrors that were WELL, and the case worth surviving is a
+   mirror that is merely busy. The server is allowed twenty-five seconds to think,
+   and hanging up at twelve throws away an answer that was coming.
+
+   What made the silent-mirror problem look like this number's fault was the
+   scheduler underneath it. A quiet host no longer costs anything, because a
+   failure elsewhere promotes the next mirror immediately instead of waiting out a
+   slot — see the queue below. */
+const STREETS = { mirrorMs: 30000, totalMs: 42000 };   // query says timeout:25
 const BUILDINGS = { mirrorMs: 70000, totalMs: 80000 }; // query says timeout:60
 const POIS = { mirrorMs: 50000, totalMs: 60000 };      // query says timeout:40
 const ARTERIALS = { mirrorMs: 22000, totalMs: 26000 };  // query says timeout:90, wide box
