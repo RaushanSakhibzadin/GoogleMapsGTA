@@ -393,6 +393,73 @@ void main() {
   outC = vec4(vC.rgb, a);
 }`;
 
+/* THE CAR, which is the one thing in this world that is a MODEL rather than
+   geometry generated from the map.
+
+   Everything else here is built in world space and poured into a shared buffer,
+   because a building never moves and a tyre mark never turns. A car does both,
+   forty times a frame, and re-transforming four hundred triangles per car on the
+   CPU to put them in a shared buffer would be several hundred thousand vertex
+   transforms a frame in JavaScript for no reason at all. So the mesh is uploaded
+   once, in the car's own coordinates, and each car is a model matrix.
+
+   uMVP and uMLVP arrive pre-multiplied — the projection times the view times the
+   model, worked out once per car on the CPU — so the vertex shader costs exactly
+   what the static one costs and the whole difference is a handful of uniforms
+   per draw.
+
+   uNM is the awkward one and it is not the model matrix's rotation. The car's
+   forward, lateral and up vectors have three DIFFERENT lengths, being half a
+   length, half a width and half a height, so the model transform carries a
+   non-uniform scale and normals pushed through it come out pointing off the
+   surface — a long car would light as though it were leaning. The inverse
+   transpose is what fixes that, and for a matrix whose columns are orthogonal it
+   is just each column divided by its own length squared, which is what
+   render3d.js hands over.
+
+   THE PAINT IS A PALETTE LOOKUP, the same trick the ground uses. Slot zero is
+   the car's own colour and changes per draw; the rest — glass, tyre, alloy, tail
+   light, headlight, trim — are the same on every car in the city, which is what
+   makes a pink car with black tyres possible at all. A mesh with one baked
+   texture atlas, which is how the ready-made low-poly car kits are built, cannot
+   do that: it would be one colour for the whole fleet. */
+const SH_CAR_V = `#version 300 es
+in vec3 aPos; in vec3 aNrm; in float aPal;
+uniform mat4 uMVP, uMLVP;
+uniform mat3 uNM;
+out vec3 vN; out float vD; out vec4 vL; flat out int vP;
+void main() {
+  vec4 p = uMVP * vec4(aPos, 1.0);
+  gl_Position = p; vD = p.w;
+  vN = uNM * aNrm;
+  vP = int(aPal);
+  vL = uMLVP * vec4(aPos, 1.0);
+}`;
+
+/* Lit as PAINT, not as masonry — the same reasoning as the uPaint branch next
+   door. A car is a lacquered object under street lights and the 2D view draws it
+   at full strength in both themes; running the dusk light over a neon pink car
+   turns it into a grey one. So it keeps its colour and takes only enough shading
+   to tell one panel from another, plus enough of the shadow term to sit in a
+   shadow rather than glow in it.
+
+   Two materials break that rule on purpose. Glass barely takes diffuse light at
+   all and mostly shows what is opposite it, so it stays dark and reads as a hole
+   rather than as a dark patch of paint. Lamps ignore the sun completely, because
+   a tail light is a light. */
+const SH_CAR_F = FS_HEAD + `flat in int vP;
+uniform vec3 uCarPal[7];
+void main() {
+  vec3 nn = normalize(vN);
+  float sh = sunlit();
+  float d = max(dot(nn, uLdir), 0.0);
+  vec3 c = uCarPal[vP];
+  vec3 lit = c * (0.55 + 0.45 * d * sh);
+  if (vP == 1) lit = c * (uAmb * 2.2 + uLcol * d * sh * 0.5) + vec3(0.035, 0.04, 0.055);
+  if (vP >= 4 && vP <= 5) lit = c;
+  outC = fogged(lit);
+}`;
+
 /* THE SKY, which used to be gl.clearColor and one flat number.
 
    A real sky is never one colour. It is deep overhead and pale at the horizon,
@@ -454,7 +521,8 @@ void main() {}`;
 /* ------------------------------ state ------------------------------ */
 const G3 = {
   ready: false,
-  lit: null, gnd: null, fx: null, dep: null, sky: null,   // programs
+  lit: null, gnd: null, fx: null, dep: null, sky: null, car: null,   // programs
+  carVao: null, carN: 0,                          // the car mesh, uploaded once
   skyVao: null,                                   // the fullscreen triangle's empty VAO
   sm: null,                                       // the shadow map, or null
   cells: new Map(),                               // key -> built cell
@@ -469,9 +537,15 @@ const G3 = {
   // set by the test hook only: renders the identical frame with the sun's
   // shadows switched off, so a difference can be attributed to exactly one thing
   noShadow: false,
-  noWin: false, noWheels: false,
+  noWin: false, plainCars: false,
   built: 0, drawn: 0, tris: 0, shadowTris: 0
 };
+
+/* Scratch for the per-car draws. Allocated once: a frame with forty cars in it
+   would otherwise make forty matrices, forty normal matrices and forty of each
+   product, every frame, for the garbage collector to deal with mid-drive. */
+const CARM = { m: M4.make(), nm: new Float32Array(9), mvp: M4.make(), mlvp: M4.make(),
+               pal: new Float32Array(21) };
 
 const cellKey = (kx, kz) => kx + ',' + kz;
 const cellOf = v => Math.floor(v / CELL3);
@@ -485,6 +559,13 @@ function initGL3() {
   G3.fx = GL.program(SH_FX_V, SH_FX_F);
   G3.dep = GL.program(SH_DEP_V, SH_DEP_F);
   G3.sky = GL.program(SH_SKY_V, SH_SKY_F);
+  G3.car = GL.program(SH_CAR_V, SH_CAR_F);
+  {
+    const m = carMesh();
+    const mesh = GL.mesh(m, [[G3.car.a.aPos, 3], [G3.car.a.aNrm, 3], [G3.car.a.aPal, 1]]);
+    G3.carVao = mesh ? mesh.vao : null;
+    G3.carN = mesh ? mesh.n : 0;
+  }
   /* A draw call with no attributes still needs SOME vertex array bound, and
      whatever was left bound from the last mesh would have its attributes enabled
      and its buffer read — legal, but it makes a driver fetch data nothing uses.
@@ -510,6 +591,7 @@ function glContextLost() {
   G3.cars = G3.fxm = null;
   G3.sm = null;
   G3.skyVao = null;
+  G3.carVao = null; G3.carN = 0;
   GL.gl = null;
 }
 
@@ -864,6 +946,40 @@ function pushCar(o, src, r, g, b, full) {
   }
 }
 
+/* THE MODEL MATRIX FOR ONE CAR, read straight out of the eight corners carBox
+   already worked out. Those corners carry the heading, the pitch and the roll
+   the physics computed, so nothing here re-derives a rotation — two rotations
+   derived separately disagree the moment either is anything but flat, and a
+   barrel roll is exactly when someone is looking closely.
+
+   Corner 0 sits at local (-1, 0, -1), corner 1 at (+1, 0, -1), corner 3 at
+   (-1, 0, +1) and corner 4 at (-1, 2, -1), so the images of the three local unit
+   vectors are half-differences of those, and the local origin is one forward and
+   one lateral step in from corner 0.
+
+   The normal matrix is the inverse transpose, which for a matrix with orthogonal
+   columns is each column over its own length squared. It matters because the
+   three columns have three different lengths — half a length, half a width, half
+   a height — so a normal pushed through the model matrix unaltered comes out
+   tilted, and a long car would light as though it were leaning. */
+function carModel(src, m, nm) {
+  const F = [], U = [], L = [];
+  for (let k = 0; k < 3; k++) {
+    F[k] = (src[3 + k] - src[k]) * .5;
+    L[k] = (src[9 + k] - src[k]) * .5;
+    U[k] = (src[12 + k] - src[k]) * .5;
+  }
+  for (let k = 0; k < 3; k++) {
+    m[k] = F[k]; m[4 + k] = U[k]; m[8 + k] = L[k];
+    m[12 + k] = src[k] + F[k] + L[k];
+  }
+  m[3] = m[7] = m[11] = 0; m[15] = 1;
+  const fl = F[0] * F[0] + F[1] * F[1] + F[2] * F[2] || 1;
+  const ul = U[0] * U[0] + U[1] * U[1] + U[2] * U[2] || 1;
+  const ll = L[0] * L[0] + L[1] * L[1] + L[2] * L[2] || 1;
+  for (let k = 0; k < 3; k++) { nm[k] = F[k] / fl; nm[3 + k] = U[k] / ul; nm[6 + k] = L[k] / ll; }
+}
+
 function carColour(c) {
   const q = parseColour(c.color) || [255, 80, 200];
   return [q[0] / 255, q[1] / 255, q[2] / 255];
@@ -1054,12 +1170,21 @@ function render3D() {
   const dyn = [];
   const R2 = 420 * 420;
   const near = o => dist2(o.x, o.y, cam.x, cam.y) < R2;
+  /* NEAR CARS ARE THE MESH, FAR ONES ARE THE BOXES, and the split is what makes
+     both affordable. The mesh is four hundred triangles and costs a draw call
+     and six uniforms per car; the boxes are two per car and cost nothing extra,
+     because they go into the same stream everything else does and leave in one
+     draw. Past ninety metres a car is thirty pixels tall and the difference
+     between them is not visible, so the far half of a busy street — which is
+     most of the cars on screen — never pays for a windscreen. */
+  const meshCars = [];
   const addCar = q => {
     if (!near(q)) return;
     const col = carColour(q);
     carBox(q, BOXTMP);
-    pushCar(dyn, BOXTMP, col[0], col[1], col[2],
-            !G3.noWheels && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2);
+    if (!G3.plainCars && G3.carVao && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2)
+      meshCars.push({ src: BOXTMP.slice(), col });
+    else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
   };
   for (const t of traffic) addCar(t);
   for (const k of cops) addCar(k);
@@ -1133,6 +1258,22 @@ function render3D() {
       gl.bindVertexArray(G3.cars.vao);
       gl.drawArrays(gl.TRIANGLES, 0, G3.cars.n);
       G3.shadowTris += G3.cars.n / 3;
+    }
+    /* The near cars go through the same depth program one at a time, with the
+       sun's view-projection folded into each car's model matrix before it is
+       handed over as uVP. Same reasoning as the batch above: sunward faces, not
+       far ones, because a car's far side from the sun IS the road under it. */
+    if (meshCars.length && G3.carVao) {
+      gl.cullFace(gl.BACK);
+      gl.polygonOffset(2.6, 5.0);
+      gl.bindVertexArray(G3.carVao);
+      for (const q of meshCars) {
+        carModel(q.src, CARM.m, CARM.nm);
+        M4.mul(CARM.mlvp, G3.LVP, CARM.m);
+        gl.uniformMatrix4fv(G3.dep.u.uVP, false, CARM.mlvp);
+        gl.drawArrays(gl.TRIANGLES, 0, G3.carN);
+        G3.shadowTris += G3.carN / 3;
+      }
     }
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.cullFace(gl.BACK);
@@ -1232,6 +1373,31 @@ function render3D() {
     gl.bindVertexArray(G3.cars.vao);
     gl.drawArrays(gl.TRIANGLES, 0, G3.cars.n);
     G3.tris += G3.cars.n / 3;
+  }
+
+  /* ---- and the near cars, one draw each ---- */
+  if (meshCars.length && G3.carVao) {
+    gl.useProgram(G3.car.p);
+    setCommon(G3.car);
+    // everything but the paint is the same on every car in the city, so the tail
+    // of the palette is uploaded once and only slot zero moves
+    for (let i = 1; i < CAR_PAL.length; i++) {
+      CARM.pal[i * 3] = CAR_PAL[i][0]; CARM.pal[i * 3 + 1] = CAR_PAL[i][1];
+      CARM.pal[i * 3 + 2] = CAR_PAL[i][2];
+    }
+    gl.bindVertexArray(G3.carVao);
+    for (const q of meshCars) {
+      carModel(q.src, CARM.m, CARM.nm);
+      M4.mul(CARM.mvp, G3.VP, CARM.m);
+      M4.mul(CARM.mlvp, G3.LVP, CARM.m);
+      gl.uniformMatrix4fv(G3.car.u.uMVP, false, CARM.mvp);
+      gl.uniformMatrix4fv(G3.car.u.uMLVP, false, CARM.mlvp);
+      gl.uniformMatrix3fv(G3.car.u.uNM, false, CARM.nm);
+      CARM.pal[0] = q.col[0]; CARM.pal[1] = q.col[1]; CARM.pal[2] = q.col[2];
+      gl.uniform3fv(G3.car.u.uCarPal, CARM.pal);
+      gl.drawArrays(gl.TRIANGLES, 0, G3.carN);
+      G3.tris += G3.carN / 3;
+    }
   }
 
   /* ---- pass three: tyre marks, then everything that glows ---- */

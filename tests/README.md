@@ -283,6 +283,16 @@ a second measurement before they meant anything:
   else in a daylit frame is close. Without wheels that count has been exactly
   zero every run.
 
+It also carries a regression test for a bug that already happened and would be
+invisible in any wide shot: **one tail light**. The lamps are a mirrored pair, so
+the right-hand one's two z values arrive in the opposite order to the left's,
+which reverses that quad's winding on its own — and back-face culling then
+removed exactly one lamp of each pair while the other looked perfect. Counting
+red pixels would not have caught it, since there were plenty, all on one side. So
+they are counted per side of the car, and the player's paint is forced to
+something with no red in it first. 159 against 160 with the fix; 0 against 186
+without it.
+
 It also found the flake worth having. The test parks in front of the tallest
 building nearby, and thirty metres off a tower block is not a car park — some
 runs put the car inside another footprint or on top of a taxi and it was wrecked
@@ -294,6 +304,22 @@ car gets wheels is measured *from* it — so a stale cam pointed the view off th
 facade and put every car in the scene out of wheel range at once. It read as a
 flaky renderer. Ghost mode, full health, and snapping cam onto the car inside
 `freeze()` fixed all of it.
+
+`beacon.mjs` is the regression test for "I can see the pink and yellow things
+only on the map". The A/B is the mission itself rather than a debug flag —
+switching `MISSION.state` off is what the game does when a job is finished, so
+the "without" frame is a state the game genuinely reaches. It asserts how **high**
+the pink reaches, not merely how much of it there is, because the column is
+depth-tested and clearing the roofline is the entire design.
+
+Two things it got wrong first. It parked the car at a fixed offset from the
+landmark and measured **two** lit pixels — the offset landed inside a block and
+the camera spent the test buried in a wall, with the beacon drawn and correctly
+hidden behind it. And it looked for *green* pixels at the garage, which found
+none: these draw additively, and additive light over a pale daylight road climbs
+towards white, so the green channel saturates and the other two follow it up. It
+counts pixels that got **brighter**, which is what an additive draw does on any
+background.
 
 `airborne.mjs` covers the terrain, and its first version measured nothing at all
 because it drove across open country: off the tarmac the drag term is 1.5 rather

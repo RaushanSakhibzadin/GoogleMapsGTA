@@ -7,7 +7,7 @@
    never be noticed by any other file in this directory — it would just quietly
    go back to looking like a diagram.
 
-   Every measurement is an A/B inside ONE build. __noWindows and __noWheels
+   Every measurement is an A/B inside ONE build. __noWindows and __plainCars
    suppress one feature and touch nothing else, so a difference between the two
    readings is that feature and can be nothing else; the sky's own A/B is the
    ramp itself, which is identically zero the moment the gradient goes back to
@@ -296,9 +296,9 @@ out.frozeCity = await freeze();
   await p.evaluate(() => window.__noShadow(true));
   await p.evaluate(() => { for (let i = 0; i < 4; i++) window.__px3(0, 0, 1, 1); });
   const withWh = await grab();
-  await p.evaluate(() => window.__noWheels(true));
+  await p.evaluate(() => window.__plainCars(true));
   const none = await grab();
-  await p.evaluate(() => { window.__noWheels(false); window.__noShadow(false); });
+  await p.evaluate(() => { window.__plainCars(false); window.__noShadow(false); });
 
   let n = 0, darkWith = 0, darkNone = 0;
   for (let i = 0; i < withWh.length; i += 4) {
@@ -332,9 +332,44 @@ out.frozeCity = await freeze();
                   darkWith > 40 &&
                   darkWith > darkNone * 8;
 }
+
+/* ---------- 4. the car has both its tail lights ---------- */
+/* A REGRESSION TEST FOR A BUG THAT ALREADY HAPPENED, and one that is invisible
+   in a wide shot and obvious the moment anybody looks at the car they are
+   driving.
+
+   The lamps are built as a mirrored pair, so the right-hand one's two z values
+   arrive in the opposite order to the left's — which reverses that quad's
+   winding on its own, and back-face culling then removed exactly one lamp of
+   each pair while the other looked perfect. Counting red pixels would not have
+   caught it: there were plenty, all on one side.
+
+   So the count is per SIDE of the car, and both sides have to have some and
+   neither may be wildly bigger than the other. The player's paint is forced to
+   a colour with no red in it first, because a red car would answer this
+   question for itself. */
+await p.evaluate(() => {
+  window.__playerColour('#22c0c8');
+  window.__noShadow(true);
+  for (let i = 0; i < 4; i++) window.__px3(0, 0, 1, 1);
+});
+{
+  const px = await grab();
+  const mid = await p.evaluate(() => window.__project(P.car.x, P.car.y)[0] * DPR);
+  let left = 0, right = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = at(x, y);
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    if (r > 95 && r > g + 55 && r > b + 55) (x < mid ? left++ : right++);
+  }
+  out.tailLights = { left, right, splitAt: Math.round(mid) };
+  out.bothTailLights = left > 8 && right > 8 &&
+                       Math.max(left, right) < Math.min(left, right) * 4;
+}
+await p.evaluate(() => window.__noShadow(false));
 await thaw();
 
-/* ---------- 4. none of it broke the frame ---------- */
+/* ---------- 5. none of it broke the frame ---------- */
 /* A shader that fails to compile throws, and a shader that compiles to nonsense
    does not — so the frame gets checked for a pulse the way mode3d does it: a
    dead renderer is one colour, and this one is a city. */
@@ -354,7 +389,7 @@ await p.waitForTimeout(500);
 
 out.errs = errs;
 out.pass = !!out.parked && out.skyGraded && out.hasWindows && out.hasWheels &&
-           out.frameAlive && !errs.length;
+           out.bothTailLights && out.frameAlive && !errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

@@ -306,7 +306,11 @@ window.__noShadow = v => { G3.noShadow = !!v; return G3.noShadow; };
    readings can only be that feature. Windows go through a uniform the shader
    compares against anyway; wheels are simply not built. */
 window.__noWindows = v => { G3.noWin = !!v; return G3.noWin; };
-window.__noWheels = v => { G3.noWheels = !!v; return G3.noWheels; };
+/* Force every car to the distant level of detail — the two plain boxes — however
+   close it is. That is the same switch the renderer throws past ninety metres,
+   so the "without" frame is a state the game genuinely reaches rather than a
+   build with a line taken out. */
+window.__plainCars = v => { G3.plainCars = !!v; return G3.plainCars; };
 window.__project = (x, y) => toScreen(x, y).map(v => +v.toFixed(1));
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,

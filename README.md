@@ -31,6 +31,7 @@ manifest.json   name and icons for "add to home screen"
 sitemap.xml     one URL, for Search Console
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
+tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
 tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
@@ -42,6 +43,7 @@ js/entities.js  cars, traffic, police, pedestrians, and the driving physics
 js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
+js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
 js/render.js    the top-down view
 js/render3d.js  the chase view, and the switch between the two
 js/main.js      the loop, the menus, the debug hooks
@@ -131,16 +133,31 @@ pulls in the rest.
   there is a wall of crawling static — and dissolves back to plain wall at the distance where a
   facade genuinely is one. After dark a third of the windows are lit, seeded from world position
   so a window never flickers as you pass it.
-- **A sky, and wheels.** The sky is a gradient rather than a clear colour, deep overhead and pale
-  at the skyline with the sun's glow spread into the air around it, drawn as a single oversized
-  triangle with no vertex buffer at all. And a car is nine boxes rather than two. It
-  had been a coloured cuboid with a second cuboid standing on it, full length, like a lorry cab on
-  a skip; now the painted body lifts off the tarmac with four dark wheels filling the gap, the
-  glasshouse is narrower and inset at both ends so there is a bonnet and a boot, and there are
-  lights — red at the back, pale at the front. All of it is built from the collision cuboid's own
-  eight corners, so a rolled or airborne car brings every part of itself with it and nothing can
-  drift out of alignment. Past 90 m it collapses back to the two boxes, where the difference is
-  under a pixel.
+- **A sky.** A gradient rather than a clear colour, deep overhead and pale at the skyline with the
+  sun's glow spread into the air around it, drawn as a single oversized triangle with no vertex
+  buffer at all.
+- **The cars are a model.** Not boxes: a four-hundred-triangle hatchback lofted through nine
+  cross-sections, with ten-sided wheels, a raked windscreen and tailgate, bumper bars and four
+  lamps. It is the one thing in this world that is a mesh rather than geometry generated from the
+  map, so it is drawn the way a mesh should be — uploaded once in the car's own coordinates and
+  given a model matrix per car — which costs a handful of uniforms instead of re-transforming
+  every vertex on the CPU forty times a frame.
+
+  That matrix is read straight out of the collision cuboid's eight corners, so the heading, the
+  pitch and the roll the physics computed are the ones the wheels and the windows get, and nothing
+  can drift out of alignment mid-barrel-roll. **The paint is a palette lookup**, the same trick the
+  ground uses: slot zero changes per car and glass, tyre, alloy, lamp and trim are the same
+  city-wide — which is exactly what a ready-made low-poly car kit *cannot* do, since those are
+  built around one shared texture atlas and would make the whole fleet one colour. Past 90 m it
+  collapses to two boxes, where the difference is under a pixel.
+
+  **You can swap in your own.** `python3 tools/glb2car.py sedan.glb > js/carmodel.js`, add one
+  `<script>` line before `js/carmesh.js`, and the renderer never knows the difference. It is a
+  tool rather than a loader because a page opened on `file://` cannot fetch a sibling file —
+  `.obj`, `.gltf` and `.json` alike are cross-origin against a null origin and refused — which is
+  the same reason the offline city is a `.js` and not a JSON document. The tool maps material
+  names onto the seven slots and tells you, loudly, when a model has only one material, because
+  that is the case that cannot work.
 - **The objective is a beacon you can see.** The top-down game paints a marker on the ground; from
   a camera six metres up behind a car that is a thin ellipse hidden behind the next vehicle, so in
   the chase view the pickup was on the radar, on the city map and on the screen-edge arrow and
