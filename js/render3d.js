@@ -714,11 +714,26 @@ function shadowView() {
 function toScreen3D(wx, wy) {
   const y = terrainH(wx, wy) + 1;
   const v = M4.xform(G3.V, wx, y, wy);
+  /* BEHIND THE EYE, worked out as a BEARING rather than as a position.
+
+     Two things went wrong here when it was a position. Both signs were inverted
+     against the branch below — v[0] positive is to the right, and this sent it
+     left — so the arrow flipped a full half turn through the middle of the
+     screen the moment a target crossed behind the camera. A pickup sitting near
+     that boundary crosses it over and over, which is the arrow "jumping from
+     side to side". And a target DIRECTLY behind has v[0] and v[1] both at zero,
+     which landed on the screen centre, where drawArrow's own "it is on screen,
+     no arrow needed" test fires and the arrow disappears altogether — precisely
+     when it is most wanted.
+
+     A bearing has neither failure. Zero is straight ahead and ±π is directly
+     behind, so the screen direction (sin θ, −cos θ) points right at a quarter
+     turn, down at a half, and is never undefined. It also meets the projection
+     continuously: at θ = ±90° the perspective divide is already throwing the
+     point off the side of the screen, and this puts it in the same place. */
   if (v[2] > -1) {
-    const m = Math.hypot(v[0], v[1]) || 1;
-    // straight out of the frame on the correct bearing, and far enough that the
-    // arrow's own edge clamp is what decides where it sits
-    return [VW / 2 - v[0] / m * VW, VH / 2 + v[1] / m * VH];
+    const th = Math.atan2(v[0], -v[2]);
+    return [VW / 2 + Math.sin(th) * VW, VH / 2 - Math.cos(th) * VH];
   }
   const p = M4.xform(G3.Pm, v[0], v[1], v[2]);
   const w = p[3] || 1e-6;

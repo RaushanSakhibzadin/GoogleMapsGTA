@@ -605,43 +605,57 @@ function drawMini() {
   if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
   if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, GOLD, 3.4);
 
-  /* THE NEAREST REPAIR SHOP, ON THE RIM. Everything above only exists while it
-     is inside 230 m, and the nearest garage is usually further than that — so
-     the one landmark you go looking for on purpose gets a pointer that works at
-     any range. It sits on the edge of the radar at the shop's bearing, with the
-     distance, and brightens once the armour is low enough to want it. */
-  const rep = nearestPOI('repair', P.car.x, P.car.y);
-  if (rep) {
-    const dx = rep.x - P.car.x, dy = rep.y - P.car.y;
+  /* ON THE RIM, for the things worth driving to that are further off than the
+     radar reaches. Everything above this only exists inside 230 m, which is
+     about four seconds at speed — so anything you are deliberately heading for
+     spends nearly all of its life invisible unless it gets a pointer. */
+  const rimTo = (tx, ty, col, strong) => {
+    const dx = tx - P.car.x, dy = ty - P.car.y;
     const d = Math.hypot(dx, dy);
-    if (d > showM) {
-      const a = Math.atan2(dx * sn + dy * cs, dx * cs - dy * sn);   // into radar space
-      const hurt = P.car.hp < 55;
-      const rim = r - 5 * DPR;
-      mctx.save();
-      mctx.translate(r + Math.cos(a) * rim, r + Math.sin(a) * rim);
-      mctx.rotate(a);
-      mctx.globalAlpha = hurt ? 1 : .8;
-      mctx.fillStyle = POI_COL.repair;
-      mctx.shadowColor = POI_COL.repair; mctx.shadowBlur = (hurt ? 8 : 4) * DPR;
-      const s2 = (hurt ? 5.4 : 4.4) * DPR;
-      mctx.beginPath();
-      mctx.moveTo(s2, 0); mctx.lineTo(-s2 * .8, -s2 * .8); mctx.lineTo(-s2 * .8, s2 * .8);
-      mctx.closePath(); mctx.fill();
-      mctx.restore();
-      // how far, just inside the rim — the whole point is deciding whether to go
-      mctx.save();
-      mctx.globalAlpha = hurt ? 1 : .85;
-      mctx.fillStyle = POI_COL.repair;
-      mctx.font = '700 ' + (8.5 * DPR) + 'px system-ui,sans-serif';
-      mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
-      mctx.shadowColor = '#000'; mctx.shadowBlur = 3 * DPR;
-      const lr = rim - 11 * DPR;
-      mctx.fillText(d > 950 ? (d / 1000).toFixed(1) + 'k' : Math.round(d) + '',
-                    r + Math.cos(a) * lr, r + Math.sin(a) * lr);
-      mctx.restore();
-    }
-  }
+    if (d <= showM) return;                    // it has a blip of its own in there
+    const a = Math.atan2(dx * sn + dy * cs, dx * cs - dy * sn);   // into radar space
+    const rim = r - 5 * DPR;
+    mctx.save();
+    mctx.translate(r + Math.cos(a) * rim, r + Math.sin(a) * rim);
+    mctx.rotate(a);
+    mctx.globalAlpha = strong ? 1 : .8;
+    mctx.fillStyle = col;
+    mctx.shadowColor = col; mctx.shadowBlur = (strong ? 8 : 4) * DPR;
+    const s2 = (strong ? 5.4 : 4.4) * DPR;
+    mctx.beginPath();
+    mctx.moveTo(s2, 0); mctx.lineTo(-s2 * .8, -s2 * .8); mctx.lineTo(-s2 * .8, s2 * .8);
+    mctx.closePath(); mctx.fill();
+    mctx.restore();
+    // how far, just inside the rim — the whole point is deciding whether to go
+    mctx.save();
+    mctx.globalAlpha = strong ? 1 : .85;
+    mctx.fillStyle = col;
+    mctx.font = '700 ' + (8.5 * DPR) + 'px system-ui,sans-serif';
+    mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
+    mctx.shadowColor = '#000'; mctx.shadowBlur = 3 * DPR;
+    const lr = rim - 11 * DPR;
+    mctx.fillText(d > 950 ? (d / 1000).toFixed(1) + 'k' : Math.round(d) + '',
+                  r + Math.cos(a) * lr, r + Math.sin(a) * lr);
+    mctx.restore();
+  };
+
+  // the nearest garage, brighter once the armour is low enough to want it
+  const rep = nearestPOI('repair', P.car.x, P.car.y);
+  if (rep) rimTo(rep.x, rep.y, POI_COL.repair, P.car.hp < 55);
+
+  /* AND THE OBJECTIVE, which had no radar mark of any kind past 230 m — the one
+     thing on screen the player is actually driving towards was the only thing
+     without one. A delivery is routinely a kilometre off, so for almost the
+     whole run the radar showed traffic, police and garages and said nothing
+     about the job. Reported as "there is no violet arrow on the minimap", which
+     is exactly right: the blip existed, it was just never in range.
+
+     Always at full strength, because unlike the garage this is not a suggestion
+     — it is the current task, and the colour matches the arrow on the screen and
+     the marker on the city map. */
+  const tgt = MISSION.state === 'pickup' ? MISSION.pick
+            : MISSION.state === 'deliver' ? MISSION.drop : null;
+  if (tgt) rimTo(tgt.x, tgt.y, MISSION.state === 'pickup' ? '#ff4fd8' : GOLD, true);
 
   // player triangle at centre, always pointing up
   mctx.save(); mctx.translate(r, r);

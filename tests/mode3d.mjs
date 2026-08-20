@@ -258,6 +258,48 @@ out.project = await p.evaluate(() => {
   out.projectsSidesApart = (q.left[0] - q.vw / 2) * (q.right[0] - q.vw / 2) < 0;
 }
 
+/* ---------- 6b. and it does not jump as a target passes behind ---------- */
+/* THE ARROW'S BEARING HAS TO BE CONTINUOUS, and this is the assertion the first
+   version of the projection needed and did not have. Behind the eye it returned
+   a position with both signs inverted against the in-front branch, so the moment
+   a target crossed out of view the arrow flipped a full half turn through the
+   middle of the screen. A pickup sitting near that boundary crosses it again and
+   again — reported, accurately, as the arrow jumping from side to side.
+
+   Walking a target right round the car and watching the angle drawArrow would
+   compute catches it: a smooth sweep steps a couple of degrees at a time, and a
+   sign flip shows up as a step of nearly 180. It also catches the other half of
+   the same bug, where a target directly behind projected onto the screen CENTRE
+   and the arrow vanished entirely, because a centre point has no bearing at all. */
+out.sweep = await p.evaluate(() => {
+  const c = P.car, R = 140, N = 720;
+  const ang = [], jumps = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / N * Math.PI * 2;
+    const s = window.__project(c.x + Math.cos(t) * R, c.y + Math.sin(t) * R);
+    // the direction drawArrow actually uses: from the screen centre to the target
+    ang.push(Math.atan2(s[1] - VH / 2, s[0] - VW / 2));
+  }
+  let worst = 0;
+  for (let i = 0; i < N; i++) {
+    let d = ang[(i + 1) % N] - ang[i];
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    d = Math.abs(d) * 180 / Math.PI;
+    if (d > worst) worst = d;
+    if (d > 30) jumps.push({ at: Math.round(i / N * 360), step: +d.toFixed(1) });
+  }
+  return { biggestStepDeg: +worst.toFixed(1), jumps: jumps.slice(0, 6) };
+});
+/* HALF A DEGREE A STEP, so the threshold has room on both sides. Sampled at two
+   degrees the smooth case already peaked at 23.9 against a 25 limit, which is not
+   a margin — the perspective divide stretches hard near the edge of view, and a
+   different viewport would have pushed it over. A smooth curve's largest step
+   shrinks with the sampling interval and a sign flip does not, so sampling four
+   times finer separates them properly: about six degrees for the real thing
+   against the ~180 a flip through the screen centre produces. */
+out.arrowIsSteady = out.sweep.biggestStepDeg < 30;
+
 /* ---------- 7. going back to 2D really does go back ---------- */
 out.back = await p.evaluate(() => {
   window.__setMode3d(false);
@@ -297,6 +339,7 @@ out.pass =
   out.casts &&
   out.sunVisible &&
   out.projectsSelfLow && out.projectsAhead && out.projectsBehindOff && out.projectsSidesApart &&
+  out.arrowIsSteady &&
   out.twoDRestored &&
   /* The gate is CPU time per frame — building cell geometry, walking the traffic,
      filling the streams, issuing the draws. That is the part this code owns and

@@ -71,7 +71,7 @@ const scan = () => p.evaluate(() => {
   const g = cv.getContext('2d');
   const d = g.getImageData(0, 0, cv.width, cv.height).data;
   const cx = cv.width / 2, cy = cv.height / 2, R = cv.width / 2;
-  let green = 0, red = 0, blue = 0, greenRim = 0;
+  let green = 0, red = 0, blue = 0, greenRim = 0, pink = 0, pinkRim = 0;
   for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
     const i = (y * cv.width + x) * 4;
     const r = d[i], gg = d[i + 1], bb = d[i + 2];
@@ -80,10 +80,13 @@ const scan = () => p.evaluate(() => {
     if (gg > 170 && r < 150 && bb > 90 && bb < 210) {          // #48ff9e
       green++;
       if (rad > R * .72) greenRim++;                            // out at the edge
+    } else if (r > 190 && gg < 140 && bb > 180) {              // #ff4fd8, the objective
+      pink++;
+      if (rad > R * .72) pinkRim++;
     } else if (r > 190 && gg < 140 && bb > 70 && bb < 160) red++;
     else if (bb > 190 && r < 130 && gg > 110 && gg < 200) blue++;
   }
-  return { green, greenRim, red, blue, size: cv.width };
+  return { green, greenRim, red, blue, pink, pinkRim, size: cv.width };
 });
 
 // standing where the near garage, the hospital and the police station are all
@@ -119,6 +122,32 @@ const bearingAt = h => p.evaluate(async (hh) => {
    pointer through 180° too. Facing north the shop sits at -148°, facing south at
    +31° — a 179° swing, which is the whole point. (The first version of this
    line asked for a difference near ZERO and called a perfect result a failure.) */
+/* THE OBJECTIVE ON THE RADAR. Reported as "there is no violet arrow on the
+   minimap", and that was exactly right: the blip existed, it was just never in
+   range. Everything on this radar lives inside 230 m, a delivery is routinely a
+   kilometre off, and the one thing the player is actually driving towards was
+   the only thing with no pointer — while a repair shop, which is a suggestion,
+   had one.
+
+   The pickup pink is #ff4fd8 and the hospital red is #ff4f6d: identical in red
+   and green, so the two can only be told apart on the blue channel, which is why
+   the matcher keys on it. */
+await p.evaluate(() => {
+  window.__tp(0, 0, 0);
+  MISSION.state = 'pickup';
+  MISSION.pick = { x: 900, y: 240 };          // ~930 m: four times the radar's reach
+});
+await p.waitForTimeout(400);
+out.objFar = await scan();
+await p.evaluate(() => { MISSION.pick = { x: 40, y: 25 }; });   // and now well inside it
+await p.waitForTimeout(400);
+out.objNear = await scan();
+// far: a pointer out on the rim. near: a blip, and nothing on the rim.
+out.objectiveHasRimPointer = out.objFar.pinkRim > 6;
+out.objectiveBlipsWhenClose = out.objNear.pink > 6 && out.objNear.pinkRim === 0;
+await p.evaluate(() => { MISSION.state = 'none'; MISSION.pick = null; });
+await p.waitForTimeout(200);
+
 out.facingA = await bearingAt(-Math.PI / 2);
 out.facingB = await bearingAt(Math.PI / 2);
 out.swingDeg = out.facingA && out.facingB
@@ -139,6 +168,7 @@ out.pass =
   out.atStart.green > 6 && out.atStart.red > 4 && out.atStart.blue > 4 &&   // all three kinds visible
   out.away.greenRim > 6 &&                                                  // the rim pointer
   out.pointerTurnsWithTheCar &&
+  out.objectiveHasRimPointer && out.objectiveBlipsWhenClose &&
   out.fps >= 50 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
