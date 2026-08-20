@@ -196,6 +196,61 @@ measurements had to be thrown away and rebuilt before they measured anything:
   the CPU cost of building and issuing a frame, which is ours; fps is recorded and
   checked only for a pulse.
 
+Two of those four measurements had to be rebuilt again when the view stopped
+being flat colour, and both for the same underlying reason — the scene acquired
+detail:
+
+- **counting "pixels that are not the sky colour"** stopped working the moment
+  the sky stopped being a colour. Against a gradient with the sun's glow in it,
+  almost no pixel matches any single reference value, and the band read 73%
+  sky-free with every building deleted. It counts vertical luma edges now: a
+  gradient is smooth in both directions, glow or no glow, and a skyline is
+  nothing but hard steps. 2.2% of the band with the buildings, 0.15% without.
+- **the shadow A/B's noise filter** rejected pixels that differed between two
+  bracketing frames, which was enough while walls were flat. With windows on
+  them, half a metre of camera drift swings a wall pixel between glass and
+  plaster, and a pixel that landed on plaster in both bracketing frames while the
+  middle one caught glass sailed through as a shadow several shades deep. It
+  measured 4.7% of the frame getting *brighter* with shadows switched on. The
+  world is frozen for the three grabs now — `state = 'pause'` stops `update()`
+  and stops the loop rendering, while `__px3` still renders on demand — and the
+  moved count is exactly zero.
+
+`facade.mjs` covers the three things that make the chase view look like a street
+rather than a diagram: the graded sky, the windows, and the wheels. All three are
+pure appearance, which is why they need a test at all — nothing else in this
+directory would notice a shader that quietly stopped drawing windows.
+
+Each is an A/B inside one build, through `__noWindows` and `__noWheels`, and each
+was checked against a build with the feature deleted outright. Two of them needed
+a second measurement before they meant anything:
+
+- **windows: how much of the frame changes** proves they are drawn, and a shader
+  that tinted every wall one shade darker would score exactly as well. So the
+  vertical edges are counted too, and counted *only* where the two frames differ
+  — the facade and nothing else. Counting the whole frame buries the signal under
+  roads, kerbs, lane markings and rooflines, and turned a ratio of twenty into a
+  ratio of one point four.
+- **wheels: the average brightness of what changed** was expected to fall,
+  because paint is brighter than tyre. It rose — lifting the body off the tarmac
+  also exposes the *road* under the sill, and in daylight this city's road is
+  paler than most of its cars. It counts near-black pixels instead: a tyre is
+  (0.06, 0.06, 0.07) before lighting and, with the sun's shadows off, nothing
+  else in a daylit frame is close. Without wheels that count has been exactly
+  zero every run.
+
+It also found the flake worth having. The test parks in front of the tallest
+building nearby, and thirty metres off a tower block is not a car park — some
+runs put the car inside another footprint or on top of a taxi and it was wrecked
+before anything was measured. And `cam.x/cam.y`, the map camera, is eased in
+`update()`, which is exactly what pausing stops: whatever offset it held at the
+moment of the freeze it kept for every frame after. That matters twice over,
+because the chase camera *looks at* it and the range test that decides whether a
+car gets wheels is measured *from* it — so a stale cam pointed the view off the
+facade and put every car in the scene out of wheel range at once. It read as a
+flaky renderer. Ghost mode, full health, and snapping cam onto the car inside
+`freeze()` fixed all of it.
+
 `airborne.mjs` covers the terrain, and its first version measured nothing at all
 because it drove across open country: off the tarmac the drag term is 1.5 rather
 than 0.32, which caps the car around 96 km/h and swamps a 4% grade — coasting

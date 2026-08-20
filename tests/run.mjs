@@ -20,7 +20,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const NOT_TESTS = new Set(['harness.mjs', 'run.mjs', 'fake.mjs', 'wide.mjs']);
 // minutes each, roughly; the loading ladder and the long drive earn their names
 const SLOW = new Set(['loading', 'longdrive', 'chunks', 'real', 'ring', 'traffic', 'daynight',
-                      'mapfill', 'retry', 'mode3d', 'airborne']);
+                      'mapfill', 'retry', 'mode3d', 'airborne', 'facade']);
 /* The ones that take an argument for a second scenario. Every one of these
    branches is a fallback path — the mirror that answers nothing, the area too
    heavy for the ring, the skeleton refused down to its smallest rung, the drive

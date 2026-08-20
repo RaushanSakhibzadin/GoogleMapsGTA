@@ -120,6 +120,23 @@ pulls in the rest.
   bisected by pressing a button. `render()` and `toScreen()` are a two-line dispatcher over the
   pair. The radar, the city map and the whole HUD are shared — they were already separate canvases
   and DOM.
+- **Facades, not slabs.** A street reads as a street because of rows of glass, so walls carry a
+  window grid worked out in the fragment shader — no texture, no atlas, nothing to download. The
+  horizontal coordinate is the wall's own normal turned a quarter turn, which is free and runs
+  continuously round a corner; two floats per vertex carry how far up the wall it is and how tall
+  the wall is, so floors start at the pavement and the roofline does not slice the top one in
+  half. Ground floors stay plain, there is a cornice at the top, and the bottom two metres are
+  darkened for the soot every real wall has. The pattern is antialiased against the pixel
+  footprint rather than stepped — a 2.85 m bay is sub-pixel at a hundred metres, and a hard edge
+  there is a wall of crawling static — and dissolves back to plain wall at the distance where a
+  facade genuinely is one. After dark a third of the windows are lit, seeded from world position
+  so a window never flickers as you pass it.
+- **A sky, and wheels.** The sky is a gradient rather than a clear colour, deep overhead and pale
+  at the skyline with the sun's glow spread into the air around it, drawn as a single oversized
+  triangle with no vertex buffer at all. And cars have four wheels: the painted body lifts off the
+  tarmac and four small dark boxes fill the gap, built from the collision cuboid's own corners so
+  a rolled or airborne car brings them with it exactly. Past 90 m the plain box comes back, where
+  the difference is under a pixel.
 - **One light, and it casts.** A sun in daylight, a moon at dusk, drawn in the sky where its own
   vector says it is, with a real shadow map under it: the world is rendered once more from the
   sun's point of view and every surface asks that depth before deciding it is lit. The light sits
