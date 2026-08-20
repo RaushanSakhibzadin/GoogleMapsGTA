@@ -265,8 +265,27 @@ function mirrorSave() {
     } catch (e) {}
   }, 1500);
 }
-const mirrorNote = (url, ok) => {
-  MIRROR_MISS.set(url, ok ? 0 : Math.min((MIRROR_MISS.get(url) || 0) + 1, MIRROR_CAP));
+/* AN EMPTY ANSWER COSTS MORE THAN A TIMEOUT, because it says more.
+
+   A timeout or a 504 is a moment: that host was busy, and in ten seconds it may
+   not be. An empty 200 is a fact about the host's database — it does not have
+   what was asked for, and it will not have it in ten seconds either. Weighting
+   them the same made the queue unable to learn the difference, and a reported
+   session shows exactly what that looks like.
+
+   One mirror answered NOTHING, in about 300 ms, to every query it was given for
+   ninety-nine seconds: four skeleton rungs, the landmark sweep, and two street
+   tiles. It stayed at the FRONT of the queue the whole time — because one empty
+   reply cost it a single miss, and every other host was picking up a miss of its
+   own in the same round for being slow or unreachable under the heavy opening
+   requests. Nobody ever fell behind anybody. So the fastest way to get a wrong
+   answer was asked first, every time, all session.
+
+   Three is enough to settle it after a single round and still let one good reply
+   wipe the slate, which matters because a host really can be repaired. */
+const MIRROR_EMPTY_COST = 3;
+const mirrorNote = (url, ok, cost) => {
+  MIRROR_MISS.set(url, ok ? 0 : Math.min((MIRROR_MISS.get(url) || 0) + (cost || 1), MIRROR_CAP));
   mirrorSave();
 };
 const mirrorsByHealth = () =>
@@ -428,7 +447,8 @@ function overpassArea(s, w, n, e, sess, opt) {
            off and comes round again, which is the correct behaviour for ground
            that has nothing on it. */
         if (!j.elements.length) {
-          mirrorNote(url, false);
+          // the demotion happens once, in the catch below, which sees every kind
+          // of refusal and knows this one was an empty reply from e.empty
           // let the other mirrors off the leash — they are parked on this flag
           sess.streaming = false;
           const e = new Error('returned nothing');
@@ -463,7 +483,9 @@ function overpassArea(s, w, n, e, sess, opt) {
         const retryable = !aborted && !empty && !unreachable &&
                           (err.status == null || TRANSIENT.has(err.status));
         // note who said no and what they said, for the loading screen to show
-        mirrorNote(url, false);            // and this one goes to the back of the queue
+        // and this one goes to the back of the queue — further back if what it
+        // said was "I have nothing", which it will say again just as quickly
+        mirrorNote(url, false, empty ? MIRROR_EMPTY_COST : 1);
         LOAD.lastErr = host(url) + ': ' +
           (aborted ? 'too slow' : empty ? 'returned nothing' : err.status ? err.status
            : err.status == null ? 'unreachable' : err.message);

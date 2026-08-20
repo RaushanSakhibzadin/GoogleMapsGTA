@@ -148,6 +148,50 @@ independently, so counting a host's requests across the whole load counts
 separate questions and calls them retries. The first version did exactly that and
 reported three retries where there were none.
 
+A **second** reported session added the rule about which kind of no costs what.
+A host answered *nothing*, in about 300 ms, to every query it was given across
+ninety-nine seconds — four skeleton rungs, the landmark sweep and two street
+tiles — and it was asked **first every single time**. The demotion logic was not
+broken; it could not tell the two kinds of refusal apart. One empty reply cost
+one miss, and every other host was picking up a miss of its own in the same round
+for being slow or unreachable under the heavy opening requests, so nobody ever
+fell behind anybody. An empty 200 is not a moment like a 504 is — it is a fact
+about that host's database, and it will be just as true in ten seconds — so it
+now costs three.
+
+Getting that into a test that could fail took two wrong turns, both instructive:
+
+- **calling `mirrorNote()` directly**, with a cost of its own choosing, passed
+  against a build with the fix removed. All it proved was that addition works.
+  What is under test is which *call site* pays which cost, and only a real empty
+  reply exercises that.
+- **reading the miss counts** out of the finished session passed too, and for a
+  better reason: they come out identical at three either way. Three misses of
+  one, against one miss of three. The count is the mechanism, not the effect.
+
+The effect is the number of **requests**. A host that sinks on its first refusal
+is asked once; a host that sinks by one while the field sinks with it stays level
+and is asked again, and again — three times in this scenario, and for
+ninety-nine seconds in the log.
+
+|                                       | before | after   |
+|---------------------------------------|--------|---------|
+| times a host with nothing is asked     | 3      | **1**   |
+
+`radar.mjs` failed about one run in eighteen, always on the garage rim pointer,
+which measured anywhere between 4 and 157 pixels of green depending on where that
+run's random delivery happened to land. Four is the tip of a green triangle
+poking out from under a pink one: the two rim pointers are drawn one after the
+other and the objective goes last, so whenever the bearings agreed the garage
+pointer vanished. That is not a rare coincidence — on a grid, the job is very
+often up the road you would take to get repaired anyway.
+
+So it was a product bug wearing a flaky test as a disguise, and both are fixed:
+pointers now remember their bearings and push each other apart along the rim, and
+the test has a deterministic case that parks the car where nothing is in blip
+range and puts the objective on exactly the garage's bearing. Against the build
+without the separation it reads zero green.
+
 `firstload.mjs` is a stopwatch, and it is the test three rounds of "fix the map
 load" went without. Every other mock in this suite answers instantly, so the
 whole suite ran green through a session that was still on the loading screen at

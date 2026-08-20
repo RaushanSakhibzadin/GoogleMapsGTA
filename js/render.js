@@ -609,11 +609,37 @@ function drawMini() {
      radar reaches. Everything above this only exists inside 230 m, which is
      about four seconds at speed — so anything you are deliberately heading for
      spends nearly all of its life invisible unless it gets a pointer. */
+  /* TWO POINTERS IN THE SAME DIRECTION MUST NOT HIDE EACH OTHER, and before this
+     the second one drawn simply painted over the first. The objective goes on
+     after the garage, so whenever the two happened to lie along the same bearing
+     the garage pointer vanished completely — and that is not a rare coincidence,
+     it is what happens every time the job is up the road you would take to get
+     repaired anyway, which is most of the time on a grid.
+
+     It surfaced as a flaky test rather than as a bug report: radar.mjs failed
+     about one run in eighteen, always on the garage rim pointer, which measured
+     anywhere between 4 and 157 pixels of green depending on where that run's
+     random delivery happened to land. Four pixels is the tip poking out from
+     under a pink triangle.
+
+     So each pointer remembers its bearing, and one that lands within a pointer's
+     own width of an earlier one is pushed along the rim until it clears — away
+     from its neighbour, so the pair opens outwards and both stay on the side
+     they belong to. The label goes with it. A few degrees at the rim is under
+     ten metres of implied direction at the distances these are used at, and a
+     pointer you can see beats a bearing you cannot. */
+  const taken = [];
+  const SEP = .17;                             // radians; a pointer is ~0.14 wide
   const rimTo = (tx, ty, col, strong) => {
     const dx = tx - P.car.x, dy = ty - P.car.y;
     const d = Math.hypot(dx, dy);
     if (d <= showM) return;                    // it has a blip of its own in there
-    const a = Math.atan2(dx * sn + dy * cs, dx * cs - dy * sn);   // into radar space
+    let a = Math.atan2(dx * sn + dy * cs, dx * cs - dy * sn);   // into radar space
+    for (const t of taken) {
+      const gap = Math.atan2(Math.sin(a - t), Math.cos(a - t));
+      if (Math.abs(gap) < SEP) a = t + (gap >= 0 ? SEP : -SEP);
+    }
+    taken.push(a);
     const rim = r - 5 * DPR;
     mctx.save();
     mctx.translate(r + Math.cos(a) * rim, r + Math.sin(a) * rim);

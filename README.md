@@ -133,10 +133,14 @@ pulls in the rest.
   so a window never flickers as you pass it.
 - **A sky, and wheels.** The sky is a gradient rather than a clear colour, deep overhead and pale
   at the skyline with the sun's glow spread into the air around it, drawn as a single oversized
-  triangle with no vertex buffer at all. And cars have four wheels: the painted body lifts off the
-  tarmac and four small dark boxes fill the gap, built from the collision cuboid's own corners so
-  a rolled or airborne car brings them with it exactly. Past 90 m the plain box comes back, where
-  the difference is under a pixel.
+  triangle with no vertex buffer at all. And a car is nine boxes rather than two. It
+  had been a coloured cuboid with a second cuboid standing on it, full length, like a lorry cab on
+  a skip; now the painted body lifts off the tarmac with four dark wheels filling the gap, the
+  glasshouse is narrower and inset at both ends so there is a bonnet and a boot, and there are
+  lights — red at the back, pale at the front. All of it is built from the collision cuboid's own
+  eight corners, so a rolled or airborne car brings every part of itself with it and nothing can
+  drift out of alignment. Past 90 m it collapses back to the two boxes, where the difference is
+  under a pixel.
 - **One light, and it casts.** A sun in daylight, a moon at dusk, drawn in the sky where its own
   vector says it is, with a real shadow map under it: the world is rendered once more from the
   sun's point of view and every surface asks that depth before deciding it is lit. The light sits

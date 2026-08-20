@@ -142,9 +142,27 @@ async function run(label) {
   }
 
   const world = played ? await p.evaluate(() => window.__w()) : null;
+  /* WHERE EACH HOST ENDED UP IN THE QUEUE, read out of the page the session was
+     actually run in. This is the part that has to come from the real code path:
+     what is under test is which call site pays which cost, and a test that calls
+     mirrorNote() itself with a cost of its own choosing proves only that
+     addition works. That version passed against a build with the fix removed. */
+  const health = await p.evaluate(o => {
+    const rank = mirrorsByHealth();
+    const miss = {};
+    for (const u of o) miss[u] = MIRROR_MISS.get(u) || 0;
+    return { rank, miss };
+  }, order);
+  const byRole = {}, rankOf = {};
+  for (const u of order) {
+    byRole[role[u]] = (byRole[role[u]] || 0) > health.miss[u] ? byRole[role[u]] : health.miss[u];
+    rankOf[role[u]] = Math.min(rankOf[role[u]] === undefined ? 99 : rankOf[role[u]],
+                               health.rank.indexOf(u));
+  }
   await ctx.close();
   return { label, played, ms, firstAsked: first, asks: count, repeat,
-           roads: world && world.roads, errs: errs.slice(0, 3) };
+           roads: world && world.roads, missByRole: byRole, rankByRole: rankOf,
+           errs: errs.slice(0, 3) };
 }
 
 out.session = await run('reported session');
@@ -197,10 +215,72 @@ out.stillRetriesBusy = (out.session.repeat.gateway || 0) > 1;
   await ctx.close();
 }
 
+/* ---- 4. "I have nothing" sinks a mirror further than "I am busy" ---- */
+/* THE SECOND REPORTED SESSION, and the rule this comes from. A host answered
+   NOTHING, in about 300 ms, to every query it was given across ninety-nine
+   seconds — four skeleton rungs, the landmark sweep, and two street tiles — and
+   it was asked FIRST every single time. Nothing was wrong with the demotion
+   logic; it simply could not tell the two kinds of no apart. One empty reply
+   cost one miss, and every other host picked up a miss of its own in the same
+   round for being slow or unreachable under the opening requests, so nobody ever
+   fell behind anybody and the fastest route to a wrong answer stayed at the
+   front all session.
+
+   An empty 200 is not a moment, it is a fact about that host's database: it does
+   not have what was asked for and it will not have it in ten seconds either.
+
+   WHAT IS MEASURED IS HOW MANY TIMES IT GETS ASKED, and getting to that took
+   two wrong turns worth recording.
+
+   The first version called mirrorNote() itself with a cost of its own choosing.
+   It passed against a build with the fix removed, because all it proved was that
+   addition works — the thing under test is which CALL SITE pays which cost, and
+   only a real empty reply exercises that.
+
+   The second version read the miss counts out of the finished session. It also
+   passed against the broken build, and for a more interesting reason: the counts
+   came out identical at three either way. Three misses of one, against one miss
+   of three. The count is the mechanism, not the effect.
+
+   The effect is the number of requests. Over one load this scenario puts out a
+   dozen or so separate questions — the streets, the skeleton, the ring tiles,
+   the scenery, the landmarks — and each races the mirrors from the top of the
+   queue. A host that sinks after its first refusal is asked ONCE. A host that
+   sinks by one, while every other host is picking up a miss of its own in the
+   same round, stays level with the field and is asked again, and again: three
+   times here, and for ninety-nine seconds in the log this comes from. */
+out.missByRole = out.session.missByRole;
+out.rankByRole = out.session.rankByRole;
+out.asksByRole = out.session.asks;
+// the host that only ever said "nothing" must not be at the head of the queue
+out.emptyIsNotFirst = out.session.rankByRole.empty > 0;
+// and one refusal has to be enough: it is never asked a second time this load
+out.emptyAskedOnce = (out.session.asks.empty || 0) <= 1;
+out.emptySinksFurtherThanBusy = out.session.rankByRole.empty > out.session.rankByRole.gateway;
+
+/* And one good reply still wipes it out, because a host really can be repaired
+   and a permanent blacklist built from one bad evening is its own bug. */
+{
+  const ctx = await browser.newContext({ viewport: { width: 900, height: 640 } });
+  const p = await ctx.newPage();
+  await p.goto(GAME);
+  await p.waitForTimeout(200);
+  out.emptyRecovers = await p.evaluate(() => {
+    const u = OVERPASS[0];
+    mirrorNote(u, false, 8);
+    const sunk = mirrorsByHealth().indexOf(u);
+    mirrorNote(u, true);
+    return sunk === OVERPASS.length - 1 && MIRROR_MISS.get(u) === 0 && mirrorsByHealth()[0] === u;
+  });
+  await ctx.close();
+}
+
 out.pass =
   out.loaded && out.fastEnough && out.reachedTheGoodOne &&
   out.doesNotRetryUnreachable && out.stillRetriesBusy &&
   out.freshHealth === null && out.remembersGoodMirror &&
+  out.emptyIsNotFirst && out.emptyAskedOnce &&
+  out.emptySinksFurtherThanBusy && out.emptyRecovers &&
   !out.session.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

@@ -145,6 +145,35 @@ out.objNear = await scan();
 // far: a pointer out on the rim. near: a blip, and nothing on the rim.
 out.objectiveHasRimPointer = out.objFar.pinkRim > 6;
 out.objectiveBlipsWhenClose = out.objNear.pink > 6 && out.objNear.pinkRim === 0;
+/* BOTH POINTERS, AIMED THE SAME WAY. The two rim pointers are drawn one after
+   the other and the objective goes last, so before this it simply painted over
+   the garage whenever the two bearings agreed — and on a grid, the job is very
+   often up the road you would take to get repaired anyway.
+
+   This is the deterministic version of a failure that used to arrive as noise.
+   radar.mjs failed about one run in eighteen, always on `away.greenRim`, which
+   measured anywhere between 4 and 157 pixels depending on where that run's
+   random delivery happened to land; four is the tip of a green triangle poking
+   out from under a pink one. So: park the car at the origin, put the objective
+   directly on top of the garage's bearing, and require both to survive. */
+out.sameWay = await p.evaluate(() => {
+  // the same corner the garage pointer was measured from, where nothing is in
+  // blip range and both marks have to be pointers or they are not there at all
+  window.__tp(1500, 900, 0);
+  const rep = window.__nearestPOI('repair');
+  const dx = rep.x - 1500, dy = rep.y - 900;
+  const d = Math.hypot(dx, dy) || 1;
+  MISSION.state = 'pickup';
+  // twice as far, along the very same line out from the car
+  MISSION.pick = { x: 1500 + dx / d * d * 2, y: 900 + dy / d * d * 2 };
+  return { rep: { x: +rep.x.toFixed(1), y: +rep.y.toFixed(1) },
+           repM: +d.toFixed(1),
+           pick: { x: +MISSION.pick.x.toFixed(1), y: +MISSION.pick.y.toFixed(1) } };
+});
+await p.waitForTimeout(400);
+out.stacked = await scan();
+out.pointersDoNotHideEachOther = out.stacked.greenRim > 6 && out.stacked.pinkRim > 6;
+
 await p.evaluate(() => { MISSION.state = 'none'; MISSION.pick = null; });
 await p.waitForTimeout(200);
 
@@ -169,6 +198,7 @@ out.pass =
   out.away.greenRim > 6 &&                                                  // the rim pointer
   out.pointerTurnsWithTheCar &&
   out.objectiveHasRimPointer && out.objectiveBlipsWhenClose &&
+  out.pointersDoNotHideEachOther &&
   out.fps >= 50 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();

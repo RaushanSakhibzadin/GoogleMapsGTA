@@ -775,41 +775,7 @@ function pushBox(o, p, r, g, b) {
   }
 }
 
-/* THE CABIN. A second, smaller cuboid standing on the body's roofline — which is
-   the difference between a car and a brick at any distance you can actually see
-   one. It is built from the body's own corners rather than from a fresh
-   rotation, because two rotations derived separately disagree the moment either
-   is anything but flat, and a barrel roll is exactly when someone is looking
-   closely. `lo` and `hi` are where its underside and its roof sit, in multiples
-   of the body's half-height measured from the body's centre — so 1.0 is the
-   body's own roof. */
-const BOXTMP = [], BOXTMP2 = [];
-function cabinBox(src, out, side, lo, hi) {
-  let cx = 0, cy = 0, cz = 0;
-  for (let i = 0; i < 8; i++) { cx += src[i * 3]; cy += src[i * 3 + 1]; cz += src[i * 3 + 2]; }
-  cx /= 8; cy /= 8; cz /= 8;
-  // the body's own up vector, one full height long — it already carries the
-  // pitch and the roll
-  let ux = 0, uy = 0, uz = 0;
-  for (let i = 0; i < 4; i++) {
-    ux += src[(i + 4) * 3] - src[i * 3];
-    uy += src[(i + 4) * 3 + 1] - src[i * 3 + 1];
-    uz += src[(i + 4) * 3 + 2] - src[i * 3 + 2];
-  }
-  ux /= 4; uy /= 4; uz /= 4;
-  for (let i = 0; i < 8; i++) {
-    // strip the corner's own vertical half, leaving its offset within the deck
-    const s = i < 4 ? .5 : -.5;
-    const hx = src[i * 3] - cx + ux * s;
-    const hy = src[i * 3 + 1] - cy + uy * s;
-    const hz = src[i * 3 + 2] - cz + uz * s;
-    const k = (i < 4 ? lo : hi) * .5;
-    out[i * 3]     = cx + hx * side + ux * k;
-    out[i * 3 + 1] = cy + hy * side + uy * k;
-    out[i * 3 + 2] = cz + hz * side + uz * k;
-  }
-  return out;
-}
+const BOXTMP = [];
 
 /* ANY SMALLER BOX INSIDE THE BODY'S OWN FRAME, in normalised coordinates where
    ±1 is the body's own surface along forward, lateral and up. Wheels use it, and
@@ -836,38 +802,65 @@ function subBox(src, out, f0, f1, l0, l1, u0, u1) {
   return out;
 }
 
-/* FOUR WHEELS AND A BODY LIFTED OFF THE ROAD, which are one change and not two.
+/* A CAR, OUT OF NINE BOXES.
 
-   The reference photograph is a row of parked cars, and what makes them read as
-   cars at a glance is the dark gap under the sill with something round and black
-   in it — not the shape of the roof. carBox is a single cuboid resting on the
-   tarmac, so the paint ran all the way down to the road surface and the result
-   was a brightly coloured brick.
+   The reference photograph is a row of parked cars, and none of what makes them
+   read as cars was here: they were a coloured cuboid with a second cuboid
+   standing on it, full length, like a lorry cab on a skip. The list of what was
+   missing is short and every item is cheap.
 
-   Adding wheels to that cuboid does nothing, and the first attempt proved it:
-   there is no gap for them to sit in, so all they can do is stand a few
-   centimetres proud of a body that already reaches the ground, which at any real
-   distance is invisible. The body has to come UP. So the painted body is drawn
-   from just over a quarter of the way up, and the wheels fill what is now empty
-   underneath it and stand slightly proud besides — which is also what puts them
+   WHEELS, and a gap for them to sit in. What identifies a parked car at a glance
+   is the dark space under the sill with something round and black in it. Adding
+   wheels to a box that already reaches the tarmac does nothing — the first
+   attempt proved it — so the painted body comes UP and the wheels fill what is
+   now empty underneath, standing slightly proud besides, which is what puts them
    in view from dead ahead and dead behind rather than only from the side.
 
-   carBox itself is untouched. It is the collision volume the physics uses and
-   the silhouette body3d.js reasons about; this is the same eight corners read as
-   a frame to hang two smaller shapes off, so a rolled or airborne car brings its
-   wheels with it exactly, with no second rotation to disagree with the first.
+   A BONNET AND A BOOT. The old cabin ran the whole length of the roof, and that
+   single fact is most of why the shape read as a van. A car's glasshouse is
+   inset at both ends and narrower than its body, and once it is, the thing has a
+   front and a back from any angle.
 
-   Beyond about 90 m the whole arrangement is a couple of pixels, so the plain
-   cuboid comes back — four fewer boxes per car in both the shadow pass and the
-   colour pass, and no visible seam, because at 90 m a 40 cm gap under a car is
-   well under one pixel. */
-const BODY_LO = -.56;                // where the painted body starts, up from the road
+   LIGHTS. Four small boxes, red at the back and pale at the front, which cost
+   almost nothing and are the difference between a shape and a vehicle — most of
+   all at dusk, when a street of them is a street of tail lights.
+
+   THE NUMBERS ARE IN THE BODY'S OWN FRAME, where ±1 is its surface along
+   forward, lateral and up, and they are chosen against real proportions: the
+   sill at 32 cm off the road, the beltline at about a metre, the roof at 1.6 m,
+   wheels 62 cm across. carBox is untouched — it is the collision volume the
+   physics reasons about, and this is the same eight corners read as a frame to
+   hang smaller shapes off, so a rolled or airborne car brings every part of
+   itself with it and nothing can drift out of alignment.
+
+   Past 90 m all of it collapses back to the two boxes it used to be. At that
+   range a wheel is a pixel and a half and a headlamp is less, and the far half
+   of a busy street is most of the cars on screen — in the shadow pass as well as
+   the colour one. */
+const BODY_LO = -.56;                     // the sill: where paint starts, off the road
 const WHEELS = [[-.86, -.44], [.44, .86]];
-function pushCarBody(o, src, r, g, b) {
-  pushBox(o, subBox(src, SUBTMP, -1, 1, -1, 1, BODY_LO, 1), r, g, b);
-  for (const s of [-1, 1]) for (const [f0, f1] of WHEELS) {
-    subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, BODY_LO + .16);
-    pushBox(o, SUBTMP, .062, .058, .07);
+const LAMPS = [[-.86, -.40], [.40, .86]];
+function pushCar(o, src, r, g, b, full) {
+  /* The glasshouse. Dark, and it keeps a trace of the body colour rather than
+     going to a flat black, because at dusk the paint is how you tell one car
+     from another and the roof is a good part of what you can see of it. */
+  const gr = r * .22 + .045, gg = g * .23 + .05, gb = b * .28 + .07;
+  if (!full) {
+    // far away: the two boxes this used to be, sitting on the road as before
+    pushBox(o, subBox(src, SUBTMP, -1, 1, -1, 1, -1, .45), r, g, b);
+    pushBox(o, subBox(src, SUBTMP, -.66, .32, -.8, .8, .40, 1.23), gr, gg, gb);
+    return;
+  }
+  pushBox(o, subBox(src, SUBTMP, -1, 1, -1, 1, BODY_LO, .41), r, g, b);
+  // inset at both ends and narrower: the bonnet and the boot are what is left
+  pushBox(o, subBox(src, SUBTMP, -.66, .32, -.8, .8, .30, 1.23), gr, gg, gb);
+  for (const s of [-1, 1]) {
+    for (const [f0, f1] of WHEELS)
+      pushBox(o, subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, -.15),
+              .062, .058, .07);
+    const [l0, l1] = LAMPS[s < 0 ? 0 : 1];
+    pushBox(o, subBox(src, SUBTMP, -1.02, -.94, l0, l1, .02, .30), .78, .07, .05);   // tail
+    pushBox(o, subBox(src, SUBTMP, .94, 1.02, l0, l1, .02, .30), .95, .93, .78);     // head
   }
 }
 
@@ -1065,10 +1058,8 @@ function render3D() {
     if (!near(q)) return;
     const col = carColour(q);
     carBox(q, BOXTMP);
-    if (!G3.noWheels && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2) pushCarBody(dyn, BOXTMP, col[0], col[1], col[2]);
-    else pushBox(dyn, BOXTMP, col[0], col[1], col[2]);
-    cabinBox(BOXTMP, BOXTMP2, .54, .72, 1.92);
-    pushBox(dyn, BOXTMP2, col[0] * .30, col[1] * .34, col[2] * .44);
+    pushCar(dyn, BOXTMP, col[0], col[1], col[2],
+            !G3.noWheels && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2);
   };
   for (const t of traffic) addCar(t);
   for (const k of cops) addCar(k);
