@@ -124,20 +124,34 @@ out.frame = stats(await grab(0, 0, W, H));
    fifth of the frame is above the horizon and is pure sky unless something is
    standing up into it. That makes this an occlusion test rather than a "was
    anything drawn" test: a wall appears there only if it is drawn in front of the
-   sky, at the right height, and survives the depth test. */
-const topBandSolid = () => p.evaluate(() => {
+   sky, at the right height, and survives the depth test.
+
+   WHAT IS COUNTED IS VERTICAL EDGES, not "pixels that are not the sky colour",
+   and that is because the sky stopped being a colour. It is a gradient now, with
+   the sun's glow spread through it, so almost no pixel in the band matches any
+   single reference value and the old measure read 73% sky-free with every
+   building deleted.
+
+   An edge is immune to all of that. A gradient is smooth in both directions —
+   neighbouring pixels differ by a unit or so, glow or no glow — and a skyline is
+   nothing but hard vertical steps where a roofline meets the air. So: how often
+   does the luma jump between horizontally adjacent pixels. Buildings drawn
+   behind the sky, or not drawn, or failing the depth test, all give the same
+   answer, which is none. */
+const topBandEdges = () => p.evaluate(() => {
   const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
   const band = Math.floor(h * 0.22);
   // readPixels is bottom-left origin, so this reads the TOP of the screen
   const px = window.__px3(0, h - band, w, band);
-  const th = SKY[themeName] || SKY.dusk;
-  const c = [th.sky[0] * 255, th.sky[1] * 255, th.sky[2] * 255];
-  let solid = 0;
-  for (let i = 0; i < px.length; i += 4)
-    if (Math.abs(px[i] - c[0]) > 8 || Math.abs(px[i + 1] - c[1]) > 8 || Math.abs(px[i + 2] - c[2]) > 8) solid++;
-  return +(100 * solid / (px.length / 4)).toFixed(1);
+  const L = i => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+  let edges = 0, n = 0;
+  for (let y = 0; y < band; y++) for (let x = 0; x + 1 < w; x++, n++) {
+    const i = (y * w + x) * 4;
+    if (Math.abs(L(i + 4) - L(i)) > 12) edges++;
+  }
+  return +(100 * edges / n).toFixed(2);
 });
-out.topWithBuildings = await topBandSolid();
+out.topWithBuildings = await topBandEdges();
 const withPx = await grab(0, 0, W, H);
 /* The spatial hash holds INDICES into W.buildings, so emptying the list without
    clearing the hash leaves every bucket pointing past the end of it — and the
@@ -151,7 +165,7 @@ await p.evaluate(() => {
 });
 // the cell cache is keyed on the world's shape, so emptying it rebuilds
 await p.waitForTimeout(1800);
-out.topWithout = await topBandSolid();
+out.topWithout = await topBandEdges();
 const withoutPx = await grab(0, 0, W, H);
 await p.evaluate(() => {
   W.buildings = window.__keepB3;
@@ -165,7 +179,7 @@ await p.waitForTimeout(1800);
     if (Math.abs(withPx[i] - withoutPx[i]) > 6 || Math.abs(withPx[i + 1] - withoutPx[i + 1]) > 6) diff++;
   out.buildingPixels = +(100 * diff / (withPx.length / 4)).toFixed(1);
 }
-out.occludes = out.topWithBuildings > 12 &&
+out.occludes = out.topWithBuildings > 1.2 &&
                out.topWithout < out.topWithBuildings * 0.35 &&
                out.buildingPixels > 10;
 
@@ -181,14 +195,36 @@ out.occludes = out.topWithBuildings > 12 &&
    version of this measured 1.2% of the frame getting BRIGHTER when shadows were
    switched on, which is impossible and was entirely cars driving past. The two
    shadowed frames bracket the unshadowed one, and any pixel that differs between
-   them is thrown out. */
+   them is thrown out.
+
+   AND THE WORLD IS FROZEN FIRST, which the bracket alone stopped being enough
+   for. The bracket rejects a pixel that moved, and it worked while the scene was
+   flat colour: a pixel that had drifted half a metre still read almost the same.
+   Facades have windows now, so half a metre of camera drift swings a wall pixel
+   between glass and plaster, and a pixel that happens to land on plaster in both
+   bracketing frames while the middle one caught glass sails through the filter
+   as a "shadow" several shades deep. It measured 4.7% of the frame getting
+   BRIGHTER with shadows switched on, which is again impossible.
+
+   Setting state to pause stops update() and stops the loop rendering; __px3
+   renders on demand regardless, so frames can still be taken. The car does not
+   move, no traffic moves, and the chase camera — which eases towards a target
+   that is now stationary — converges within a couple of frames, which is what
+   the two warm-up renders are for. After that the three grabs genuinely differ
+   by one uniform and by nothing else. */
 await p.evaluate(() => applyTheme('day'));
 await p.waitForTimeout(600);
+await p.evaluate(() => {
+  window.__keepState3 = state;
+  state = 'pause';
+  window.__px3(0, 0, 1, 1); window.__px3(0, 0, 1, 1); window.__px3(0, 0, 1, 1);
+});
 const lit = await grab(0, 0, W, H);
 await p.evaluate(() => window.__noShadow(true));
 const unlit = await grab(0, 0, W, H);
 await p.evaluate(() => window.__noShadow(false));
 const lit2 = await grab(0, 0, W, H);
+await p.evaluate(() => { state = window.__keepState3; });
 let darker = 0, lighter = 0, drop = 0, moved = 0;
 const L = (px, i) => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
 for (let i = 0; i < lit.length; i += 4) {

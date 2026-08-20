@@ -56,6 +56,8 @@ const SEG_MAX = 24;                  // road segments longer than this split to 
    the car, and that turns out not to matter: past 300 m the fog has started and
    by 760 there is nothing left to shade. A cascaded map would fix it properly
    and is three times the code for scenery you can barely see. */
+const WHEEL_R2 = 90 * 90;            // past this a wheel is not worth the triangles
+const WIN_MIN_H = 5.5;               // shorter than this is a shed, and gets no windows
 const SHADOW_R = 170;
 const SHADOW_SIZE = 2048;
 
@@ -98,11 +100,21 @@ const SKY = {
     // the place two identical blacks meet
     sky: [.105, .062, .175], amb: [.085, .070, .135], lc: [.15, .125, .17],
     ld: [-.70, .26, -.58], shadowK: .82,
+    // overhead at dusk is nearly black; the last of the light is on the skyline
+    zen: [.035, .022, .085], glow: [.16, .09, .20],
+    // after dark a third of the windows are somebody's front room
+    glass: [.10, .11, .17], win: [1, .80, .46], winK: .32, glassE: .34,
     orb: { col: [.80, .84, 1], r: 11, halo: 3.0, ha: .12 }       // the moon
   },
   day: {
     sky: [.62, .70, .80], amb: [.34, .355, .39], lc: [.64, .60, .53],
     ld: [-.66, .30, -.64], shadowK: .58,
+    /* The zenith of the reference photograph, near enough. It is a much stronger
+       blue than the horizon, and getting that difference wrong in either
+       direction is the difference between "outdoors" and "a grey backdrop". */
+    zen: [.20, .38, .68], glow: [.30, .26, .17],
+    // daylight glass is the sky reflected in it, and almost nothing is lit
+    glass: [.30, .37, .47], win: [1, .93, .74], winK: .03, glassE: 0,
     orb: { col: [1, .95, .78], r: 17, halo: 3.6, ha: .22 }       // the sun
   }
 };
@@ -173,10 +185,30 @@ vec4 fogged(vec3 c) {
 `;
 
 const SH_LIT_V = VS_COMMON + `in vec3 aCol;
-out vec3 vC;
+in vec2 aWall;
+out vec3 vC; out vec3 vW;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
   gl_Position = p; vN = aNrm; vC = aCol; vD = p.w; vL = uLVP * vec4(aPos, 1.0);
+  /* HOW FAR ALONG THE FACADE THIS VERTEX SITS — worked out here rather than
+     stored, because it is already in the buffer twice over.
+
+     A vertical wall's tangent is its own normal turned a quarter turn in the
+     ground plane, so the horizontal coordinate of a facade is one dot product
+     with a vector every wall vertex already carries. That is a whole texture
+     coordinate for nothing, and it is CONTINUOUS ROUND A CORNER: both walls of a
+     corner measure from the same world origin, so the window grid does not jump
+     where two walls of one building meet, which is exactly what a per-wall 0..1
+     coordinate would have done.
+
+     aWall is the part that cannot be derived: how far up the wall this vertex is
+     and how tall the wall is in total. Both are needed to lay floors out from
+     the pavement instead of from an arbitrary zero, and to stop the top floor
+     being sliced in half by the roofline. Anything that is not a facade — a
+     roof, a car, a pedestrian — passes zeroes and takes the plain path. */
+  vec2 t = vec2(-aNrm.z, aNrm.x);
+  float tl = length(t);
+  vW = vec3(tl > 0.001 ? dot(aPos.xz, t / tl) : 0.0, aWall);
 }`;
 
 /* uPaint is the difference between a building and a car.
@@ -193,16 +225,90 @@ void main() {
    another, and enough of the shadow term to sit in one rather than glow in it.
    Same program, same buffer, one uniform flipped between two draw calls that
    were already separate. */
-const SH_LIT_F = FS_HEAD + `in vec3 vC;
+const SH_LIT_F = FS_HEAD + `in vec3 vC; in vec3 vW;
 uniform float uPaint;
+uniform vec3 uGlass, uWinCol;
+/* How tall a wall has to be before it gets windows. Sheds and lock-ups do not,
+   and a test sets it out of reach to render the identical frame with the facades
+   plain — which costs nothing, because the comparison is on the fast path
+   already and would be there whatever the number was. */
+uniform float uWinK, uGlassE, uWinMin;
+
+float h21(vec2 p) { return fract(sin(dot(p, vec2(41.31, 289.07))) * 43758.5453); }
+
 void main() {
   vec3 nn = normalize(vN);
   float sh = sunlit();
   float d = max(dot(nn, uLdir), 0.0);
   float s = max(nn.y, 0.0) * 0.30;
-  vec3 lit = vC * (uAmb * (1.0 + s) + uLcol * d * sh);
-  vec3 paint = vC * (0.55 + 0.45 * d * sh);
-  outC = fogged(mix(lit, paint, uPaint));
+  vec3 base = vC;
+
+  /* WINDOWS, which is the whole difference between a city and a heap of boxes.
+
+     A real street is not made of flat coloured slabs — it is rows of glass, and
+     the eye reads those rows as scale before it reads anything else. Everything
+     needed is already here: a horizontal coordinate from the vertex shader, a
+     height above the pavement, and the wall's own height to know where to stop.
+
+     The grid is anchored to the WORLD, not to the wall, so a long block's
+     windows line up along its whole length and round its corners. Floors are
+     3.15 m and bays 2.85 m, which are ordinary numbers for the kind of interwar
+     and socialist-era block the reference photograph is full of. The ground
+     floor is left plain below 2.6 m — real ground floors are shopfronts,
+     doorways and shutters, not the same window repeated — and the top 1.2 m is
+     left plain as a cornice, so the roofline does not cut a row of windows in
+     half.
+
+     ANTIALIASING IS NOT OPTIONAL HERE. A 2.85 m bay is well under a pixel by the
+     time a block is a hundred metres away, and a hard step() against a
+     sub-pixel pattern is a wall of crawling static as the camera moves. fwidth
+     gives the width of one pixel in grid units, which does two jobs: it softens
+     each window edge to exactly one pixel, and when it grows past about half a
+     cell the pattern dissolves back into plain wall — which is what a distant
+     facade looks like anyway. */
+  float win = 0.0, onLit = 0.0;
+  if (uPaint < 0.5 && vW.z > uWinMin && abs(nn.y) < 0.5) {
+    float up = vW.y, top = vW.z - 1.2;
+    if (up > 2.6 && up < top) {
+      vec2 cell = vec2(vW.x / 2.85, (up - 2.6) / 3.15);
+      vec2 f = fract(cell);
+      vec2 w = max(fwidth(cell), vec2(1e-4));
+      float mx = smoothstep(0.25 - w.x, 0.25 + w.x, f.x)
+               * (1.0 - smoothstep(0.72 - w.x, 0.72 + w.x, f.x));
+      float my = smoothstep(0.17 - w.y, 0.17 + w.y, f.y)
+               * (1.0 - smoothstep(0.66 - w.y, 0.66 + w.y, f.y));
+      win = mx * my * clamp(1.0 - max(w.x, w.y) * 2.2, 0.0, 1.0);
+      /* Which windows have a light on. Seeded from the cell's world position and
+         the building's height, so it is stable — a window does not flicker as
+         you drive past it — and no two blocks light the same pattern. */
+      onLit = step(1.0 - uWinK, h21(floor(cell) + vec2(vW.z, 0.0)));
+    }
+    /* The bottom two metres of a real wall are darker than the rest: soot,
+       rain-splash, and the pavement's own shadow. It costs one mix and it is
+       what stops a building looking like it was pasted onto the ground. */
+    base *= mix(0.70, 1.0, clamp(up / 2.6, 0.0, 1.0));
+  }
+
+  vec3 lit = base * (uAmb * (1.0 + s) + uLcol * d * sh);
+  vec3 paint = base * (0.55 + 0.45 * d * sh);
+  vec3 c = mix(lit, paint, uPaint);
+
+  if (win > 0.004) {
+    /* Glass takes very little diffuse light and a lot of whatever is opposite
+       it, so it stays dark on a lit wall and dark on an unlit one — which is why
+       a window reads as a hole rather than as a patch of paint. A lit one is
+       emissive and ignores the sun entirely.
+
+       uGlassE is what a dark window still gives back after sunset: the sky, the
+       street below it, the lamp on the corner. Without it the dusk theme's
+       ambient is so low that an unlit facade is a black rectangle with a few
+       yellow squares floating on it, and the wall next to the camera — the one
+       filling a third of the screen — has no grid at all. Daylight sets it to
+       zero, because in daylight the reflection is already in the diffuse term. */
+    vec3 g = uGlass * (uAmb * 1.30 + uLcol * d * sh * 0.55 + uGlassE);
+    c = mix(c, mix(g, uWinCol, onLit), win);
+  }
+  outC = fogged(c);
 }`;
 
 const SH_GND_V = VS_COMMON + `in float aPal;
@@ -263,6 +369,54 @@ void main() {
   outC = vec4(vC.rgb, a);
 }`;
 
+/* THE SKY, which used to be gl.clearColor and one flat number.
+
+   A real sky is never one colour. It is deep overhead and pale at the horizon,
+   because looking up is a short path through the air and looking level is a very
+   long one — and that gradient is most of what tells you a picture was taken
+   outdoors. The reference photograph makes the point better than any amount of
+   tuning: the blue directly above the roofline is several shades darker than the
+   blue between the buildings.
+
+   It is drawn as ONE TRIANGLE covering the screen, not two, and not a quad: a
+   single oversized triangle has no seam down the diagonal where the two halves
+   of a quad meet, and shades fewer fragments. gl_VertexID makes it, so it needs
+   no vertex buffer at all.
+
+   The view ray comes from the camera's own basis passed as a mat3 rather than
+   from inverting the view-projection, because the three vectors are sitting
+   right there in the view matrix and a 4×4 inverse is a hundred lines this file
+   would then have to keep correct. Scale the columns by the tangents of the half
+   angles and the interpolated result IS the world-space direction through that
+   pixel. */
+const SH_SKY_V = `#version 300 es
+uniform mat3 uCamB;
+out vec3 vDir;
+void main() {
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
+  vDir = uCamB * vec3(p, 1.0);
+  gl_Position = vec4(p, 1.0, 1.0);
+}`;
+const SH_SKY_F = `#version 300 es
+precision mediump float;
+in vec3 vDir;
+uniform vec3 uZen, uHor, uLdir, uGlow;
+out vec4 outC;
+void main() {
+  vec3 d = normalize(vDir);
+  /* pow on the height, not the height itself: a linear ramp puts the pale band
+     halfway up the screen, where no sky has ever put it. The horizon haze is a
+     thin thing hugging the skyline and the blue takes over quickly above it. */
+  float up = clamp(d.y, 0.0, 1.0);
+  vec3 c = mix(uHor, uZen, pow(up, 0.42));
+  /* Below the horizon is haze fading down, so a camera tipped forward over a
+     crest does not show a hard edge under the ground it is about to draw. */
+  c = mix(c, uHor, clamp(-d.y * 6.0, 0.0, 1.0));
+  // the sun's or moon's own glow spread into the air around it
+  float g = pow(max(dot(d, uLdir), 0.0), 5.0);
+  outC = vec4(c + uGlow * g, 1.0);
+}`;
+
 /* The shadow pass. Position in, depth out, nothing else — the fragment shader
    writes no colour because there is no colour buffer attached to write it to. */
 const SH_DEP_V = `#version 300 es
@@ -276,7 +430,8 @@ void main() {}`;
 /* ------------------------------ state ------------------------------ */
 const G3 = {
   ready: false,
-  lit: null, gnd: null, fx: null, dep: null,      // programs
+  lit: null, gnd: null, fx: null, dep: null, sky: null,   // programs
+  skyVao: null,                                   // the fullscreen triangle's empty VAO
   sm: null,                                       // the shadow map, or null
   cells: new Map(),                               // key -> built cell
   idx: new Map(),                                 // key -> buildings by centroid
@@ -290,6 +445,7 @@ const G3 = {
   // set by the test hook only: renders the identical frame with the sun's
   // shadows switched off, so a difference can be attributed to exactly one thing
   noShadow: false,
+  noWin: false, noWheels: false,
   built: 0, drawn: 0, tris: 0, shadowTris: 0
 };
 
@@ -304,6 +460,12 @@ function initGL3() {
   G3.gnd = GL.program(SH_GND_V, SH_GND_F);
   G3.fx = GL.program(SH_FX_V, SH_FX_F);
   G3.dep = GL.program(SH_DEP_V, SH_DEP_F);
+  G3.sky = GL.program(SH_SKY_V, SH_SKY_F);
+  /* A draw call with no attributes still needs SOME vertex array bound, and
+     whatever was left bound from the last mesh would have its attributes enabled
+     and its buffer read — legal, but it makes a driver fetch data nothing uses.
+     One empty VAO, made once. */
+  G3.skyVao = gl.createVertexArray();
   /* A shadow map is a nice-to-have, not a requirement. If the depth texture will
      not allocate — an old driver, a tight memory budget — uSmap.y stays zero and
      every surface reports itself fully lit, which is the picture this had before
@@ -323,6 +485,7 @@ function glContextLost() {
   G3.cells.clear();
   G3.cars = G3.fxm = null;
   G3.sm = null;
+  G3.skyVao = null;
   GL.gl = null;
 }
 
@@ -532,12 +695,18 @@ function buildCell(kx, kz) {
       const L = Math.hypot(ex, ez);
       if (L < 1e-4) continue;
       const nx = wind * ez / L, nz = -wind * ex / L;      // outward, in the ground plane
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb,
-               bx, base, bz, nx, 0, nz, wr, wg, wb,
-               bx, top, bz, nx, 0, nz, wr, wg, wb);
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb,
-               bx, top, bz, nx, 0, nz, wr, wg, wb,
-               ax, top, az, nx, 0, nz, wr, wg, wb);
+      /* aWall is (how far up this vertex is, how tall this wall is). The base is
+         a metre INTO the hill, so the height that matters to the facade is
+         measured from the ground at the footprint rather than from the buried
+         corner — otherwise a block on a slope would start its ground floor
+         underground at one end and a metre up in the air at the other. */
+      const foot = base + 1, H = top - foot;
+      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H,
+               bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H,
+               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H);
+      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H,
+               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H,
+               ax, top, az, nx, 0, nz, wr, wg, wb, H, H);
     }
     // the roof, which is the one part that genuinely needs a triangulator
     const tri = earClip(b.pts);
@@ -546,7 +715,7 @@ function buildCell(kx, kz) {
       const p0 = b.pts[tri[i]], p1 = b.pts[tri[i + 1]], p2 = b.pts[tri[i + 2]];
       const cr = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
       for (const p of cr > 0 ? [p0, p2, p1] : [p0, p1, p2])
-        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb);
+        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0);   // a roof has no facade
     }
   }
 
@@ -554,7 +723,7 @@ function buildCell(kx, kz) {
   return {
     kx, kz, x0, z0, x1, z1, y0: ymin - 2, y1: ymax + 2,
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
-    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3]])
+    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]])
   };
 }
 
@@ -576,8 +745,9 @@ function pushBox(o, p, r, g, b) {
     let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     const l = Math.hypot(nx, ny, nz) || 1;
     nx /= l; ny /= l; nz /= l;
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, bx, by, bz, nx, ny, nz, r, g, b, cx, cy, cz, nx, ny, nz, r, g, b);
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, cx, cy, cz, nx, ny, nz, r, g, b, dx, dy, dz, nx, ny, nz, r, g, b);
+    // the trailing zeroes are aWall: nothing in this stream is a facade
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, bx, by, bz, nx, ny, nz, r, g, b, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0);
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, dx, dy, dz, nx, ny, nz, r, g, b, 0, 0);
   }
 }
 
@@ -615,6 +785,66 @@ function cabinBox(src, out, side, lo, hi) {
     out[i * 3 + 2] = cz + hz * side + uz * k;
   }
   return out;
+}
+
+/* ANY SMALLER BOX INSIDE THE BODY'S OWN FRAME, in normalised coordinates where
+   ±1 is the body's own surface along forward, lateral and up. Wheels use it, and
+   it is what keeps them attached: the axes are recovered from the eight corners
+   carBox already worked out, so a wheel inherits the pitch, the roll and the
+   airborne spin exactly, with no second rotation to disagree with the first.
+
+   `l0` must stay below `l1`. The corner order matches carBox's, and reversing
+   the lateral pair would reverse the winding of every face with it — which
+   back-face culling would then turn inside out. */
+const SUBTMP = [];
+function subBox(src, out, f0, f1, l0, l1, u0, u1) {
+  const F = [], L = [], U = [], c = [];
+  for (let k = 0; k < 3; k++) {
+    F[k] = (src[3 + k] - src[k]) * .5;              // half-length, forward
+    L[k] = (src[9 + k] - src[k]) * .5;              // half-width, lateral
+    U[k] = (src[12 + k] - src[k]) * .5;             // half-height, up
+    // corner 0 is at (-1, -1, -1), so the centre is one of each away from it
+    c[k] = src[k] + F[k] + L[k] + U[k];
+  }
+  let n = 0;
+  for (const u of [u0, u1]) for (const [f, l] of [[f0, l0], [f1, l0], [f1, l1], [f0, l1]])
+    for (let k = 0; k < 3; k++) out[n++] = c[k] + F[k] * f + L[k] * l + U[k] * u;
+  return out;
+}
+
+/* FOUR WHEELS AND A BODY LIFTED OFF THE ROAD, which are one change and not two.
+
+   The reference photograph is a row of parked cars, and what makes them read as
+   cars at a glance is the dark gap under the sill with something round and black
+   in it — not the shape of the roof. carBox is a single cuboid resting on the
+   tarmac, so the paint ran all the way down to the road surface and the result
+   was a brightly coloured brick.
+
+   Adding wheels to that cuboid does nothing, and the first attempt proved it:
+   there is no gap for them to sit in, so all they can do is stand a few
+   centimetres proud of a body that already reaches the ground, which at any real
+   distance is invisible. The body has to come UP. So the painted body is drawn
+   from just over a quarter of the way up, and the wheels fill what is now empty
+   underneath it and stand slightly proud besides — which is also what puts them
+   in view from dead ahead and dead behind rather than only from the side.
+
+   carBox itself is untouched. It is the collision volume the physics uses and
+   the silhouette body3d.js reasons about; this is the same eight corners read as
+   a frame to hang two smaller shapes off, so a rolled or airborne car brings its
+   wheels with it exactly, with no second rotation to disagree with the first.
+
+   Beyond about 90 m the whole arrangement is a couple of pixels, so the plain
+   cuboid comes back — four fewer boxes per car in both the shadow pass and the
+   colour pass, and no visible seam, because at 90 m a 40 cm gap under a car is
+   well under one pixel. */
+const BODY_LO = -.56;                // where the painted body starts, up from the road
+const WHEELS = [[-.86, -.44], [.44, .86]];
+function pushCarBody(o, src, r, g, b) {
+  pushBox(o, subBox(src, SUBTMP, -1, 1, -1, 1, BODY_LO, 1), r, g, b);
+  for (const s of [-1, 1]) for (const [f0, f1] of WHEELS) {
+    subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, BODY_LO + .16);
+    pushBox(o, SUBTMP, .062, .058, .07);
+  }
 }
 
 function carColour(c) {
@@ -811,7 +1041,8 @@ function render3D() {
     if (!near(q)) return;
     const col = carColour(q);
     carBox(q, BOXTMP);
-    pushBox(dyn, BOXTMP, col[0], col[1], col[2]);
+    if (!G3.noWheels && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2) pushCarBody(dyn, BOXTMP, col[0], col[1], col[2]);
+    else pushBox(dyn, BOXTMP, col[0], col[1], col[2]);
     cabinBox(BOXTMP, BOXTMP2, .54, .72, 1.92);
     pushBox(dyn, BOXTMP2, col[0] * .30, col[1] * .34, col[2] * .44);
   };
@@ -828,7 +1059,7 @@ function render3D() {
       b.push(p.x + a * r, y + uy * h, p.y + o2 * r);
     pushBox(dyn, b, q[0] / 255, q[1] / 255, q[2] / 255);
   }
-  const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3]];
+  const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]];
   if (dyn.length) G3.cars = GL.stream(G3.cars, new Float32Array(dyn), LITATTR);
 
   /* ---- pass one: the world as the sun sees it ----
@@ -901,6 +1132,35 @@ function render3D() {
   gl.enable(gl.DEPTH_TEST);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+  /* ---- the sky, first, so everything else lands on top of it ----
+
+     No depth test and no depth write: it is behind everything by definition, and
+     the clear has just wiped the buffer anyway. The camera basis is lifted
+     straight out of the view matrix — the first three columns of a lookAt ARE
+     right, up and backward, expressed as rows — scaled so the interpolated
+     vector through a pixel is that pixel's world-space view ray. */
+  {
+    const tanY = Math.tan(1.02 / 2), tanX = tanY * Math.max(VW, 1) / Math.max(VH, 1);
+    const V = G3.V;
+    const B = new Float32Array([
+      V[0] * tanX, V[4] * tanX, V[8] * tanX,
+      V[1] * tanY, V[5] * tanY, V[9] * tanY,
+      -V[2], -V[6], -V[10]
+    ]);
+    gl.useProgram(G3.sky.p);
+    gl.uniformMatrix3fv(G3.sky.u.uCamB, false, B);
+    gl.uniform3fv(G3.sky.u.uZen, th.zen);
+    gl.uniform3fv(G3.sky.u.uHor, th.sky);
+    gl.uniform3fv(G3.sky.u.uLdir, LD);
+    gl.uniform3fv(G3.sky.u.uGlow, th.glow);
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(G3.skyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+  }
+
   if (G3.sm) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, G3.sm.tex);
@@ -940,6 +1200,11 @@ function render3D() {
 
   gl.useProgram(G3.lit.p);
   setCommon(G3.lit);
+  gl.uniform3fv(G3.lit.u.uGlass, th.glass);
+  gl.uniform3fv(G3.lit.u.uWinCol, th.win);
+  gl.uniform1f(G3.lit.u.uWinK, th.winK);
+  gl.uniform1f(G3.lit.u.uGlassE, th.glassE);
+  gl.uniform1f(G3.lit.u.uWinMin, G3.noWin ? 1e9 : WIN_MIN_H);
   gl.uniform1f(G3.lit.u.uPaint, 0);            // masonry: the theme's light makes it
   for (const cell of draw) if (cell.lit) {
     gl.bindVertexArray(cell.lit.vao);

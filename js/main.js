@@ -300,6 +300,13 @@ window.__px3 = (x, y, w, h) => {
    Comparing against a whole build without shadows would also change the light
    values, the sun disc and the depth pass; this changes one uniform. */
 window.__noShadow = v => { G3.noShadow = !!v; return G3.noShadow; };
+/* The same trick for the other two things that were added to make the view look
+   like a street rather than a diagram. Each renders the identical frame with one
+   feature suppressed and nothing else touched, so a difference between the two
+   readings can only be that feature. Windows go through a uniform the shader
+   compares against anyway; wheels are simply not built. */
+window.__noWindows = v => { G3.noWin = !!v; return G3.noWin; };
+window.__noWheels = v => { G3.noWheels = !!v; return G3.noWheels; };
 window.__project = (x, y) => toScreen(x, y).map(v => +v.toFixed(1));
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
   searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
