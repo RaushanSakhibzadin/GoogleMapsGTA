@@ -186,7 +186,7 @@ vec4 fogged(vec3 c) {
 
 const SH_LIT_V = VS_COMMON + `in vec3 aCol;
 in vec2 aWall;
-out vec3 vC; out vec3 vW;
+out vec3 vC; out highp vec3 vW;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
   gl_Position = p; vN = aNrm; vC = aCol; vD = p.w; vL = uLVP * vec4(aPos, 1.0);
@@ -210,6 +210,17 @@ void main() {
   float tl = length(t);
   vW = vec3(tl > 0.001 ? dot(aPos.xz, t / tl) : 0.0, aWall);
 }`;
+/* vW IS DECLARED highp AND HAS TO BE. It carries a world coordinate, and this
+   world is thirty-six kilometres across — so that number reaches ±18000, and the
+   whole point of it is the fractional part.
+
+   A fragment shader here runs at mediump, which is ten bits of mantissa. At
+   18000 that is a resolution of about sixteen metres, and fract() of a value
+   quantised to sixteen metres is not a window grid, it is noise that snaps
+   between two values as you drive. Desktop drivers almost all promote mediump to
+   full float, which is exactly why this cost nothing to get wrong here and would
+   have shipped broken to every phone: iOS runs mediump as genuine half
+   precision. In highp the same coordinate resolves to about a millimetre. */
 
 /* uPaint is the difference between a building and a car.
 
@@ -225,7 +236,7 @@ void main() {
    another, and enough of the shadow term to sit in one rather than glow in it.
    Same program, same buffer, one uniform flipped between two draw calls that
    were already separate. */
-const SH_LIT_F = FS_HEAD + `in vec3 vC; in vec3 vW;
+const SH_LIT_F = FS_HEAD + `in vec3 vC; in highp vec3 vW;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
 /* How tall a wall has to be before it gets windows. Sheds and lock-ups do not,
@@ -234,7 +245,20 @@ uniform vec3 uGlass, uWinCol;
    already and would be there whatever the number was. */
 uniform float uWinK, uGlassE, uWinMin;
 
-float h21(vec2 p) { return fract(sin(dot(p, vec2(41.31, 289.07))) * 43758.5453); }
+/* A HASH THAT DOES NOT USE sin(), for the same reason the varying above is
+   highp. The usual fract(sin(dot(p, k)) * 43758.5) is fine when p is a screen
+   coordinate and useless when it is a floor()ed world one: p reaches six
+   thousand here, the dot product reaches two million, and sin() of two million
+   in single precision has three bits of fraction left in its argument. Whole
+   districts would light the same window pattern, and change it as you drove.
+
+   This one folds the magnitude away in the first line — fract() BEFORE anything
+   large happens — so it keeps its full range whatever p is. */
+float h21(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
 
 void main() {
   vec3 nn = normalize(vN);
