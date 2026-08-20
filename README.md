@@ -141,6 +141,13 @@ pulls in the rest.
   eight corners, so a rolled or airborne car brings every part of itself with it and nothing can
   drift out of alignment. Past 90 m it collapses back to the two boxes, where the difference is
   under a pixel.
+- **The objective is a beacon you can see.** The top-down game paints a marker on the ground; from
+  a camera six metres up behind a car that is a thin ellipse hidden behind the next vehicle, so in
+  the chase view the pickup was on the radar, on the city map and on the screen-edge arrow and
+  nowhere out of the windscreen. It is a column of light now, fifty-five metres of it — depth
+  tested like everything else, because a light you can see through a wall reads as a bug, which is
+  exactly why it has to be taller than the street it is standing in. Landmarks get a short one at a
+  quarter of the size, within 150 m, since a garage is a convenience rather than a destination.
 - **One light, and it casts.** A sun in daylight, a moon at dusk, drawn in the sky where its own
   vector says it is, with a real shadow map under it: the world is rendered once more from the
   sun's point of view and every surface asks that depth before deciding it is lit. The light sits

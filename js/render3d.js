@@ -1306,6 +1306,69 @@ function render3D() {
     bill(b.x, by, b.y, b.r * .34, 1, .76, .42, t * t * t * .8);
   }
 
+  /* THE MARKERS, which the chase view simply did not draw.
+
+     The top-down game paints a marker on the ground at the objective and at
+     every landmark, and none of that survived the move to 3D: the pickup existed
+     on the radar and on the city map and nowhere you could see it out of the
+     windscreen. Reported, exactly, as being able to see the pink and yellow
+     things only on the map.
+
+     A ground marker is the wrong answer here anyway. From a camera six metres up
+     behind a car, a disc painted on the tarmac is a thin ellipse hidden behind
+     the next vehicle, and it is invisible from more than a street away — which
+     is most of the time, because a delivery is routinely a kilometre off. So
+     these are BEACONS: a column of light standing where the marker is.
+
+     FIFTY-FIVE METRES for the objective, which is a number and not a flourish.
+     The column is depth-tested like everything else, so a building in front of
+     it hides it, and that is right — a light you can see through a wall reads as
+     a bug. But it has to clear the roofline it is standing behind, and these
+     blocks run twenty to thirty metres, so the column has to be taller than the
+     street it is in. Landmarks get a short one instead, and only within 150 m,
+     because a garage is a convenience rather than a destination and a skyline of
+     beacons is worse than none. */
+  {
+    /* A column faces the camera about its own vertical axis, not about the
+       camera's up — a light shaft that tips over when you crest a hill stops
+       being a shaft. So the horizontal axis is the camera's right vector
+       flattened onto the ground and renormalised. */
+    let hx = camR[0], hz = camR[2];
+    const hl = Math.hypot(hx, hz) || 1;
+    hx /= hl; hz /= hl;
+    /* The UVs are what make it a flame rather than a slab. The fx shader fades
+       on length(uv), so a corner at (±1, 0) is already gone at the base edge and
+       (0, 1) is gone at the top: full brightness up the centre of the base,
+       nothing at the sides, nothing at the tip. */
+    const shaft = (x, z, h, w, cr, cg, cb, a) => {
+      const y = terrainH(x, z);
+      const v = [[-1, 0], [1, 0], [1, 1], [-1, 0], [1, 1], [-1, 1]];
+      for (const [u, t] of v)
+        add.push(x + hx * w * u, y + .25 + h * t, z + hz * w * u, cr, cg, cb, a, u, t);
+    };
+    // and a corona on the tarmac underneath it, so the spot itself is marked
+    const corona = (x, z, r, cr, cg, cb, a) => {
+      const v = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+      for (const [u, t] of v)
+        add.push(x + u * r, terrainH(x + u * r, z + t * r) + .30, z + t * r, cr, cg, cb, a, u, t);
+    };
+    const tgt = MISSION.state === 'pickup' ? MISSION.pick
+              : MISSION.state === 'deliver' ? MISSION.drop : null;
+    if (tgt) {
+      const q = parseColour(MISSION.state === 'pickup' ? '#ff4fd8' : GOLD) || [255, 79, 216];
+      const cr = q[0] / 255, cg = q[1] / 255, cb = q[2] / 255;
+      shaft(tgt.x, tgt.y, 55, 3.4, cr, cg, cb, .42);
+      shaft(tgt.x, tgt.y, 26, 1.6, cr, cg, cb, .34);      // a brighter core
+      corona(tgt.x, tgt.y, 6.5, cr, cg, cb, .40);
+    }
+    for (const p of W.pois) {
+      if (dist2(p.x, p.y, cam.x, cam.y) > 150 * 150) continue;
+      const q = parseColour(POI_COL[p.kind]) || [255, 255, 255];
+      shaft(p.x, p.y, 13, 1.5, q[0] / 255, q[1] / 255, q[2] / 255, .30);
+      corona(p.x, p.y, 3.2, q[0] / 255, q[1] / 255, q[2] / 255, .26);
+    }
+  }
+
   /* THE STREET LIGHTS, which are most of what this game looks like after dark.
      The 2D view blits a pre-tinted glow sprite for each; here they are additive
      billboards standing six metres up, which is where a lamp is. Same list, same
