@@ -197,7 +197,9 @@ function loadOfflineCity() {
   if (offlinePromise) return offlinePromise;
   offlinePromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'data/belgrade.js';
+    // stamped like everything else, so a new build never pairs a fresh world.js
+    // with four megabytes of city cached from an older one
+    s.src = 'data/belgrade.js' + (window.BUILD ? '?v=' + window.BUILD : '');
     s.onload = () => window.OFFLINE_CITY ? resolve(window.OFFLINE_CITY)
                                          : reject(new Error('offline city empty'));
     s.onerror = () => reject(new Error('offline city missing'));
