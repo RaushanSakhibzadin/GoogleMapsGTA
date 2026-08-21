@@ -106,24 +106,53 @@ out.getsPast = out.clearRoad.movedM > 60 && out.wantedOneStar.movedM > 60 &&
    stopped testing anything the day traffic outside the view stopped being
    simulated: both cars were culled on the frame after they were placed, the loop
    watched an empty list for 1.8 s, and "neither car was damaged" came back as a
-   failure of the collision model rather than of the staging. 28 m keeps them on
-   screen and still clear of the player's own collision radius. */
+   failure of the collision model rather than of the staging.
+
+   AND IT IS THE PLAYER THAT DOES THE HITTING, not two AI cars aimed at each
+   other. It used to be two traffic cars nine metres apart closing at 15 m/s
+   each, which worked until traffic learned to keep right: two cars travelling
+   opposite ways along one road now steer into their own lanes, about four metres
+   apart, and slide past each other. Measured across runs it became a coin toss —
+   [79.8, 100] on one and [85.6, 85.2] on the next, against a clean symmetric
+   [79.1, 79.1] before the lane offset existed. Nothing was broken; the staging
+   had started depending on a bug that had been fixed.
+
+   The player has no lane-keeping to steer it off the line, so aiming it at a
+   stationary car is deterministic — and it exercises the thing this section is
+   actually about, since massOf() gives the player three times a civilian's mass
+   and that asymmetry is what "mass didn't break the crashes" means. */
 out.headOn = await p.evaluate(async () => {
-  window.__tp(0, -28, 0);
-  window.__putTraffic(0, 0, 0, 0, null, 15, 0);
-  window.__putTraffic(1, 9, 0, Math.PI, null, -15, 0);
-  window.__setCarHp('traffic', 0, 100); window.__setCarHp('traffic', 1, 100);
-  const ids = window.__cars().traffic.slice(0, 2).map(t => t.id);
-  const low = { [ids[0]]: 100, [ids[1]]: 100 };
+  window.__ghost(false);
+  window.__heal();
+  window.__tp(0, 0, 0);
+  /* TEN METRES, NOT TWENTY, and the impact inside a third of a second.
+
+     The target is a traffic car and traffic drives: at twenty metres it had
+     accelerated away and steered into its lane before the player arrived, so the
+     player hit something else and the civilian came back untouched on two runs
+     out of three. Ten metres at 26 m/s closes in 0.38 s, in which an AI car
+     pulling 7 m/s² from rest covers half a metre. It is still there when the
+     player gets to it. */
+  window.__putTraffic(0, 10, 0, Math.PI, null, 0, 0);
+  window.__setCarHp('traffic', 0, 100);
+  const id = window.__cars().traffic[0].id;
+  let lowT = 100, lowP = 100;
+  P.car.vx = 26; P.car.vy = 0;                 // straight at it, no steering
   const t0 = performance.now();
   await new Promise(res => {
     const tick = () => {
-      for (const t of window.__cars().traffic) if (t.id in low) low[t.id] = Math.min(low[t.id], t.hp);
-      performance.now() - t0 < 1800 ? requestAnimationFrame(tick) : res();
+      window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
+      for (const t of window.__cars().traffic) if (t.id === id) lowT = Math.min(lowT, t.hp);
+      lowP = Math.min(lowP, window.__p().hp);
+      performance.now() - t0 < 1200 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
-  return { lowest: ids.map(i => low[i]), bothHurt: ids.every(i => low[i] < 100) };
+  window.__setInput(null);
+  const t = window.__cars().traffic.find(q => q.id === id);
+  return { lowest: [+lowT.toFixed(1), +lowP.toFixed(1)],
+           targetMoved: t ? +Math.hypot(t.x - 10, t.y).toFixed(1) : null,
+           bothHurt: lowT < 100 && lowP < 100 };
 });
 
 await p.screenshot({ path: `${OUT}/shot-stuck.png` });
