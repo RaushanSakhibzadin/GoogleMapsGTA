@@ -7,7 +7,7 @@ failed.
 
 ```
 npm install --prefix tests          # playwright
-node tests/run.mjs                  # all of it, about 40 minutes
+node tests/run.mjs                  # all of it, about 30 minutes
 node tests/run.mjs --fast           # skipping the long ones
 node tests/run.mjs real ring        # just those
 node tests/real.mjs emptyMirror     # a scenario, straight to the report
@@ -147,6 +147,56 @@ eight ring tiles, the scenery and the landmarks, each racing the mirrors
 independently, so counting a host's requests across the whole load counts
 separate questions and calls them retries. The first version did exactly that and
 reported three retries where there were none.
+
+`throttle.mjs` is the other half of that log, and the thing it establishes is not
+the one it set out to. A host answered **429** and was then asked six more times
+in the following minute, refusing each in about 200 ms, because a single miss
+could not move it down a queue in which everybody else was also picking up misses
+for being slow. The obvious fix — sort a throttled host to the back — measured
+**nothing at all**: eleven asks before, eleven after. Almost every request drains
+the whole queue, since a silent mirror holds its slot until the hedge fires and an
+empty answer hands straight on by design, so the back of the queue is the front
+with a delay. Leaving parked hosts out of the queue is what took it to **one**.
+
+| build                                | asks to the throttled host |
+|--------------------------------------|----------------------------|
+| no parking at all                     | 11                        |
+| parked, but sorted last               | 4                         |
+| parked and left out                   | **1**                     |
+| the same host answering 504 instead   | 11                        |
+
+The A/B is between two **real server behaviours**, not between a build and a
+flag: the same scenario runs once with the bad host refusing 429 and once with it
+refusing 504 — same transient class, same instant refusal, same single miss, no
+instruction attached. Nothing in the file calls `mirrorPark()` itself, because a
+test that parks a host by hand and then observes it parked proves only that a Map
+works.
+
+And the header the whole feature is named after is usually **invisible**.
+`Retry-After` is not CORS-safelisted, so a cross-origin `fetch` cannot read it
+unless the server sends `Access-Control-Expose-Headers` — fulfilling a 429 with
+`Retry-After: 120` reads back `null`, and the identical reply with the expose
+header reads back `"120"`. So the status code carries the fix and a sixty-second
+default does the work. The parsing is still tested directly rather than through a
+load, because an unparseable header and an absent one fall back to the same
+default and a load-level test would pass against the broken version: reading the
+HTTP-date form with `parseFloat` gives `NaN`, which fell through to "no delay
+given", the exact opposite of what the header said.
+
+`stamp.mjs` guards the thing that made two rounds of work invisible to the person
+who asked for it. Every script and stylesheet is fetched with `?v=<hash>` over
+the contents of all of them together, and this test recomputes that hash and
+fails if `index.html` disagrees — so editing any `.js` and forgetting to run
+`node tools/stamp.mjs` cannot ship. It then opens the stamped page for real,
+because a stamp changes how every file in the program is *fetched*: a stray quote
+or a mangled path gives an `index.html` that parses fine and loads nothing. One
+line appended to `js/util.js` turns every assertion in it red.
+
+It also caught its own tooling. `tools/stamp.mjs` guarded its command-line half
+with `argv[1].endsWith('stamp.mjs')`, which matched the **test's** name too — so
+importing the module ran the CLI, printed a line and called `process.exit(0)`
+before a single assertion had run. It exited zero, so the suite would have called
+it a pass.
 
 A **second** reported session added the rule about which kind of no costs what.
 A host answered *nothing*, in about 300 ms, to every query it was given across
