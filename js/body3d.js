@@ -95,15 +95,50 @@ function groundCar(c, throttle, brake, dt) {
      fired out of a cannon. */
   if (c.z === undefined || Math.abs(c.z - gz) > 40) {
     c.z = gz; c.vz = 0; c.air = false; c.climb = 0; c.gz = gz;
-    c.rise = 0; c.pv = c.rv = 0;
+    c.pv = c.rv = 0;
   }
 
-  // how fast the ground under the car is rising, and how fast THAT is changing
-  const rise = dt > 0 ? (gz - c.gz) / dt : 0;
-  const need = dt > 0 ? (rise - (c.rise || 0)) / dt : 0;
+  /* THE SHAPE OF THE GROUND ALONG THE PATH, measured in SPACE.
+
+     Two samples either side of the car, one wheelbase apart, give the slope and
+     the curvature of the ground the car is driving over. Both are properties of
+     the terrain and the heading alone: at a given spot, going a given way, they
+     are the same numbers on a 30 fps phone and a 144 fps desktop, and the same
+     numbers twice in a row if the car is standing still.
+
+     THAT IS THE WHOLE POINT, and it is what the previous version got wrong. It
+     measured the same quantity by differencing the ground height across frames
+     TWICE — a rise from the last frame's height, and then an acceleration from
+     the last frame's rise. A second difference divided by dt², at dt = 1/60, has
+     a factor of 3600 in front of it: three millimetres of disagreement between
+     consecutive frames comes out as eleven metres per second squared, which is
+     the launch threshold. Measured on flat-out driving over ordinary ground, 3%
+     of all frames crossed it, the car left the ground twelve times in sixteen
+     seconds for a frame and a half each, and the demanded acceleration peaked at
+     ten times gravity. Those are not jumps. They are a car that loses its
+     throttle for a frame — drive() hands over entirely while airborne — and pays
+     landCar's speed scrub on the way back down, over and over, which is what a
+     player feels as the car stopping for no reason and the nose tipping about.
+     And that was at a rock-steady frame time; a phone jitters. */
+  const spd = Math.hypot(c.vx, c.vy);
+  let slope = 0, curve = 0;
+  if (spd > 0.5) {
+    const ux = c.vx / spd, uy = c.vy / spd;
+    /* Three metres, which is a bit over half a car. Small enough to resolve the
+       sharpest thing the terrain generates — a 70 m crest, sampled seventeen
+       times a wavelength, comes out within 1% of its true curvature — and large
+       enough that the car is answering to ground it could actually sit on rather
+       than to the texture between its wheels. */
+    const S = 3;
+    const hA = terrainH(c.x - ux * S, c.y - uy * S);
+    const hB = terrainH(c.x + ux * S, c.y + uy * S);
+    slope = g.gx * ux + g.gy * uy;          // how steeply it rises ahead
+    curve = (hA - 2 * gz + hB) / (S * S);   // and how fast that slope is changing
+  }
+  // the vertical acceleration staying on the ground would demand of the car
+  const need = spd * spd * curve;
   c.gz = gz;
-  c.rise = rise;
-  c.climb += (rise - c.climb) * decay(16, dt);
+  c.climb = spd * slope;                    // how fast it is genuinely climbing
 
   /* THE CREST, stated the way it actually works.
 
@@ -117,20 +152,25 @@ function groundCar(c, throttle, brake, dt) {
      Stating it this way rather than as "is the car higher than the road" is what
      makes speed the thing that decides. The same crest is a bump you feel at
      fifty and a ramp at three hundred, without a single speed-dependent constant
-     anywhere — because v² is already in the measurement. The earlier version
-     compared predicted height against ground height with a fixed 22 cm
-     threshold, which is not a physical quantity at all: it needed the ground to
-     drop 13 metres a second faster than the car was climbing, and nothing on any
-     terrain this generates has ever done that at any speed.
+     anywhere — because v² is already in the measurement.
+
+     With the curvature read off the terrain instead of off the frame clock, the
+     sharpest crest this generates needs about 117 km/h to launch from, and
+     ordinary driving produces none at all.
 
      The speed floor is still there, because at walking pace the same geometry is
      a kerb and a car hopping out of a driveway is a bug. */
-  if (!c.air && need < -GRAV && Math.hypot(c.vx, c.vy) > LAUNCH_MIN) {
+  if (!c.air && need < -GRAV && spd > LAUNCH_MIN) {
     c.air = true;
-    c.z = gz;
-    c.vz = Math.max(rise, 0.4);          // it leaves along the ramp, not off it
-    // and keeps rotating the way the ramp was turning it
-    c.pv = clamp(-c.climb * 0.10, -1.1, 1.1);
+    // a hair clear of the ground, so the first airborne frame does not land again
+    c.z = gz + 0.02;
+    c.vz = spd * slope;                  // it leaves along the ramp, not off it
+    /* and keeps rotating the way the ramp was turning it. The pitch of a car on
+       the ground is atan of the slope, so the rate the ramp was pitching it is
+       v times the curvature — the same two numbers again, no new constant.
+       Halved because a full continuation puts a lot of rotation into a short
+       hop, and the tumble is more readable when the ramp only starts it. */
+    c.pv = clamp(spd * curve * 0.5, -1.1, 1.1);
     c.rv = 0;
     return;
   }
@@ -197,9 +237,7 @@ function flyCar(c, throttle, brake, steerIn, dt) {
    disagreed with the ground it hit. */
 function landCar(c, gz) {
   const drop = -c.vz;
-  // resync the ground tracker, or the frame after touchdown sees the whole
-  // height of the jump as one frame's worth of ground movement and launches again
-  c.z = gz; c.air = false; c.vz = 0; c.climb = 0; c.gz = gz; c.rise = 0;
+  c.z = gz; c.air = false; c.vz = 0; c.climb = 0; c.gz = gz;
 
   const t = groundAttitude(c, terrainGrad(c.x, c.y));
   const dr = Math.abs(angDiff(c.roll, t.roll));

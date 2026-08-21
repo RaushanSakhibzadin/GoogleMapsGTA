@@ -127,26 +127,116 @@ out.rolls = await p.evaluate(async s => {
    it from rest. */
 out.rollsDownhill = out.rolls.moved > 0.25 && out.rolls.dropped > 0.008;
 
-/* ---------- 4. coasting goes further downhill than up ---------- */
-const coast = dir => p.evaluate(async a => {
-  const [s, sign] = a;
+/* ---------- 4. the grade changes the speed a coast keeps ---------- */
+/* THE COMPARISON IS TERRAIN ON AGAINST TERRAIN OFF, SAME STREET, SAME DIRECTION —
+   and arriving at that took discarding two earlier versions of this section, both
+   of which measured something other than what they claimed.
+
+   The first coasted three seconds each way and required the downhill run to
+   travel 1.4× as far. That threshold was calibrated against a build whose launch
+   condition fired on frame-timing noise: the downhill run kept twitching into the
+   air, where flyCar applies decay(.12) instead of the road's decay(.32), so much
+   of the 41 m it managed was a LOW-DRAG GLIDE rather than gravity. With the
+   launch condition fixed the same run covers 23 m. The test was measuring the bug
+   it was meant to be independent of.
+
+   The second compared the SPEED kept uphill against downhill, which is the right
+   quantity but still the wrong pairing. Measured against a build with the grade
+   force deleted outright, downhill still came out 1.99 m/s faster than uphill —
+   because the two runs drive opposite ways along a street with different
+   junctions, kerbs and widths at each end. Against 2.6 m/s with the grade force
+   in, that is a confound almost as large as the signal, and any threshold
+   between them is fitted to the noise rather than derived from anything.
+
+   TERRAIN is the flag that gates every vertical term in the physics, and it is
+   assigned in exactly one place — setMode3D. So a test can turn it off WITHOUT
+   leaving the chase view, and then the same car, on the same street, pointing
+   the same way, for the same second, differs between two runs by the grade force
+   and nothing else. Uphill it must arrive slower, downhill faster, and the size
+   of both is SLOPE_G × gradient × time, derived from the constants rather than
+   fitted to a run.
+
+   STAYING IN 3D FOR BOTH IS THE POINT. The first attempt at this pairing coasted
+   in 2D against 3D, which looks like the same idea and is not: headless Chromium
+   rasterises WebGL in software at about 8 fps against 60 for the canvas, the
+   coast is a wall-clock second, and the physics clock is stepped per frame — so
+   the 3D run simulated a fraction of the time and arrived FASTER uphill, by 2.7
+   m/s in the wrong direction. Toggling the flag alone leaves the frame rate,
+   the renderer and everything else identical. */
+const coast = (dir, terrain) => p.evaluate(async a => {
+  const [s, sign, on] = a;
+  TERRAIN = on;                       // the chase view stays up either way
   const h = s.up + (sign > 0 ? 0 : Math.PI);
   window.__tp(s.x, s.y, h);
   window.__setInput({ steer: 0, gas: 0, brake: 0, hand: 0 });
-  // a rolling start, then nothing but drag and the hill
+  // a rolling start, then nothing but drag and — with TERRAIN on — the hill
   P.car.vx = Math.cos(h) * 30; P.car.vy = Math.sin(h) * 30;
   const x0 = P.car.x, y0 = P.car.y;
-  await new Promise(r => setTimeout(r, 3000));
-  return +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1);
-}, [out.slope, dir]);
-out.coastUp = await coast(1);
-out.coastDown = await coast(-1);
-/* 1.4, not 1.25. The two runs start at the same place and drive opposite ways
-   down the same street, so they meet different junctions and different kerbs —
-   a build with the grade force removed entirely still came out at 1.21 from road
-   conditions alone, against 1.67 with it. The threshold sits between them rather
-   than just above the noise. */
-out.fasterDownhill = out.coastDown > out.coastUp * 1.4;
+  let launched = false;
+  const watch = setInterval(() => { if (P.car.air) launched = true; }, 16);
+  await new Promise(r => setTimeout(r, 1000));
+  clearInterval(watch);
+  return { m: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
+           ms: +Math.hypot(P.car.vx, P.car.vy).toFixed(2),
+           // the height it actually gained or lost over the stretch it covered
+           rise: +(window.__terrain(P.car.x, P.car.y).h - window.__terrain(x0, y0).h).toFixed(2),
+           launched };
+}, [out.slope, dir, terrain]);
+/* THREE PAIRS EACH WAY, INTERLEAVED, AND THE MEDIAN OF THE DIFFERENCES.
+
+   The quantity being measured is small — a fifth of a metre per second on the
+   stretch this street actually offers — and repeated runs of the same coast
+   wander by about a metre per second as traffic ends up in different places. A
+   single pair cannot resolve it: one run of this measured the downhill flat
+   coast at 10.85 m/s and the next at 9.80, which is five times the effect.
+
+   Pairing is what removes it. Each flat run is immediately followed by its hill
+   run, so both see the same traffic and the same conditions, and whatever has
+   drifted since the last pair is common to both and subtracts out. Three pairs
+   and a median then discards the one that catches a car at a junction. */
+const pairs = async dir => {
+  const diffs = [], rows = [];
+  for (let i = 0; i < 3; i++) {
+    const flat = await coast(dir, false);
+    const hill = await coast(dir, true);
+    rows.push({ flat: flat.ms, hill: hill.ms, rise: hill.rise, m: hill.m,
+                launched: flat.launched || hill.launched });
+    // uphill the hill must COST speed, downhill it must GIVE it: signed so that
+    // both directions are "how much the grade was worth", positive when right
+    diffs.push(dir > 0 ? flat.ms - hill.ms : hill.ms - flat.ms);
+  }
+  const med = diffs.slice().sort((a, b) => a - b)[1];
+  const last = rows[rows.length - 1];
+  return { rows, worth: +med.toFixed(2), rise: last.rise, m: last.m,
+           launched: rows.some(r => r.launched) };
+};
+out.up = await pairs(1);
+out.down = await pairs(-1);
+await p.evaluate(() => { TERRAIN = true; });
+out.upFlat = out.up.rows[0]; out.downFlat = out.down.rows[0];
+
+/* THE GRADIENT THE CAR ACTUALLY DROVE, not the one the street advertises.
+   The hunt picks the steepest segment of 70 m or more, but a one-second coast
+   from 30 m/s covers only the first seventeen of them, and terrain built from
+   four octaves of noise does not hold one gradient over a whole block — the
+   stretch actually driven came out at less than half the segment's average, and
+   in an earlier run of this it sloped the other way entirely, which is what put
+   a minus sign in front of a number the test was expecting to be positive. So
+   the expected figure is derived from the height the car really gained. */
+const expect = r => +(11 * Math.abs(r.rise) / Math.max(r.m, 1) * 1.0).toFixed(2);
+out.upExpected = expect(out.up);
+out.downExpected = expect(out.down);
+out.climbCost = out.up.worth;        // uphill: terrain costs speed
+out.descentGain = out.down.worth;    // downhill: terrain gives it
+/* Half the predicted figure each way, which leaves room for the second-order
+   drag term — a car going faster sheds more — without leaving room for zero.
+   With the grade force deleted both read exactly 0.00, because TERRAIN is then
+   the only difference between two runs that are otherwise the same run. */
+out.fasterDownhill = out.up.rise > 0 && out.down.rise < 0 &&
+                     out.climbCost > out.upExpected * 0.4 &&
+                     out.descentGain > out.downExpected * 0.4;
+// and no coast may have left the ground, or the drag is not the drag assumed
+out.coastStayedDown = !out.up.launched && !out.down.launched;
 
 /* ---------- 5. the speed ceiling lifts downhill ---------- */
 /* A visible descent that leaves the speedometer pinned to exactly the same
@@ -295,6 +385,7 @@ out.pass =
   out.hillsAreReal &&
   out.rollsDownhill &&
   out.fasterDownhill &&
+  out.coastStayedDown &&
   out.liftsTheCeiling &&
   out.launches && out.landsOnTheGround &&
   out.airControls &&
