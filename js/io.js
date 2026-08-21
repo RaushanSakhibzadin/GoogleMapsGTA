@@ -319,14 +319,45 @@ function resize() {
      under load, and never once on an idle machine. */
   if (typeof state !== 'undefined' && state === 'map') { mapClamp(); drawBigMap(); }
 }
-addEventListener('resize', resize);
-addEventListener('orientationchange', resize);
+/* AND AGAIN ONCE IT HAS STOPPED MOVING.
+
+   A viewport change on a phone is an ANIMATION, and the events arrive during it,
+   not after. The last one can easily carry a height that was true for a fraction
+   of a second and is wrong by the time anybody looks — and since nothing fires
+   afterwards, that wrong value is the one the layout keeps.
+
+   Reported as the game filling the top two thirds of the screen with a band of
+   background under it, and the numbers say exactly which animation did it: the
+   phone reported a 699 px window and the layout was sitting at about 482. The
+   difference is 217 px, which is an iPhone keyboard. Typing a place name into
+   the menu opens it; pressing DRIVE blurs the field and it starts sliding away;
+   a visualViewport resize fires while it is still half on screen, and by then
+   the input is no longer focused so the guard in syncViewport lets the value
+   through. The keyboard finishes closing in silence and the game stays squashed
+   for the rest of the session.
+
+   So every viewport event is followed by a few more measurements spread over the
+   next second. They are idempotent and cost a getBoundingClientRect each, the
+   timers are replaced rather than stacked, and after any animation the LAST word
+   belongs to a measurement taken when nothing was moving. */
+let settleTs = [];
+function resizeSettle() {
+  for (const t of settleTs) clearTimeout(t);
+  settleTs = [90, 260, 550, 900].map(ms => setTimeout(resize, ms));
+}
+function resizeNow() { resize(); resizeSettle(); }
+addEventListener('resize', resizeNow);
+addEventListener('orientationchange', resizeNow);
+/* The blur itself, as well. The keyboard starts closing the moment the field
+   loses focus, and this is the one case where we know an animation has begun
+   without being told its height. */
+addEventListener('focusout', resizeSettle, true);
 /* The URL bar slides away as you scroll and back as you stop, and neither fires
    a window resize on Android — the visual viewport is the only thing that
    reports it. */
 if (window.visualViewport) {
-  visualViewport.addEventListener('resize', resize);
-  visualViewport.addEventListener('scroll', resize);
+  visualViewport.addEventListener('resize', resizeNow);
+  visualViewport.addEventListener('scroll', resizeNow);
 }
 
 const cam = { x: 0, y: 0, s: 9.4, shake: 0 };
