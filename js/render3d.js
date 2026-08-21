@@ -1506,7 +1506,28 @@ function render3D() {
        on length(uv), so a corner at (±1, 0) is already gone at the base edge and
        (0, 1) is gone at the top: full brightness up the centre of the base,
        nothing at the sides, nothing at the tip. */
+    /* AND IT FADES OUT AS YOU REACH IT, for the same reason the street lamps do:
+       a billboard seen from the inside is a wash over the whole screen.
+
+       This was reported after being BUSTED, which is the case that makes it
+       unavoidable — you are booked at the station and respawn on the kerb beside
+       it, which is to say standing inside that station's own beacon. Measured, a
+       beacon at zero distance lifts the mean brightness of the ENTIRE frame from
+       28.1 to 34, a pale haze across the road that decays to nothing by about a
+       hundred metres. Nothing is blown out and no single pixel looks wrong, which
+       is why it reads as fog rather than as a bug.
+
+       The shaft is the part that has to go: it is a vertical billboard the camera
+       can be inside, and it is tallest and widest exactly where it is least
+       useful, because a column marking a spot you are already standing on tells
+       you nothing. The corona stays — it is flat on the tarmac, seen from six
+       metres up, and it is the right marker at arm's length. */
+    const fadeIn = (x, z, near, span) => {
+      const d = Math.hypot(x - G3.cam.ex, z - G3.cam.ez);
+      return clamp((d - near) / span, 0, 1);
+    };
     const shaft = (x, z, h, w, cr, cg, cb, a) => {
+      if (a <= 0.004) return;
       const y = terrainH(x, z);
       const v = [[-1, 0], [1, 0], [1, 1], [-1, 0], [1, 1], [-1, 1]];
       for (const [u, t] of v)
@@ -1523,14 +1544,22 @@ function render3D() {
     if (tgt) {
       const q = parseColour(MISSION.state === 'pickup' ? '#ff4fd8' : GOLD) || [255, 79, 216];
       const cr = q[0] / 255, cg = q[1] / 255, cb = q[2] / 255;
-      shaft(tgt.x, tgt.y, 55, 3.4, cr, cg, cb, .42);
-      shaft(tgt.x, tgt.y, 26, 1.6, cr, cg, cb, .34);      // a brighter core
+      /* Gone under sixteen metres and at full strength by forty-two. The pickup
+         itself triggers at seven, so the column is there for the whole approach
+         and only stands down once you are close enough that the corona under
+         your wheels is the clearer marker. */
+      const k = fadeIn(tgt.x, tgt.y, 16, 26);
+      shaft(tgt.x, tgt.y, 55, 3.4, cr, cg, cb, .42 * k);
+      shaft(tgt.x, tgt.y, 26, 1.6, cr, cg, cb, .34 * k);      // a brighter core
       corona(tgt.x, tgt.y, 6.5, cr, cg, cb, .40);
     }
     for (const p of W.pois) {
       if (dist2(p.x, p.y, cam.x, cam.y) > 150 * 150) continue;
       const q = parseColour(POI_COL[p.kind]) || [255, 255, 255];
-      shaft(p.x, p.y, 13, 1.5, q[0] / 255, q[1] / 255, q[2] / 255, .30);
+      // a shorter column, so a shorter fade — but the same rule, and this is the
+      // one you end up standing in after a bust or a trip to the hospital
+      shaft(p.x, p.y, 13, 1.5, q[0] / 255, q[1] / 255, q[2] / 255,
+            .30 * fadeIn(p.x, p.y, 10, 18));
       corona(p.x, p.y, 3.2, q[0] / 255, q[1] / 255, q[2] / 255, .26);
     }
   }

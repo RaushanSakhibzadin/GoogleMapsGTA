@@ -60,8 +60,19 @@ for (const name of names) {
     else {
       failed++;
       console.log(`FAIL  ${r.secs.toFixed(0)}s`);
-      // the last few lines are where the report says what it did not like
-      console.log(r.out.split('\n').slice(-24).map(l => '    ' + l).join('\n'));
+      /* THE WHOLE REPORT, not the tail of it.
+
+         This printed the last 24 lines, on the reasoning that a report ends with
+         its verdict. It does — but the verdict is `pass: false`, and WHICH
+         assertion produced it is a boolean somewhere further up. A test that
+         failed twice in a suite and passed six times on its own could not be
+         diagnosed from the output at all: every number in the visible tail was
+         healthy, and the one line that would have said why had scrolled off.
+
+         These reports are a few dozen lines. Printing all of them costs nothing
+         next to a thirty-minute run, and a failure nobody can read is a failure
+         nobody can fix. */
+      console.log(r.out.split('\n').map(l => '    ' + l).join('\n'));
     }
   }
 }

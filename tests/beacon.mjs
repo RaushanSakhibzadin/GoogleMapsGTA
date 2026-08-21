@@ -184,8 +184,64 @@ if (out.poi) {
   out.landmarkVisible = true;      // no landmark in the bundled city: nothing to check
 }
 
+/* ---------- 4. it stands down when you are standing in it ---------- */
+/* Reported after being BUSTED, which is the case that makes it unavoidable: you
+   are booked at the station and respawn on the kerb beside it, which is to say
+   inside that station's own beacon. An additive billboard seen from the inside is
+   a wash over the whole screen — the same thing the street lamps fade for, and
+   for the same reason.
+
+   WHAT IS MEASURED IS THE MEAN BRIGHTNESS OF THE ENTIRE FRAME, not the beacon.
+   That is the shape of the fault: nothing is blown out, no single pixel looks
+   wrong, and it reads as fog rather than as a bug — which is precisely why it
+   survived three rounds of looking at screenshots. On the build without the fade
+   a beacon at zero distance lifted the frame from 28.1 to 34.0, and every
+   distance from there to about a hundred metres was brightened in proportion.
+
+   The sweep also has to show the beacon still WORKS: brightest in the middle
+   distance, where a column marking somewhere to drive to is worth having. A fade
+   that simply turned it off everywhere would pass a near-field check on its own,
+   so the far readings are what stop this being satisfied by deleting the
+   feature. */
+{
+  const meanAt = d => p.evaluate(dd => {
+    const c = P.car;
+    MISSION.state = 'pickup';
+    MISSION.pick = dd === null ? null
+                 : { x: c.x + Math.cos(c.h) * dd, y: c.y + Math.sin(c.h) * dd };
+    if (dd === null) MISSION.state = 'none';
+    window.__px3(0, 0, 1, 1);
+    const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+    const px = window.__px3(0, 0, w, h);
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4)
+      sum += .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+    return +(sum / (px.length / 4)).toFixed(2);
+  }, d);
+
+  const base = await meanAt(null);
+  const sweep = {};
+  for (const d of [0, 8, 20, 35, 60, 400]) sweep[d] = await meanAt(d);
+  out.wash = { base, sweep };
+  /* Standing on it must be indistinguishable from it not being there. A quarter
+     of a luma unit is around the noise floor of a frozen frame; the fault was six,
+     and it measures 0.01 with the fade in. */
+  out.noWashUpClose = sweep[0] - base < 0.25;
+  /* And it is still a beacon at the range you would be looking for one. This is
+     the half that stops the whole thing being satisfied by deleting the feature —
+     a fade that turned the column off everywhere would sail through the check
+     above. The exact height of the peak depends on where in the city the car
+     stopped and how much sky is behind the column, so what is asserted is that
+     there is clearly something there, not how much. */
+  out.stillVisibleAtRange = sweep[20] - base > 0.5;
+  // fading in, not snapping on: brighter with distance across the whole near field
+  out.fadesInSmoothly = sweep[0] <= sweep[8] && sweep[8] <= sweep[20];
+}
+
 out.errs = errs;
-out.pass = out.visible && out.reachesAboveTheRoofline && out.landmarkVisible && !errs.length;
+out.pass = out.visible && out.reachesAboveTheRoofline && out.landmarkVisible &&
+           out.noWashUpClose && out.stillVisibleAtRange && out.fadesInSmoothly &&
+           !errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);
