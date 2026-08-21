@@ -786,6 +786,7 @@ function buildCell(kx, kz) {
      on one leg with daylight under the other three. */
   const bs = G3.idx.get(cellKey(kx, kz));
   if (bs) for (const b of bs) {
+    if (b.mono) { monument(lit, b, note); continue; }
     const n = b.pts.length;
     let base = Infinity;
     for (let i = 0; i < n; i++) { const h = terrainH(b.pts[i].x, b.pts[i].y); if (h < base) base = h; }
@@ -831,6 +832,60 @@ function buildCell(kx, kz) {
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
     lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]])
   };
+}
+
+/* A MEMORIAL, built rather than drawn.
+
+   Four courses, because that is what a monument is when you strip it to blocks
+   you can see from a car: steps at the bottom, a plinth, a shaft, and something
+   on top. Getting the proportions right matters far more than detail at this
+   distance — a figure is a tenth of the height and the plinth is a third, and a
+   shape with those ratios reads as a monument at two hundred metres while a
+   plain column reads as a chimney.
+
+   Stone, not masonry, and NO aWall on any of it: the window shader keys on a
+   wall's height being non-zero, and rows of lit windows up a statue would be
+   worse than leaving the square empty. The figure is bronze and much darker,
+   which is what separates a monument from a pillar at a glance. */
+const MONU_TOP = { obelisk: [.62, .70, .62], monument: [.36, .40, .34],
+                   statue: [.30, .34, .30], memorial: [.34, .38, .32] };
+function monument(lit, b, note) {
+  const kind = (b.mono && b.mono.kind) || 'memorial';
+  // the footprint's own radius, so a mapped outline keeps its real size
+  let rx = (b.bb.x1 - b.bb.x0) * .5, rz = (b.bb.y1 - b.bb.y0) * .5;
+  rx = clamp(rx, 1.6, 9); rz = clamp(rz, 1.6, 9);
+  let base = Infinity;
+  for (const p of b.pts) { const h = terrainH(p.x, p.y); if (h < base) base = h; }
+  base -= .6;
+  const H = b.h;
+  note(base); note(base + H);
+
+  const stone = [.74, .72, .67], dark = [.52, .50, .46];
+  const t = MONU_TOP[kind] || MONU_TOP.memorial;
+  /* Fractions of the total height. The steps are a low wide skirt, the plinth is
+     the block with the name on it, the shaft carries most of the height, and the
+     figure is what makes it a memorial rather than a pillar. An obelisk skips
+     the figure and tapers instead, which is what an obelisk is. */
+  const step = H * .06, plinth = H * .26, shaft = H * .58;
+  const box = (y0, y1, hx, hz, c) => {
+    const p = [];
+    for (const uy of [y0, y1])
+      for (const [a, o] of [[-1, -1], [1, -1], [1, 1], [-1, 1]])
+        p.push(b.cx + a * hx, uy, b.cy + o * hz);
+    pushBox(lit, p, c[0], c[1], c[2]);
+  };
+  box(base, base + step, rx * 1.5, rz * 1.5, dark);              // the steps
+  box(base + step, base + step + plinth, rx, rz, stone);         // the plinth
+  const sy = base + step + plinth;
+  if (kind === 'obelisk') {
+    // a taper rather than a figure: narrower at the top, and nothing on it
+    box(sy, sy + shaft + H * .10, rx * .52, rz * .52, stone);
+    box(sy + shaft + H * .10, base + H, rx * .18, rz * .18, stone);
+  } else {
+    box(sy, sy + shaft, rx * .60, rz * .60, stone);               // the shaft
+    // and the figure, offset nothing and squarer than the shaft below it
+    box(sy + shaft, base + H, rx * .40, rz * .40, t);
+  }
 }
 
 /* ------------------------------ dynamic bits ------------------------------ */

@@ -172,6 +172,21 @@ function overpassQL(s, w, n, e, kind, opt) {
     return `[out:json][timeout:40];(` +
       `nwr["amenity"~"^(police|hospital)$"](${bb});` +
       `nwr["shop"="car_repair"](${bb});` +
+      /* MONUMENTS, which are scenery rather than services — but they ride with
+         the landmark sweep because they want the same treatment: sparse,
+         tag-indexed, and worth finding well outside the streets we could load.
+
+         The exclusions matter more than the inclusions. `historic=memorial`
+         covers a 23 m equestrian statue on a city square and a palm-sized plaque
+         screwed to a wall, and the game has no way to tell them apart after the
+         fact — so the ones that are furniture rather than landmarks are refused
+         here, by name, before they can become a monument in a square. Likewise
+         `tourism=artwork` is mostly murals and street art, so only the kinds
+         that stand up on their own are taken. */
+      `nwr["historic"="monument"](${bb});` +
+      `nwr["historic"="memorial"]["memorial"!~"^(plaque|stolperstein|bench|tree|ghost_bike|stone|stele)$"](${bb});` +
+      `nwr["man_made"="obelisk"](${bb});` +
+      `nwr["tourism"="artwork"]["artwork_type"~"^(statue|sculpture)$"](${bb});` +
       `);out center qt;`;
   }
   // THE CRITICAL PATH. Nothing optional may live here: if this request fails you

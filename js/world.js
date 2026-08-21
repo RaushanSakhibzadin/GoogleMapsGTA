@@ -93,6 +93,71 @@ const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'hospital' ? 'hospital'
                     : t.shop === 'car_repair' ? 'repair' : null;
 
+/* ------------------------------ monuments ------------------------------ */
+/* A memorial is not a service, so it is not a POI — it is a THING THAT STANDS
+   THERE, and the only way to put one in a city is to build it.
+
+   Asked for by name: the square in the reported session is Савски трг, which
+   has had a twenty-three metre Stefan Nemanja on it since 2021, and the game
+   drew an empty plaza. So monuments are read from OpenStreetMap like everything
+   else here — no hard-coded landmarks, because the premise of this game is that
+   you can type in any city on Earth and drive around the real one.
+
+   HOW TALL. OSM gives `height` on the well-mapped ones and nothing at all on
+   most, so the fallback is by type: an obelisk is a tall thin thing, a monument
+   is a substantial one, a statue is a figure on a plinth. Clamped at both ends —
+   a mis-tagged `height=200` on a bust would put a tower in a park. */
+const MONU_H = { obelisk: 22, monument: 15, memorial: 9, statue: 8, artwork: 7 };
+// weathered bronze — deliberately none of the three POI colours, so a memorial
+// on the radar is never mistaken for a hospital you are bleeding towards
+const MONU_COL = '#d8c07a';
+/* The same exclusions the Overpass query carries, enforced again here — and the
+   duplication is the point, not an oversight.
+
+   The query's filter only ever applies to the landmark sweep. The BUILDINGS
+   request has no such clause and never could without slowing the critical path,
+   so a memorial bench mapped as a building arrives by that route untouched. And
+   a query is a request, not a guarantee: the bundled offline city, a cached
+   reply and any future data source all reach this function without having passed
+   through Overpass at all. Leaving the rule in one place was measured, in this
+   file's own test — a bench and a ghost bike both came back as statues. */
+const MONU_NOT = /^(plaque|stolperstein|bench|tree|ghost_bike|stone|stele)$/;
+const MONU_KIND = t => t.man_made === 'obelisk' ? 'obelisk'
+                     : t.historic === 'monument' ? 'monument'
+                     : t.historic === 'memorial'
+                       ? (MONU_NOT.test(t.memorial || '') ? null
+                          : /^(statue|bust)$/.test(t.memorial || '') ? 'statue' : 'memorial')
+                     : (t.tourism === 'artwork' &&
+                        /^(statue|sculpture)$/.test(t.artwork_type || '')) ? 'statue' : null;
+function monumentHeight(t, kind) {
+  let h = parseFloat(t.height) || 0;
+  if (!h && t['building:levels']) h = (parseFloat(t['building:levels']) || 0) * 3.2;
+  if (!h || !isFinite(h)) h = MONU_H[kind] || 10;
+  return clamp(h, 4, 60);
+}
+/* Its footprint, when OSM only gives a point. A statue's plinth is a couple of
+   metres across and its steps a little more, and this is also the shape the car
+   will collide with, so it is deliberately modest — a memorial you cannot drive
+   through is right, a memorial with a twenty-metre exclusion zone around it is
+   not. */
+function monumentPts(x, y, kind) {
+  const r = kind === 'obelisk' ? 2.6 : kind === 'monument' ? 3.4 : 2.4;
+  return [{ x: x - r, y: y - r }, { x: x + r, y: y - r },
+          { x: x + r, y: y + r }, { x: x - r, y: y + r }];
+}
+
+/* A monument, shaped like a building so that everything which already works for
+   buildings works for it: the spatial hash, the collision, the tile eviction,
+   the view culling. `mono` is what the two renderers key on to draw a memorial
+   instead of a block — and it is also what keeps the window shader off it, since
+   a statue with rows of lit windows would be worse than no statue at all. */
+function makeMonument(cx, cy, pts, kind, t, id) {
+  const h = monumentHeight(t, kind);
+  return { id: id ? 'm' + id : undefined, pts, h, bb: bbox(pts), cx, cy,
+           mWall: [188, 182, 170], mRoof: [150, 144, 132], wall: '#333', roof: '#666',
+           neon: null, mono: { kind, name: t.name || '' } };
+}
+
 function parseOSM(els) {
   const roads = [], buildings = [], parks = [], places = [], pois = [];
   for (const el of els) {
@@ -105,6 +170,11 @@ function parseOSM(els) {
       }
       const pk = POI_KIND(t);
       if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
+      const mk = MONU_KIND(t);
+      if (mk) {
+        const mx = projX(el.lon), my = projY(el.lat);
+        buildings.push(makeMonument(mx, my, monumentPts(mx, my, mk), mk, t, el.id));
+      }
       continue;
     }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
@@ -126,6 +196,14 @@ function parseOSM(els) {
                    oneway: t.oneway === 'yes', name: t.name || t.ref || '',
                    tunnel: !!t.tunnel && t.tunnel !== 'no', covered: t.covered === 'yes',
                    layer });
+    } else if (MONU_KIND(t)) {
+      /* Mapped as an outline rather than a point — the plinth's real footprint.
+         Taken BEFORE the building branch, because a monument is very often
+         tagged `building=yes` as well and would otherwise become an ordinary
+         block of flats with rows of windows on it. */
+      if (pts.length < 3) continue;
+      const c = centroid(pts);
+      buildings.push(makeMonument(c.x, c.y, pts, MONU_KIND(t), t, el.id));
     } else if (t.building || t['building:part']) {
       if (pts.length < 4) continue;
       const a = polyArea(pts);
@@ -167,6 +245,46 @@ function parsePOIs(els) {
     out.push({ x: projX(lon), y: projY(lat), kind, name: (el.tags || {}).name || '', cool: 0 });
   }
   return out;
+}
+
+/* The monuments out of the same reply. Separated from parsePOIs because they end
+   up somewhere completely different — a monument goes into W.buildings, where it
+   collides and casts a shadow, while a POI is a dot on the radar. `out center`
+   flattens a way to a point, so a monument found by the wide sweep gets the
+   generated plinth rather than its mapped outline; one that arrives with the
+   buildings of the district it is in keeps its real shape. */
+function parseMonuments(els) {
+  const out = [];
+  for (const el of els) {
+    const t = el.tags || {};
+    const kind = MONU_KIND(t);
+    if (!kind) continue;
+    const lat = el.lat != null ? el.lat : el.center && el.center.lat;
+    const lon = el.lon != null ? el.lon : el.center && el.center.lon;
+    if (lat == null || lon == null) continue;
+    const x = projX(lon), y = projY(lat);
+    out.push(makeMonument(x, y, monumentPts(x, y, kind), kind, t, el.id));
+  }
+  return out;
+}
+
+/* Into the world, with the same de-duplication buildings already need — the
+   sweep runs several times at widening radii and the inner rungs come back
+   inside the outer ones, so the same statue arrives more than once. Thirty
+   metres and the same kind is the same monument, which is the rule addPOIs uses
+   for the same reason. */
+function addMonuments(list) {
+  const from = W.buildings.length;
+  for (const m of list) {
+    let dup = false;
+    for (const b of W.buildings) {
+      if (!b.mono) continue;
+      if (dist2(b.cx, b.cy, m.cx, m.cy) < 900) { dup = true; break; }
+    }
+    if (!dup) W.buildings.push(m);
+  }
+  if (W.buildings.length > from) indexBuildings(from);
+  return W.buildings.length - from;
 }
 
 const FAKE_ST =['Ocean Drive', 'Vice Boulevard', 'Sunshine Avenue', 'Flamingo Way',
@@ -1264,8 +1382,9 @@ async function widenLandmarkSearch() {
     const els = await overpassArea(s, w, n, e, newSession(), { kind: 'pois' });
     const before = W.pois.length;
     addPOIs(parsePOIs(els));
+    const mons = addMonuments(parseMonuments(els));
     const found = W.pois.length - before;
-    if (found) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
+    if (found || mons) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
     return { radius: R, missing, found, stillMissing: missingKinds() };
   } catch (err) {
     /* A RUNG THAT WAS REFUSED WAS NEVER SEARCHED, so it must not count as
@@ -1545,6 +1664,12 @@ function prerenderMap(cx, cy) {
   for (const p of W.pois) {
     g.fillStyle = POI_COL[p.kind];
     g.beginPath(); g.arc(p.x, p.y, dot, 0, TAU); g.fill();
+  }
+  // and the monuments, which are in the building list rather than the POI list
+  for (const b of W.buildings) {
+    if (!b.mono) continue;
+    g.fillStyle = MONU_COL;
+    g.beginPath(); g.arc(b.cx, b.cy, dot, 0, TAU); g.fill();
   }
   W.map = c;
 }

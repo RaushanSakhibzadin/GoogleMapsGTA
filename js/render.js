@@ -600,6 +600,26 @@ function drawMini() {
     if (Math.abs(p.x - P.car.x) > showM || Math.abs(p.y - P.car.y) > showM) continue;
     blip(p.x, p.y, POI_COL[p.kind], 3);
   }
+  /* Monuments, in stone. They live in W.buildings rather than in W.pois — a
+     memorial is a thing you drive round, not a service you drive to — so they
+     are picked out of the building list by their `mono` mark. Scanning every
+     building on the radar would be thousands of tests a frame, so this walks the
+     same spatial hash the collision does and only looks at the cells on screen. */
+  {
+    const c0x = Math.floor((P.car.x - showM) / W.bcell), c1x = Math.floor((P.car.x + showM) / W.bcell);
+    const c0y = Math.floor((P.car.y - showM) / W.bcell), c1y = Math.floor((P.car.y + showM) / W.bcell);
+    const seen = new Set();
+    for (let cx = c0x; cx <= c1x; cx++) for (let cy = c0y; cy <= c1y; cy++) {
+      const arr = W.buckets.get(cx + ',' + cy); if (!arr) continue;
+      for (const bi of arr) {
+        if (seen.has(bi)) continue;         // a footprint spans several cells
+        seen.add(bi);
+        const b = W.buildings[bi];
+        if (!b || !b.mono) continue;
+        blip(b.cx, b.cy, MONU_COL, 3.2);
+      }
+    }
+  }
 
   for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
   if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
