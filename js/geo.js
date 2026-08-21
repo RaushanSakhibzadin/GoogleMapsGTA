@@ -245,11 +245,83 @@ const MIRROR_MISS = new Map();
 const MIRROR_KEY = 'vmMirrorHealth';
 const MIRROR_TTL = 3 * 24 * 3600 * 1000;
 const MIRROR_CAP = 8;
+/* WHEN A HOST HAS TOLD US TO COME BACK LATER, AND WHEN THAT IS.
+
+   A 429 is the one refusal that comes with instructions. Every other failure
+   leaves us guessing how long to stay away — this one carries `Retry-After`, and
+   ignoring it is both rude and, as the reported session shows, slow.
+
+   Held separately from MIRROR_MISS because it is a different KIND of fact. A
+   miss count is an opinion about a host, accumulated and decayed; a park is a
+   deadline the host itself set, and it expires on its own whether or not
+   anything else happens. Folding "come back at 14:07:31" into a score would mean
+   choosing a number of misses that stands in for it, and there isn't one: a
+   score can be out-weighed by another host doing badly, and a deadline cannot.
+   The reported session is exactly that failure — one 429 cost the same single
+   miss as everything else in the round, so nobody fell behind anybody, and the
+   throttled host was still first in the queue for the next six requests. */
+const MIRROR_UNTIL = new Map();
+/* Sixty seconds when the host does not say — WHICH IS ALMOST ALWAYS, and that
+   is a fact about browsers rather than about Overpass.
+
+   Retry-After is not a CORS-safelisted response header. On a cross-origin fetch
+   the browser hides every header except a handful — content-type and
+   content-length, in practice — unless the server explicitly names the others in
+   Access-Control-Expose-Headers. Overpass mirrors send the CORS headers that let
+   us read the BODY; they do not, in general, expose Retry-After. So the header a
+   429 arrives with is genuinely invisible to this code, and measured to be:
+   fulfilling a 429 with `Retry-After: 120` reads back null, and the same reply
+   with `Access-Control-Expose-Headers: Retry-After` reads back "120".
+
+   Which makes this constant the load-bearing part and the header the bonus. The
+   status code is the instruction we can always read, and a 429 says "stop asking"
+   whether or not it gets to say for how long. The parsing below stays because it
+   is free, correct, and works for the mirrors that do expose it. */
+const PARK_DEFAULT = 60000;
+/* And no host is ever parked for more than five minutes, however long it asks
+   for. A gateway having a bad day can answer `Retry-After: 3600`, and an hour is
+   longer than anybody's session — obeying it literally would mean one bad minute
+   removed a working mirror from the pool for good. Five minutes is far longer
+   than the throttle windows Overpass actually uses and short enough that a host
+   is always back before the player would notice it had gone. */
+const PARK_MAX = 300000;
+
+/* Retry-After is allowed to be either "in this many seconds" or an absolute HTTP
+   date, and both turn up in the wild — a CDN in front of a mirror will often
+   rewrite one into the other. Reading only the first form is not a small bug: a
+   date parses as NaN, NaN falls back to zero, and zero means "not throttled at
+   all", which is the precise opposite of what the header said. */
+function retryAfterMs(h) {
+  if (!h) return 0;
+  const s = String(h).trim();
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.max(0, parseFloat(s) * 1000);
+  const t = Date.parse(s);
+  return isFinite(t) ? Math.max(0, t - Date.now()) : 0;
+}
+const mirrorParked = (url, now) => (MIRROR_UNTIL.get(url) || 0) > (now || Date.now());
+function mirrorPark(url, ms) {
+  const until = Date.now() + clamp(ms || PARK_DEFAULT, 1000, PARK_MAX);
+  // never shorten a park that is already longer — two requests in flight can
+  // both be refused, and the later reply is not news
+  if (until > (MIRROR_UNTIL.get(url) || 0)) MIRROR_UNTIL.set(url, until);
+  mirrorSave();
+}
+
 (() => {
   try {
     const j = JSON.parse(localStorage.getItem(MIRROR_KEY) || 'null');
     if (!j || !j.at || Date.now() - j.at > MIRROR_TTL) return;
     for (const u in j.miss) MIRROR_MISS.set(u, Math.floor(j.miss[u] / 2));
+    /* Parks survive a reload, and unlike the miss counts they are NOT halved on
+       the way in — a deadline is a deadline, and the whole point of it is that
+       the host asked to be left alone until then. Reloading the page is the most
+       likely thing in the world for a player to do when a load goes badly, and
+       it must not be a way to go straight back to hammering the one host that
+       asked for a minute. They carry absolute timestamps, so anything already
+       expired is simply dropped on the way in. */
+    const now = Date.now();
+    for (const u in (j.until || {}))
+      if (j.until[u] > now && j.until[u] < now + PARK_MAX) MIRROR_UNTIL.set(u, j.until[u]);
   } catch (e) {}      // privacy mode, or a corrupt entry: start with no opinion
 })();
 let mirrorSaveT = 0;
@@ -259,9 +331,10 @@ function mirrorSave() {
   clearTimeout(mirrorSaveT);
   mirrorSaveT = setTimeout(() => {
     try {
-      const miss = {};
+      const miss = {}, until = {}, now = Date.now();
       for (const [u, n] of MIRROR_MISS) if (n) miss[u] = Math.min(n, MIRROR_CAP);
-      localStorage.setItem(MIRROR_KEY, JSON.stringify({ at: Date.now(), miss }));
+      for (const [u, t] of MIRROR_UNTIL) if (t > now) until[u] = t;
+      localStorage.setItem(MIRROR_KEY, JSON.stringify({ at: Date.now(), miss, until }));
     } catch (e) {}
   }, 1500);
 }
@@ -286,10 +359,50 @@ function mirrorSave() {
 const MIRROR_EMPTY_COST = 3;
 const mirrorNote = (url, ok, cost) => {
   MIRROR_MISS.set(url, ok ? 0 : Math.min((MIRROR_MISS.get(url) || 0) + (cost || 1), MIRROR_CAP));
+  // a host that just served a body is not throttling us, whatever it said before
+  if (ok) MIRROR_UNTIL.delete(url);
   mirrorSave();
 };
-const mirrorsByHealth = () =>
-  OVERPASS.slice().sort((a, b) => (MIRROR_MISS.get(a) || 0) - (MIRROR_MISS.get(b) || 0));
+/* A PARKED HOST GOES BEHIND EVERY HOST THAT IS NOT PARKED, no matter how badly
+   the others have been behaving. That is the whole fix: the queue is walked in
+   this order and hedged in this order, so a host that asked for a minute is
+   simply not among the first ones tried, and only gets asked at all if the
+   request runs out of alternatives.
+
+   It is a two-level sort rather than a filter, and that matters. Dropping parked
+   hosts from the list would mean a moment when every mirror is throttled is a
+   moment with no mirrors at all — and asking a host that told us to wait is
+   still better than telling the player the map is unavailable. They are last,
+   not gone. */
+const mirrorsByHealth = () => {
+  const now = Date.now();
+  return OVERPASS.slice().sort((a, b) =>
+    ((mirrorParked(a, now) ? 1 : 0) - (mirrorParked(b, now) ? 1 : 0)) ||
+    ((MIRROR_MISS.get(a) || 0) - (MIRROR_MISS.get(b) || 0)));
+};
+
+/* WHO THIS REQUEST MAY ACTUALLY ASK. Parked hosts are left out of the queue
+   altogether, not merely sorted to the back of it.
+
+   Sorting them last was the first version and it did nothing measurable, because
+   almost every request walks the WHOLE queue before it settles. A silent mirror
+   holds its slot until the hedge timer moves past it; a mirror that answers an
+   empty element list hands straight on, by design, since six independent servers
+   agreeing that a box is empty is the only evidence that it really is. So being
+   last in a queue that gets fully drained is the same as being first, just
+   later — measured at eleven requests to a throttled host either way.
+
+   Leaving them out is what "come back later" actually means. The all-parked
+   fallback matters as much: a shared address behind a school or an office can
+   collect a 429 from every mirror at once, and a request with an empty queue
+   fails instantly and permanently. Asking a host that told us to wait is a poor
+   option; having nowhere to ask is a worse one. */
+function mirrorQueue() {
+  const ranked = mirrorsByHealth();
+  const now = Date.now();
+  const open = ranked.filter(u => !mirrorParked(u, now));
+  return open.length ? open : ranked;
+}
 // Overpass says these when it's busy, not when the query is wrong
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const LOAD = { cancelled: false, streaming: false, controllers: [], timers: [], bytes: 0, t0: 0, cancelP: null, cancel: null };
@@ -371,6 +484,9 @@ function overpassArea(s, w, n, e, sess, opt) {
   const ql = overpassQL(s, w, n, e, kind, opt);
   const bbox = { s, w, n, e };
   const body = 'data=' + encodeURIComponent(ql);
+  // when this whole request gives up, so a retry can tell whether it would land
+  // after the funeral
+  const dueBy = Date.now() + (opt.totalMs || tune.totalMs);
   const onMsg = opt.onMsg || (() => {});
   const onBytes = opt.onBytes || (() => {});
   let live = 0;
@@ -400,7 +516,7 @@ function overpassArea(s, w, n, e, sess, opt) {
         if (!r.ok) {
           const e = new Error('overpass ' + r.status);
           e.status = r.status;
-          e.retryAfter = (parseFloat(r.headers.get('retry-after')) || 0) * 1000;
+          e.retryAfter = retryAfterMs(r.headers.get('retry-after'));
           throw e;
         }
         sess.streaming = true;             // headers in hand: stop hedging
@@ -486,6 +602,26 @@ function overpassArea(s, w, n, e, sess, opt) {
         // and this one goes to the back of the queue — further back if what it
         // said was "I have nothing", which it will say again just as quickly
         mirrorNote(url, false, empty ? MIRROR_EMPTY_COST : 1);
+        /* A 429 IS NOT JUST ANOTHER MISS — it is the host telling us, in as many
+           words, to stop asking. So it is recorded as a deadline rather than as a
+           score, and the queue puts this host behind everyone else until then.
+
+           From the reported session: one mirror answered 429 and was then asked
+           six more times over the following minute — the skeleton rungs, the
+           landmark sweep, two tiles — and refused every one of them in about
+           200 ms, because a single miss was not enough to move it down a queue
+           in which everybody else was picking up misses of their own for being
+           slow. Fast refusals kept winning the race to be wrong.
+
+           503 gets the same treatment when, and only when, it comes with the
+           header: an unqualified 503 is "I am unwell", which the miss count
+           already handles, but a 503 that names a time is the same instruction a
+           429 is and deserves the same respect. */
+        if (err.status === 429) mirrorPark(url, err.retryAfter);
+        else if (err.retryAfter > 0 && TRANSIENT.has(err.status)) mirrorPark(url, err.retryAfter);
+        // (err.retryAfter is usually 0 even on a 429 — see PARK_DEFAULT — so the
+        // first line is the one that fires in the wild and the second is for the
+        // mirror that exposes the header)
         LOAD.lastErr = host(url) + ': ' +
           (aborted ? 'too slow' : empty ? 'returned nothing' : err.status ? err.status
            : err.status == null ? 'unreachable' : err.message);
@@ -497,8 +633,23 @@ function overpassArea(s, w, n, e, sess, opt) {
            whether the next host should still be sitting idle waiting for its
            turn on the clock. */
         startNext();
-        if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled) {
-          const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
+        const wait = Math.max(err.retryAfter || 0, 1200 * Math.pow(2, n) + Math.random() * 700);
+        /* AND A RETRY THAT WOULD LAND AFTER THE DEADLINE IS NOT SCHEDULED AT ALL.
+
+           Honouring Retry-After makes this possible for the first time: the
+           backoff used to be at most a few seconds and always fitted, but a host
+           can now legitimately ask for a minute, and a streets request only has
+           forty-two seconds to live. Setting that timer would hold this promise
+           open, unresolved, until the deadline killed the whole request — so the
+           caller would wait out the full budget to be told what was already
+           known. Rejecting now lets the request settle on whatever another
+           mirror said. */
+        /* AND A PARKED HOST IS NOT RETRIED EITHER. Leaving it out of the queue
+           governs the NEXT request; this governs the one already in flight, and
+           without it a 429 was still followed by a retry a second and a half
+           later — the single most direct way to ignore what the host said. */
+        if (retryable && n + 1 <= MAX_TRIES && !sess.cancelled &&
+            !mirrorParked(url) && Date.now() + wait < dueBy) {
           onMsg('Map server busy — retrying…');
           const t = setTimeout(() => run(n + 1), wait);
           sess.timers.push(t);
@@ -531,7 +682,7 @@ function overpassArea(s, w, n, e, sess, opt) {
      The HEDGE timer stays as the slow path, for the case a failure never comes:
      a mirror that goes quiet is not a failure, and the next one still has to
      start without waiting for it. */
-  const queue = mirrorsByHealth();
+  const queue = mirrorQueue();
   const starters = [];
   const tries = queue.map(url => new Promise((res, rej) => {
     starters.push(() => attempt(url, res, rej));

@@ -405,7 +405,9 @@ window.__bldTiles = () => {
 };
 window.__pois = () => W.pois.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name }));
 // what the network layer has learned about each mirror this session
-window.__mirrors = () => OVERPASS.map(u => ({ host: new URL(u).hostname, miss: MIRROR_MISS.get(u) || 0 }));
+window.__mirrors = () => OVERPASS.map(u => ({ host: new URL(u).hostname, miss: MIRROR_MISS.get(u) || 0,
+  // how much longer this host asked to be left alone, in ms; 0 when it hasn't
+  parkedFor: Math.max(0, (MIRROR_UNTIL.get(u) || 0) - Date.now()) }));
 window.__nearestPOI = kind => {
   const p = nearestPOI(kind, P.car.x, P.car.y);
   return p && { x: +p.x.toFixed(1), y: +p.y.toFixed(1), kind: p.kind, name: p.name,
