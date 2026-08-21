@@ -580,6 +580,18 @@ function drawHUD() {
   } else $('timer').textContent = '';
 }
 
+/* The monuments in the world, cached against the building count. Buildings are
+   only ever appended or filtered wholesale, so a change in length is exactly
+   when this can go stale. */
+let monuList = [], monuAt = -1;
+function monumentList() {
+  if (monuAt !== W.buildings.length) {
+    monuAt = W.buildings.length;
+    monuList = W.buildings.filter(b => b.mono);
+  }
+  return monuList;
+}
+
 function drawMini() {
   if (!W.map) return;
   const w = mini.width, h = mini.height, r = w / 2;
@@ -617,24 +629,21 @@ function drawMini() {
     blip(p.x, p.y, POI_COL[p.kind], 3);
   }
   /* Monuments, in stone. They live in W.buildings rather than in W.pois — a
-     memorial is a thing you drive round, not a service you drive to — so they
-     are picked out of the building list by their `mono` mark. Scanning every
-     building on the radar would be thousands of tests a frame, so this walks the
-     same spatial hash the collision does and only looks at the cells on screen. */
-  {
-    const c0x = Math.floor((P.car.x - showM) / W.bcell), c1x = Math.floor((P.car.x + showM) / W.bcell);
-    const c0y = Math.floor((P.car.y - showM) / W.bcell), c1y = Math.floor((P.car.y + showM) / W.bcell);
-    const seen = new Set();
-    for (let cx = c0x; cx <= c1x; cx++) for (let cy = c0y; cy <= c1y; cy++) {
-      const arr = W.buckets.get(cx + ',' + cy); if (!arr) continue;
-      for (const bi of arr) {
-        if (seen.has(bi)) continue;         // a footprint spans several cells
-        seen.add(bi);
-        const b = W.buildings[bi];
-        if (!b || !b.mono) continue;
-        blip(b.cx, b.cy, MONU_COL, 3.2);
-      }
-    }
+     memorial is a thing you drive round, not a service you drive to.
+
+     LISTED ONCE, NOT SEARCHED EVERY FRAME. This walked the building spatial hash
+     over the radar's window each frame and allocated a Set to de-duplicate the
+     footprints that span several cells — a few hundred index lookups and one
+     collection per frame, in the 2D renderer, for a handful of statues. It cost
+     nine frames a second: drift.mjs measured 61 fps before it and 52 after,
+     against a gate of 55, which is how it was noticed.
+
+     There are only ever a few monuments in a world, so the answer is a list,
+     rebuilt when the building count changes — which is tile streaming, a few
+     times a minute — and simply read on every frame in between. */
+  for (const m of monumentList()) {
+    if (Math.abs(m.cx - P.car.x) > showM || Math.abs(m.cy - P.car.y) > showM) continue;
+    blip(m.cx, m.cy, MONU_COL, 3.2);
   }
 
   for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
