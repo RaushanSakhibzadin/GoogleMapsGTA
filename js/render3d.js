@@ -714,6 +714,35 @@ function dashes(o, pts, lift, x0, z0, x1, z1) {
   }
 }
 
+/* A POLYGON CUT DOWN TO A RECTANGLE — Sutherland–Hodgman, four half-planes.
+
+   Each pass keeps the vertices on the inside of one edge and inserts the crossing
+   point wherever the outline steps over it, so a convex window like a cell always
+   leaves a simple polygon that earClip can triangulate. A shape entirely outside
+   comes back empty, which the caller reads as "nothing of this park is here". */
+const cutAt = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+function clipToCell(pts, x0, z0, x1, z1) {
+  const inside = [p => p.x >= x0, p => p.x <= x1, p => p.y >= z0, p => p.y <= z1];
+  const cross = [
+    (a, b) => cutAt(a, b, (x0 - a.x) / ((b.x - a.x) || 1e-9)),
+    (a, b) => cutAt(a, b, (x1 - a.x) / ((b.x - a.x) || 1e-9)),
+    (a, b) => cutAt(a, b, (z0 - a.y) / ((b.y - a.y) || 1e-9)),
+    (a, b) => cutAt(a, b, (z1 - a.y) / ((b.y - a.y) || 1e-9))
+  ];
+  let cur = pts;
+  for (let k = 0; k < 4 && cur.length; k++) {
+    const next = [];
+    for (let i = 0, j = cur.length - 1; i < cur.length; j = i++) {
+      const A = cur[j], B = cur[i];
+      const ia = inside[k](A), ib = inside[k](B);
+      if (ib) { if (!ia) next.push(cross[k](A, B)); next.push(B); }
+      else if (ia) next.push(cross[k](A, B));
+    }
+    cur = next;
+  }
+  return cur;
+}
+
 /* Everything in one 512 m square, turned into two GPU meshes. */
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
@@ -755,13 +784,28 @@ function buildCell(kx, kz) {
      in the order the 2D renderer paints them. The offsets are what keeps them
      apart in the depth buffer — at 300 m a 24-bit depth buffer resolves about
      half a centimetre, so six is comfortable and none of it is visible. */
+  /* PARKS ARE CLIPPED TO THE CELL, not filed under the cell their middle is in.
+
+     They used to be drawn once, in whichever cell held the centroid, so that a
+     park spanning four cells was not drawn four times. The flaw is that the
+     centroid's cell may not be BUILT: cells are built out to VIEW3 and evicted
+     behind you, and a park big enough to matter is easily big enough for its
+     middle to sit outside that radius while its edge is under your wheels. The
+     whole park then vanishes from the world while the map — which draws
+     W.parks straight, with no cell rule — still shows it green. Reported as
+     exactly that.
+
+     Clipping each park to the cell it is being built into draws every part of it
+     exactly once, in the cell that owns that part, which is what the roads have
+     always done through ribbon(). A park is visible whenever the ground under it
+     is. */
   for (const f of W.parks) {
     if (f.bb.x1 < x0 || f.bb.x0 >= x1 || f.bb.y1 < z0 || f.bb.y0 >= z1) continue;
-    const c = centroid(f.pts);
-    if (c.x < x0 || c.x >= x1 || c.y < z0 || c.y >= z1) continue;   // once, in its own cell
-    const tri = earClip(f.pts);
+    const poly = clipToCell(f.pts, x0, z0, x1, z1);
+    if (poly.length < 3) continue;
+    const tri = earClip(poly);
     for (let i = 0; i < tri.length; i += 3) {
-      const p0 = f.pts[tri[i]], p1 = f.pts[tri[i + 1]], p2 = f.pts[tri[i + 2]];
+      const p0 = poly[tri[i]], p1 = poly[tri[i + 1]], p2 = poly[tri[i + 2]];
       // as with the roofs below: which way an ear-clipped triangle faces depends
       // on the footprint's own winding, so take the order that points upward
       const cr = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);

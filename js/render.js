@@ -336,10 +336,10 @@ function drawCar(c, isPlayer) {
     ctx.fillStyle = on ? '#6b1a18' : '#ff544c'; ctx.fillRect(-L * .12, .04, .5, Wd * .5);
     ctx.shadowBlur = 0;
   }
-  if (isPlayer) {                            // subtle ring so you never lose yourself
-    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = .12;
-    ctx.beginPath(); ctx.arc(0, 0, L * .78, 0, TAU); ctx.stroke();
-  }
+  /* No ring round the player any more. It was here so you could never lose your
+     own car in traffic, but on a big screen it reads as a white halo painted on
+     the road rather than as a hint, and the car is already the one thing the
+     camera is centred on. */
   ctx.restore();
 }
 function rrect(x, y, w, h, r) {
