@@ -331,8 +331,9 @@ function drawCar(c, isPlayer) {
     }
     ctx.fillStyle = '#0b0d12';
     ctx.fillRect(-L * .12, -Wd / 2 - .06, .5, Wd + .12);
-    ctx.fillStyle = on ? '#4da3ff' : '#123a72'; ctx.fillRect(-L * .12, -Wd / 2 - .06, .5, Wd * .5);
-    ctx.fillStyle = on ? '#123a72' : '#4da3ff'; ctx.fillRect(-L * .12, .04, .5, Wd * .5);
+    // one end blue, one end red, and which is bright alternates
+    ctx.fillStyle = on ? '#5fb0ff' : '#123a72'; ctx.fillRect(-L * .12, -Wd / 2 - .06, .5, Wd * .5);
+    ctx.fillStyle = on ? '#6b1a18' : '#ff544c'; ctx.fillRect(-L * .12, .04, .5, Wd * .5);
     ctx.shadowBlur = 0;
   }
   if (isPlayer) {                            // subtle ring so you never lose yourself

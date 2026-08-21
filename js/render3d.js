@@ -1023,8 +1023,21 @@ function pushCar(o, src, r, g, b, full) {
    noise along the door, and noise on a white panel reads as dirt rather than as
    lettering. */
 const POL_BLUE = [.055, .21, .60];
+/* THE BAR IS BLUE AND RED, one end each, alternating.
+
+   A real Belgrade bar is blue at both ends — that is what the livery research
+   turned up and what this was built as first. Blue and red is a deliberate
+   choice on top of the accurate livery: it is what a police car reads as in a
+   game like this one, and it is what was asked for. The chequer, the white body
+   and the wordmark-free flank are still the real thing.
+
+   Each end keeps its colour whether or not it is firing; only the brightness
+   swaps. A lamp that goes black when off means that from the side — which is
+   how you mostly see a police car — half the time the roof has nothing on it. */
 const POL_LAMP = [.30, .62, 1];
 const POL_DIM = [.10, .30, .78];
+const POL_RED = [1, .22, .18];
+const POL_RED_DIM = [.46, .07, .06];
 const POL_COLS = 7, POL_ROWS = 2;
 function pushPolice(o, src, blink) {
   // the band sits over the doors, just proud of the paint so it cannot z-fight
@@ -1053,7 +1066,9 @@ function pushPolice(o, src, blink) {
      police car, it meant that half the time the roof had no blue on it at all.
      A real bar is a blue lamp at each end whether or not it is firing. */
     const lit = (side < 0) === blink;
-    const c = lit ? POL_LAMP : POL_DIM;
+    // the near end blue, the far end red, and which one is bright alternates
+    const c = side < 0 ? (lit ? POL_LAMP : POL_DIM)
+                       : (lit ? POL_RED_DIM : POL_RED);
     pushBox(o, subBox(src, SUBTMP, -.26, .14, side < 0 ? -.68 : .04, side < 0 ? -.04 : .68,
                       1.28, 1.42), c[0], c[1], c[2]);
   }

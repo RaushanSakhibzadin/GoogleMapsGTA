@@ -8,10 +8,12 @@
  *
  * WHAT IS MEASURED, and why each is measured the way it is:
  *
- *   - NO RED ON THE ROOF. The single most wrong thing about the old car, and the
- *     one that a person notices first. Counted as saturated-red pixels within the
- *     car's own screen box, so tail lights — which are red, and correct — are
- *     excluded by looking only at the roof band.
+ *   - A BAR ON THE ROOF, BLUE AT ONE END AND RED AT THE OTHER. The livery
+ *     research says a Belgrade bar is blue at both ends and that is how this was
+ *     first built; blue and red is a deliberate choice on top of an otherwise
+ *     accurate livery, and this asserts the choice. Both are counted only ABOVE
+ *     the chequer band, so the tail lights — red on every car, and correct — do
+ *     not stand in for a lightbar.
  *
  *   - BLUE ON THE FLANK, in a PATTERN. A band of blue could be one solid stripe,
  *     which is a different force's livery; the claim is a chequer. So the blue
@@ -81,7 +83,16 @@ const shots = await p.evaluate(async () => {
   const grab = k => {
     traffic.length = 0; cops.length = 0;
     if (k) {
-      const car = makeCar(bx, by, c.h + Math.PI / 2, k);   // broadside to the camera
+      /* A REAR THREE-QUARTER, not broadside.
+
+         Broadside shows the whole flank, which is what the chequer wants — but a
+         lightbar's two lamps sit across the car's WIDTH, so side-on the near one
+         stands directly in front of the far one and hides it. Measured that way
+         the red end read 15 pixels and the blue end read 0, which says nothing
+         about the bar and everything about the angle. Turned 45° both lamps are
+         in view and enough of the flank is still showing to count the chequer —
+         which is also roughly how a player sees a police car. */
+      const car = makeCar(bx, by, c.h + Math.PI / 4, k);
       car.blink = 0;                                        // a known phase, so it repeats
       /* Yellow, not the purple the first version used — purple is mostly blue,
          so the civilian control was scoring 434 "blue" pixels on its own roof and
@@ -147,13 +158,12 @@ out.carsVisible = dn > 800 && (y1 - y0) > 20;
    A red lightbar would show up in redOnly; tail lights are on both cars and
    cancel. */
 let blueOnly = 0, redOnly = 0, whiteCop = 0;
-const blueRow = new Int32Array(H);
+const blueRow = new Int32Array(H), redRow = new Int32Array(H);
 for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
   if (!diff[y * W + x]) continue;
   const a = px(cop, x, y), b = px(civ, x, y);
-  const ab = isBlue(a[0], a[1], a[2]), bb = isBlue(b[0], b[1], b[2]);
-  if (ab && !bb) { blueOnly++; blueRow[y]++; }
-  if (isRed(a[0], a[1], a[2]) && !isRed(b[0], b[1], b[2])) redOnly++;
+  if (isBlue(a[0], a[1], a[2]) && !isBlue(b[0], b[1], b[2])) { blueOnly++; blueRow[y]++; }
+  if (isRed(a[0], a[1], a[2]) && !isRed(b[0], b[1], b[2])) { redOnly++; redRow[y]++; }
   if (isWhite(a[0], a[1], a[2])) whiteCop++;
 }
 out.livery = { blueOnly, redOnly, whiteCop };
@@ -166,22 +176,39 @@ out.hasBlueFlank = blueOnly > 120;
 let bestY = y0, bestN = -1;
 for (let y = y0; y <= y1; y++) if (blueRow[y] > bestN) { bestN = blueRow[y]; bestY = y; }
 
-/* ---- 2. a blue bar ABOVE the band, and no red one ---- */
+/* ---- 2. a bar ABOVE the band, blue at one end and red at the other ---- */
 /* MEASURED AGAINST THE BAND, not against the silhouette's bounding box.
 
    The box is not the car: it comes out the full width of the frame, so a
    fraction of its height picks out sky rather than roof, and "the highest blue,
    as a fraction of the box" read the same 0.22 whether the bar was drawn or not.
    The band, on the other hand, is a thing this test has already located exactly —
-   it is the row carrying the most blue. A lightbar is blue that sits clearly
-   ABOVE that, and nothing else on the car is. readPixels is bottom-left origin,
-   so above means a larger y. */
-let aboveBand = 0;
-for (let y = bestY + 10; y <= y1; y++) aboveBand += blueRow[y];
-out.bar = { bandRow: bestY, blueAboveBand: aboveBand };
-out.hasBlueLight = aboveBand > 15;
-// red is fine on a car — tail lights — but not MORE red than a civilian has
-out.noRedLight = redOnly <= 6;
+   it is the row carrying the most blue. A lightbar is what sits clearly ABOVE
+   that, and nothing else on the car does. readPixels is bottom-left origin, so
+   above means a larger y.
+
+   RED ABOVE THE BAND IS NOW REQUIRED, where an earlier version of this file
+   forbade it. That is not a measurement changing its mind: the livery research
+   says a Belgrade bar is blue at both ends, the game was asked for blue and red,
+   and this asserts what the game is meant to do. What the red check still buys
+   is that it is red UP THERE and not down at the tail lights — those are on both
+   cars and cancel in the difference. */
+let blueAbove = 0, redAbove = 0;
+for (let y = bestY + 10; y <= y1; y++) { blueAbove += blueRow[y]; redAbove += redRow[y]; }
+out.bar = { bandRow: bestY, blueAboveBand: blueAbove, redAboveBand: redAbove };
+/* Ten, against a measured twenty to thirty and a flat zero on a build with no
+   livery. The bar is a few pixels tall at this range — 0.1 m of lamp at 17 m —
+   so the count is small by nature and the room has to come from the gap to zero
+   rather than from the size of the number. */
+out.hasBlueLight = blueAbove > 10;
+/* THE RED CHECK DOES NOT DISCRIMINATE ON ITS OWN, and that is worth writing
+   down rather than leaving for someone to discover. On a build with no livery
+   there is no band to find, so bandRow collapses to the bottom of the car and
+   the tail lights end up "above" it — the removed-livery run reads 26 red
+   pixels and passes this line. It is here to assert the game does what it was
+   asked to do; the blue and the chequer are what would catch the livery being
+   lost, and both read exactly zero there. */
+out.hasRedLight = redAbove > 10;
 let flips = 0, was = false;
 for (let x = x0; x <= x1; x++) {
   const on = !!diff[bestY * W + x] &&
@@ -190,13 +217,18 @@ for (let x = x0; x <= x1; x++) {
   was = on;
 }
 out.runs = { row: bestY, blueInRow: bestN, flips };
-out.isChequered = flips >= 6;
+/* FOUR, not six. A solid stripe crosses paint-to-blue and back exactly twice,
+   and a build with no livery at all reads zero — so anything above two is the
+   claim. Six is what a seven-column chequer shows head-on and it drops to six or
+   fewer at the 45° this is shot from, because the flank is foreshortened; a
+   threshold of six was sitting exactly on the measurement. */
+out.isChequered = flips >= 4;
 
 /* ---- 3. and it is still a white car ---- */
 out.stillWhite = whiteCop > blueOnly * 1.5;
 
 out.errs = errs.slice(0, 3);
-out.pass = out.carsVisible && out.noRedLight && out.hasBlueLight && out.hasBlueFlank &&
+out.pass = out.carsVisible && out.hasBlueLight && out.hasRedLight && out.hasBlueFlank &&
            out.isChequered && out.stillWhite && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
