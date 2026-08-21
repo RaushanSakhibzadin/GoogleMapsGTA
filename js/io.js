@@ -280,6 +280,13 @@ function syncViewport() {
   document.documentElement.style.setProperty('--vh', vv.height + 'px');
 }
 
+/* A canvas keeps its contents when its backing store is not touched, so this is
+   the difference between a repaint and a wipe. */
+function setSize(el, w, h) {
+  if (el.width !== w) el.width = w;
+  if (el.height !== h) el.height = h;
+}
+
 function resize() {
   syncViewport();
   DPR = Math.min(devicePixelRatio || 1, 2);
@@ -295,13 +302,25 @@ function resize() {
   VH = Math.round(box.height) || innerHeight;
   // a phone screen shows far less world at the same px/m, so pull the camera back
   zoomK = clamp(Math.min(VW, VH) / 760, .48, 1);
-  cv.width = Math.floor(VW * DPR); cv.height = Math.floor(VH * DPR);
+  /* ONLY WHEN IT HAS ACTUALLY CHANGED. Assigning canvas.width CLEARS the canvas,
+     and it does so whether or not the number is different — so a resize() that
+     measures the same size as last time still blanks the frame.
+
+     That was survivable when resize() ran once per event. It stopped being
+     survivable when the settle was added: four more calls after every viewport
+     event, and on a phone visualViewport fires continuously while the URL bar
+     slides, so the game and the radar were being wiped dozens of times over an
+     animation and repainted on the following frame each time. It showed up first
+     as a flaky pixel test — the radar read a colour class as absent because the
+     minimap had just been cleared and not yet redrawn — which is exactly what a
+     player would see as a flicker. */
+  setSize(cv, Math.floor(VW * DPR), Math.floor(VH * DPR));
   // and the WebGL canvas behind it, if the 3D view has ever been switched on.
   // Guarded by typeof for the same reason `state` is below: this file loads
   // before the one that declares it.
   if (typeof resize3D === 'function') resize3D();
   const mr = mini.getBoundingClientRect();
-  mini.width = Math.floor(mr.width * DPR); mini.height = Math.floor(mr.height * DPR);
+  setSize(mini, Math.floor(mr.width * DPR), Math.floor(mr.height * DPR));
   miniRect = mr;                       // cached so the edge arrow can dodge the radar
   // the pads move with the layout, and this is also the call that runs right
   // after the touch UI is first shown — before that they measure as nothing

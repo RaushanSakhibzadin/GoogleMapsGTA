@@ -30,7 +30,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=13bd947366">
+<link rel="stylesheet" href="style.css?v=4ffec086ef">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -38,7 +38,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='13bd947366';</script>
+<script>window.BUILD='4ffec086ef';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -221,24 +221,134 @@
 <!-- ===================== wasted / busted ===================== -->
 <div id="big"><div id="bigT" class="hudTxt">WASTED</div><div id="bigS">respawning…</div></div>
 
-<script src="js/util.js?v=13bd947366"></script>
-<script src="js/log.js?v=13bd947366"></script>
-<script src="js/geo.js?v=13bd947366"></script>
-<script src="js/world.js?v=13bd947366"></script>
+<!-- ONE DROPPED REQUEST MUST NOT BRICK THE GAME.
+
+     Reported as the loading screen never finishing. A phone failed to fetch
+     js/world.js — one file, ten milliseconds in, on a connection that was
+     otherwise healthy enough to pull 910 KB of map data a moment later — and the
+     game hung there for six and a half minutes until the player gave up.
+
+     There is no retry on a <script src> and no error anybody sees. Worse,
+     world.js is the file that holds parseOSM, loadOfflineCity AND
+     proceduralCity, so losing it takes out the real map path and both of its
+     fallbacks at once; the log shows the game dutifully trying all three and
+     finding nothing there.
+
+     So failures are recorded as they happen and the block after the last script
+     goes back for whatever is missing. -->
+<script>
+window.__lost = [];
+addEventListener('error', function (e) {
+  var el = e.target;
+  if (el && el.tagName === 'SCRIPT' && el.src) window.__lost.push(el.src);
+}, true);
+</script>
+<script src="js/util.js?v=4ffec086ef"></script>
+<script src="js/log.js?v=4ffec086ef"></script>
+<script src="js/geo.js?v=4ffec086ef"></script>
+<script src="js/world.js?v=4ffec086ef"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=13bd947366"></script>
-<script src="js/body3d.js?v=13bd947366"></script>
-<script src="js/entities.js?v=13bd947366"></script>
-<script src="js/io.js?v=13bd947366"></script>
-<script src="js/game.js?v=13bd947366"></script>
+<script src="js/terrain.js?v=4ffec086ef"></script>
+<script src="js/body3d.js?v=4ffec086ef"></script>
+<script src="js/entities.js?v=4ffec086ef"></script>
+<script src="js/io.js?v=4ffec086ef"></script>
+<script src="js/game.js?v=4ffec086ef"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=13bd947366"></script>
-<script src="js/carmesh.js?v=13bd947366"></script>
-<script src="js/render.js?v=13bd947366"></script>
-<script src="js/render3d.js?v=13bd947366"></script>
-<script src="js/main.js?v=13bd947366"></script>
+<script src="js/gl.js?v=4ffec086ef"></script>
+<script src="js/carmesh.js?v=4ffec086ef"></script>
+<script src="js/render.js?v=4ffec086ef"></script>
+<script src="js/render3d.js?v=4ffec086ef"></script>
+<script src="js/main.js?v=4ffec086ef"></script>
+
+<!-- Did all of that actually arrive? Asked of the CODE rather than of the
+     network, because a script can 200 and still not have run — and because one
+     sentinel per file is a check that cannot drift out of date without the file
+     it names being broken anyway. These are `const` and `function` declarations,
+     which do not become properties of window, so each is probed by name in the
+     shared global scope rather than looked up on an object. -->
+<script>
+(function () {
+  var NEED = [
+    ['js/util.js',     function () { return typeof clamp === 'function'; }],
+    ['js/log.js',      function () { return typeof LOG !== 'undefined'; }],
+    ['js/geo.js',      function () { return typeof overpassArea === 'function'; }],
+    ['js/world.js',    function () { return typeof W !== 'undefined' && typeof parseOSM === 'function'; }],
+    ['js/terrain.js',  function () { return typeof terrainH === 'function'; }],
+    ['js/body3d.js',   function () { return typeof groundCar === 'function'; }],
+    ['js/entities.js', function () { return typeof makeCar === 'function'; }],
+    ['js/io.js',       function () { return typeof resize === 'function'; }],
+    ['js/game.js',     function () { return typeof update === 'function'; }],
+    ['js/gl.js',       function () { return typeof GL !== 'undefined'; }],
+    ['js/carmesh.js',  function () { return typeof carModel === 'function'; }],
+    ['js/render.js',   function () { return typeof render2D === 'function'; }],
+    ['js/render3d.js', function () { return typeof render3D === 'function'; }],
+    ['js/main.js',     function () { return typeof window.__s === 'function'; }]
+  ];
+  var missing = function () {
+    var out = [];
+    for (var i = 0; i < NEED.length; i++) {
+      var ok = false;
+      try { ok = NEED[i][1](); } catch (e) { ok = false; }
+      if (!ok) out.push(NEED[i][0]);
+    }
+    return out;
+  };
+  var gone = missing();
+  window.__boot = { missing: gone.slice(), tries: 0, ok: gone.length === 0 };
+  if (window.__boot.ok) return;
+
+  /* Blocked until it is whole. A half-loaded game with a live DRIVE button is
+     the state that produced the report — it looks fine, it starts, and it stops
+     on the loading screen with no way back. */
+  var go = document.getElementById('go');
+  var was = go ? go.textContent : '';
+  if (go) { go.disabled = true; go.textContent = 'LOADING…'; }
+
+  /* Re-fetched IN ORDER and one at a time. These files share one global scope
+     and the order they run in is load-bearing, so a parallel refetch could run
+     render3d.js before gl.js. `r` defeats a cache that has stored the failure. */
+  var stamp = (document.querySelector('script[src*="js/main.js"]') || {}).src || '';
+  var v = (stamp.split('?v=')[1] || '').split('&')[0];
+  function fetchOne(list, i, done) {
+    if (i >= list.length) return done();
+    var s = document.createElement('script');
+    s.async = false;
+    s.src = list[i].split('?')[0] + (v ? '?v=' + v : '?v=1') + '&r=' + window.__boot.tries;
+    s.onload = s.onerror = function () { fetchOne(list, i + 1, done); };
+    document.head.appendChild(s);
+  }
+  function round() {
+    window.__boot.tries++;
+    fetchOne(window.__boot.missing, 0, function () {
+      var still = missing();
+      window.__boot.missing = still;
+      window.__boot.ok = still.length === 0;
+      if (window.__boot.ok) {
+        if (go) { go.disabled = false; go.textContent = was; }
+        return;
+      }
+      if (window.__boot.tries < 3) return setTimeout(round, 400 * window.__boot.tries);
+      /* Out of tries. Say so — a message a player can act on is worth more than
+         a progress bar that never moves.
+
+         NOT disabled, which the first version of this had it as: a disabled
+         button does not fire click, so the one thing left to tap did nothing.
+         Caught by the test asking what the button actually says AND whether it
+         can be pressed. */
+      if (go) {
+        go.disabled = false;
+        go.textContent = 'RELOAD';
+        go.onclick = function () { location.reload(); };
+      }
+      var t = document.querySelector('#menu .tag');
+      if (t) t.textContent = 'Some game files did not load — tap RELOAD';
+    });
+  }
+  round();
+})();
+</script>
 </body>
 </html>

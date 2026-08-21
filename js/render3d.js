@@ -1693,8 +1693,11 @@ function toScreen(wx, wy) { return MODE3D ? toScreen3D(wx, wy) : toScreen2D(wx, 
 function resize3D() {
   const el = $('gl');
   if (!el || !GL.gl) return;
-  el.width = Math.floor(VW * DPR);
-  el.height = Math.floor(VH * DPR);
+  // same rule as the 2D canvases: assigning either dimension clears the buffer,
+  // so a resize that changes nothing must write nothing
+  const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+  if (el.width !== w) el.width = w;
+  if (el.height !== h) el.height = h;
 }
 
 /* Returns whether it worked, because a browser without WebGL2 has to be told
