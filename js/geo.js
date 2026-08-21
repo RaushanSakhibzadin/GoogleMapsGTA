@@ -261,6 +261,12 @@ const MIRROR_CAP = 8;
    miss as everything else in the round, so nobody fell behind anybody, and the
    throttled host was still first in the queue for the next six requests. */
 const MIRROR_UNTIL = new Map();
+/* How many times in a row a host has answered with an empty database, and
+   whether it has EVER served a real body this session. A host that has done both
+   is a mirror having a quiet moment; a host that has only ever done the first is
+   a hole in the ground. */
+const MIRROR_EMPTIES = new Map();
+const MIRROR_SERVED = new Set();
 /* Sixty seconds when the host does not say — WHICH IS ALMOST ALWAYS, and that
    is a fact about browsers rather than about Overpass.
 
@@ -285,6 +291,32 @@ const PARK_DEFAULT = 60000;
    than the throttle windows Overpass actually uses and short enough that a host
    is always back before the player would notice it had gone. */
 const PARK_MAX = 300000;
+
+/* TWO MORE WAYS A HOST CAN BE NO USE, both of them lasting.
+
+   A reported session makes the case better than any argument. Of six mirrors,
+   FOUR were unreachable from that phone's network — a carrier block, a DNS
+   answer, a CORS preflight nobody replied to — and failed 11 times each, every
+   time, all session. A fifth answered 200 with an empty element list in 250 ms,
+   11 times out of 11, to streets, buildings, arterials and landmarks alike. The
+   sixth was the only real one, and it was slow and returned 504s under load.
+   Buildings never once arrived, and the player drove around a city with no
+   buildings in it.
+
+   The queue was doing exactly the right thing and it did not help, because every
+   request still had to walk past five hosts to reach the one that worked, at
+   100-1200 ms each. That is the fault: not the ORDER, which was right, but that
+   hosts already known to be useless were still being asked at all.
+
+   Both conditions are properties of the network or of the host's database rather
+   than of this moment, so both are parked rather than merely demoted. The
+   unreachable park is short, because a tunnel ends and a carrier hiccup passes,
+   and one probe a minute is a cheap way to notice. The empty-database park is
+   long and needs three strikes and no successes ever, because a box really can
+   have nothing in it and a host really can be repaired. */
+const PARK_UNREACHABLE = 60000;
+const PARK_EMPTY = 240000;
+const EMPTY_STRIKES = 3;
 
 /* Retry-After is allowed to be either "in this many seconds" or an absolute HTTP
    date, and both turn up in the wild — a CDN in front of a mirror will often
@@ -359,8 +391,9 @@ function mirrorSave() {
 const MIRROR_EMPTY_COST = 3;
 const mirrorNote = (url, ok, cost) => {
   MIRROR_MISS.set(url, ok ? 0 : Math.min((MIRROR_MISS.get(url) || 0) + (cost || 1), MIRROR_CAP));
-  // a host that just served a body is not throttling us, whatever it said before
-  if (ok) MIRROR_UNTIL.delete(url);
+  // a host that just served a body is not throttling us, whatever it said before,
+  // and it has proved it has a database, which is what the empty rule turns on
+  if (ok) { MIRROR_UNTIL.delete(url); MIRROR_EMPTIES.delete(url); MIRROR_SERVED.add(url); }
   mirrorSave();
 };
 /* A PARKED HOST GOES BEHIND EVERY HOST THAT IS NOT PARKED, no matter how badly
@@ -619,6 +652,17 @@ function overpassArea(s, w, n, e, sess, opt) {
            429 is and deserves the same respect. */
         if (err.status === 429) mirrorPark(url, err.retryAfter);
         else if (err.retryAfter > 0 && TRANSIENT.has(err.status)) mirrorPark(url, err.retryAfter);
+        /* Could not be reached at all. Not a busy moment — this browser, on this
+           network, cannot talk to that host, and it will not be able to in two
+           seconds either. A minute, so a tunnel or a carrier hiccup costs one
+           probe rather than one attempt on every request for the whole session. */
+        else if (unreachable) mirrorPark(url, PARK_UNREACHABLE);
+        if (empty) {
+          const n = (MIRROR_EMPTIES.get(url) || 0) + 1;
+          MIRROR_EMPTIES.set(url, n);
+          // three in a row, and it has never once served a real body: not a mirror
+          if (n >= EMPTY_STRIKES && !MIRROR_SERVED.has(url)) mirrorPark(url, PARK_EMPTY);
+        }
         // (err.retryAfter is usually 0 even on a 429 — see PARK_DEFAULT — so the
         // first line is the one that fires in the wild and the second is for the
         // mirror that exposes the header)
