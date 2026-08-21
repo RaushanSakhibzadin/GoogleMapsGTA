@@ -198,7 +198,7 @@ window.__touch = () => ({ ...touch });          // what the pads currently read
 window.__ghost = on => { if (on != null) setGhost(on); return GHOST; };
 window.__patreon = url => { wirePatreon(url); return PATREON; };
 window.__roadDataHere = (x, y) => roadDataHere(x, y);
-window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r.drive, pts: r.pts }));
+window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r.drive, w: r.w, pts: r.pts }));
 window.__log = () => LOG.build();
 window.__logStats = () => LOG.stats();
 window.__saveLog = () => saveLog();

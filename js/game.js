@@ -1034,6 +1034,20 @@ function updateTraffic(t, dt) {
   const LOOK = 10 + spd * .6;
   let ax = r.pts[t.idx].x, ay = r.pts[t.idx].y;
   let left = LOOK - dist(t.x, t.y, ax, ay), k = t.idx;
+  /* THE DIRECTION OF THE ROAD AT THE AIM POINT, tracked alongside it, because the
+     lane offset below has to be square to the TARMAC and not to the car. Taking
+     it from the car's own heading looks the same on a straight and is wrong in
+     every corner: mid-bend the nose points across the lane, so an offset square
+     to the car walks the aim point out of the road and the car chases it. Where
+     the polyline runs out the car's heading is the only answer left, and by then
+     it is aiming at the last node anyway. */
+  let dux = Math.cos(t.h), duy = Math.sin(t.h);
+  const setDir = (i, j) => {
+    const a = r.pts[i], b = r.pts[j];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L > 1e-6) { dux = (b.x - a.x) / L; duy = (b.y - a.y) / L; }
+  };
+  if (t.idx + t.dir >= 0 && t.idx + t.dir < r.pts.length) setDir(t.idx, t.idx + t.dir);
   while (left > 0) {
     const nk = k + t.dir;
     if (nk < 0 || nk >= r.pts.length) break;   // end of the way: aim at the end
@@ -1042,9 +1056,20 @@ function updateTraffic(t, dt) {
     if (seg >= left) {
       const u = left / seg;
       ax = a.x + (b.x - a.x) * u; ay = a.y + (b.y - a.y) * u;
+      setDir(k, nk);
       break;
     }
     ax = b.x; ay = b.y; left -= seg; k = nk;
+    setDir(k - t.dir, k);
+  }
+  /* And over into the right-hand lane. The aim point carries the offset rather
+     than the car being pushed sideways: the car then STEERS into its lane and
+     holds it the way it holds anything else it is following, through junctions
+     and round bends, with no extra force acting on it and nothing for the
+     physics to fight. */
+  {
+    const off = laneOffset(r);
+    ax += -duy * off; ay += dux * off;      // (-uy, ux) is one quarter turn right
   }
   const dx = ax - t.x, dy = ay - t.y;
   if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast

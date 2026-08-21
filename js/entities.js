@@ -138,12 +138,21 @@ function spawnTraffic(n, wide) {
        without looking, so two cars in the same tick could land on the same metre
        of tarmac — which reads as one car with a shadow, and then as a shunt when
        the overlap resolves. */
+    /* Which way along the way, and therefore which way the car FACES. It used to
+       be given p.h whichever direction it had been assigned, so half the traffic
+       spawned pointing backwards down its own lane and spent its first seconds
+       swinging round. */
+    const dir = Math.random() < .5 ? 1 : -1;
+    const h = dir > 0 ? p.h : p.h + Math.PI;
+    const off = laneOffset(p.road);
+    const sx = p.x + Math.cos(h + Math.PI / 2) * off;
+    const sy = p.y + Math.sin(h + Math.PI / 2) * off;
     let taken = false;
-    for (const o of nearTraffic(p.x, p.y)) if (dist2(o.x, o.y, p.x, p.y) < 49) { taken = true; break; }
+    for (const o of nearTraffic(sx, sy)) if (dist2(o.x, o.y, sx, sy) < 49) { taken = true; break; }
     if (taken) continue;
-    const c = makeCar(p.x, p.y, p.h, 'traffic');
+    const c = makeCar(sx, sy, h, 'traffic');
     // the spawn point already knows which way it sits on — no search needed
-    c.road_ = p.road; c.idx = p.idx; c.dir = Math.random() < .5 ? 1 : -1;
+    c.road_ = p.road; c.idx = p.idx; c.dir = dir;
     c.i = traffic.length;
     traffic.push(c);
     // into the grid straight away, or the next car in this same call cannot see
@@ -156,8 +165,13 @@ function spawnTraffic(n, wide) {
 function rehome(c) {
   const p = roadPoint(c.x, c.y, 0, 260, 140) || roadPoint(c.x, c.y, 0, 260) || roadPoint(c.x, c.y, null);
   if (!p) return false;
-  c.x = p.x; c.y = p.y; c.h = p.h;
-  c.road_ = p.road; c.idx = p.idx; c.dir = Math.random() < .5 ? 1 : -1;
+  const dir = Math.random() < .5 ? 1 : -1;
+  const h = dir > 0 ? p.h : p.h + Math.PI;
+  const off = laneOffset(p.road);
+  c.x = p.x + Math.cos(h + Math.PI / 2) * off;
+  c.y = p.y + Math.sin(h + Math.PI / 2) * off;
+  c.h = h;
+  c.road_ = p.road; c.idx = p.idx; c.dir = dir;
   return true;
 }
 function spawnPeds(n) {
@@ -205,6 +219,27 @@ function stockCops(target) {
 const STRAY_DRAG = 9.5;
 const STRAY_TOP = 4.5;              // ≈16 km/h
 const STRAY_TOL = 10;               // metres of slack before any of it applies
+
+/* WHICH SIDE OF THE WHITE LINE A CAR BELONGS ON.
+
+   Every way in this world is a centreline, and traffic drove straight down it —
+   so two cars going opposite ways along the same street occupied the same metre
+   of tarmac and passed through each other, and a street with cars on it looked
+   like a single file down the middle rather than like a road.
+
+   A quarter of the width puts a car in the middle of its own half: 2 m on a
+   residential street, 2.75 on a secondary, 4.25 on a motorway. Clamped at both
+   ends — a 5 m service road has no room for a full offset and a motorway does
+   not need one that wide, since this is one lane each way however many are
+   painted on.
+
+   RIGHT IS h + π/2 in this coordinate system, where +y is south: heading east
+   at h = 0, that is (0, 1), which is south, which is the driver's right. Traffic
+   here drives on the right, like the city it is modelled on. Cars travelling the
+   other way along the same centreline compute their own right from their own
+   heading and land on the opposite side, which is what makes the two streams
+   appear without anything having to arrange them. */
+const laneOffset = r => clamp(((r && r.w) || 8) * .25, 1.2, 3.5);
 /* Back towards the tarmac you left. This fights the very drag that makes the
    crawl — the pull goes into world velocity, and the next frame decomposes it
    and damps it again at 6.5 sideways — so it has to be a good deal larger than
