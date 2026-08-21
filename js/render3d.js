@@ -1001,6 +1001,64 @@ function pushCar(o, src, r, g, b, full) {
   }
 }
 
+/* SERBIAN POLICE LIVERY, added on top of whichever body was drawn.
+
+   Looked up rather than invented: a Belgrade patrol car is WHITE with a blue
+   chequer band along the flank, the Cyrillic ПОЛИЦИЈА wordmark, and a blue LED
+   lightbar. Not the red-and-blue bar this had, which is a North American
+   convention and reads as the wrong country to anyone who lives there.
+
+   Drawn from the car's own eight corners rather than baked into the mesh, so it
+   sits correctly on BOTH bodies — the detailed model up close and the two-box
+   version at distance — and rides the pitch and roll with them.
+
+   ONLY THE BLUE SQUARES ARE EMITTED. A Sillitoe chequer is a checkerboard of
+   blue on white, and the white half is the car's own paint, so half the pattern
+   is free: emit where (row + column) is even and the body shows through the
+   rest. Two rows of seven over the doors is what reads as chequered at the
+   distance you actually see a police car from, which is the whole test — a
+   finer grid turns to mush by the time it is three cars ahead of you.
+
+   The wordmark is deliberately absent. At this scale it would be two pixels of
+   noise along the door, and noise on a white panel reads as dirt rather than as
+   lettering. */
+const POL_BLUE = [.055, .21, .60];
+const POL_LAMP = [.30, .62, 1];
+const POL_DIM = [.10, .30, .78];
+const POL_COLS = 7, POL_ROWS = 2;
+function pushPolice(o, src, blink) {
+  // the band sits over the doors, just proud of the paint so it cannot z-fight
+  const y0 = .10, y1 = .46, S = 1.012;
+  const fw = 1.72 / POL_COLS, rh = (y1 - y0) / POL_ROWS;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < POL_COLS; i++) for (let j = 0; j < POL_ROWS; j++) {
+      if ((i + j) % 2) continue;                    // the white half is the paint
+      const f0 = -.86 + fw * i, u0 = y0 + rh * j;
+      pushBox(o, subBox(src, SUBTMP, f0, f0 + fw,
+                        side < 0 ? -S : S - .02, side < 0 ? -S + .02 : S,
+                        u0, u0 + rh),
+              POL_BLUE[0], POL_BLUE[1], POL_BLUE[2]);
+    }
+  }
+  /* The bar itself: two blue lamps on a dark plinth, alternating, so it reads as
+     flashing from behind as well as from the side. Serbian bars are blue at both
+     ends — there is no red half to alternate with, so what alternates is which
+     end is lit. */
+  pushBox(o, subBox(src, SUBTMP, -.30, .18, -.72, .72, 1.20, 1.30), .07, .08, .10);
+  for (const side of [-1, 1]) {
+    /* BOTH ENDS ARE BLUE, ALWAYS. Only which one is BRIGHT alternates.
+
+     The unlit end started at near-black, which is what a switched-off lamp looks
+     like from the front — and from the side, which is how you mostly see a
+     police car, it meant that half the time the roof had no blue on it at all.
+     A real bar is a blue lamp at each end whether or not it is firing. */
+    const lit = (side < 0) === blink;
+    const c = lit ? POL_LAMP : POL_DIM;
+    pushBox(o, subBox(src, SUBTMP, -.26, .14, side < 0 ? -.68 : .04, side < 0 ? -.04 : .68,
+                      1.28, 1.42), c[0], c[1], c[2]);
+  }
+}
+
 /* THE MODEL MATRIX FOR ONE CAR, read straight out of the eight corners carBox
    already worked out. Those corners carry the heading, the pitch and the roll
    the physics computed, so nothing here re-derives a rotation — two rotations
@@ -1240,6 +1298,9 @@ function render3D() {
     if (!G3.plainCars && G3.carVao && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2)
       meshCars.push({ src: BOXTMP.slice(), col });
     else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
+    // the livery goes into the plain stream either way — it is the same eight
+    // corners, so it lands on the detailed body and the distant one alike
+    if (q.kind === 'cop') pushPolice(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
   };
   for (const t of traffic) addCar(t);
   for (const k of cops) addCar(k);

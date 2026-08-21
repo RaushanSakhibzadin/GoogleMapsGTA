@@ -314,10 +314,25 @@ function drawCar(c, isPlayer) {
   ctx.fillStyle = '#ff3355'; ctx.fillRect(-L / 2, -Wd / 2 + .18, .3, .5);
   ctx.fillRect(-L / 2, Wd / 2 - .68, .3, .5);
 
-  if (c.kind === 'cop') {                    // light bar
+  if (c.kind === 'cop') {
+    /* SERBIAN LIVERY, looked up rather than invented: white, a blue chequer band
+       down each flank, and a blue LED bar. The bar here alternated blue and RED,
+       which is a North American convention — a Belgrade car is blue at both ends
+       and what alternates is which end is lit. */
     const on = Math.floor(c.blink * 7) % 2 === 0;
-    ctx.fillStyle = on ? '#3fa2ff' : '#12305e'; ctx.fillRect(-L * .1, -Wd / 2 - .1, .55, Wd * .45);
-    ctx.fillStyle = on ? '#12305e' : '#ff3355'; ctx.fillRect(-L * .1, .05, .55, Wd * .45);
+    // the chequer, seen from above as a band along each side
+    const cols = 7, cw = (L * .86) / cols;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < cols; i++) {
+        if ((i + (side < 0 ? 0 : 1)) % 2) continue;   // offset rows read as a chequer
+        ctx.fillStyle = '#0e35a0';
+        ctx.fillRect(-L * .43 + cw * i, side < 0 ? -Wd / 2 : Wd / 2 - .26, cw, .26);
+      }
+    }
+    ctx.fillStyle = '#0b0d12';
+    ctx.fillRect(-L * .12, -Wd / 2 - .06, .5, Wd + .12);
+    ctx.fillStyle = on ? '#4da3ff' : '#123a72'; ctx.fillRect(-L * .12, -Wd / 2 - .06, .5, Wd * .5);
+    ctx.fillStyle = on ? '#123a72' : '#4da3ff'; ctx.fillRect(-L * .12, .04, .5, Wd * .5);
     ctx.shadowBlur = 0;
   }
   if (isPlayer) {                            // subtle ring so you never lose yourself
