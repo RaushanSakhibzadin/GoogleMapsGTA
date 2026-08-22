@@ -340,8 +340,16 @@ body.theme-day #mapHint{color:rgba(0,0,0,.45)}
   border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(2px);
   touch-action:none;-webkit-touch-callout:none}
 .pad.act{background:rgba(255,79,216,.5);border-color:var(--pink)}
-#tL{left:var(--edgeL)} #tR{left:calc(var(--edgeL) + 16px + var(--pad))}
-#tB{right:calc(var(--edgeR) + 16px + var(--gas))}
+#tL{left:var(--edgeL)} #tR{left:calc(var(--edgeL) + 10px + var(--pad))}
+/* REVERSE BELONGS TO THE RIGHT THUMB, NOT TO THE STEERING.
+   It used to sit sixteen pixels off the pedal and one pixel off the right-steer
+   pad, so the row read as three buttons and a pedal — the thing you brake with
+   was grouped with the thing you steer with, and its nearest neighbour was close
+   enough to catch a thumb aimed at either. Six from the pedal and fifteen from
+   the steering says which hand it is for. Two circles this size cannot get
+   nearer than about six without their borders meeting, so this is as close to
+   the pedal as it goes. */
+#tB{right:calc(var(--edgeR) + 6px + var(--gas))}
 #tA{right:var(--edgeR);background:rgba(51,230,255,.22);
   width:var(--gas);height:var(--gas);font-size:34px}
 #tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;

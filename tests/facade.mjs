@@ -77,18 +77,39 @@ out.parked = await p.evaluate(() => {
   }
   if (!best) return null;
   const b = best.b;
-  const off = (b.bb.y1 - b.bb.y0) * 0.5 + 30;
+  /* AND ON THE STREET, NOT IN SOMEBODY'S LIVING ROOM. Thirty metres off the wall
+     is a distance, not an address: in a real district that lands inside the
+     footprint of whatever is across the road about as often as not, and a car
+     inside a footprint is stood on that building's ROOF, because groundCar puts
+     it on the highest surface under it. From up there the chase camera is inside
+     the block behind, the car is behind a wall, and sections 3 and 4 measure an
+     empty street — which is what a car parked on a fourth floor looks like, and
+     read as a rendering failure rather than as the staging.
+
+     So the stand-off is searched rather than assumed: step back a metre at a
+     time until both the car and the eye fourteen metres behind it are clear of
+     every footprint. Nothing else about the shot changes — it is still square on
+     to the same wall, just from a spot a car could actually be in. */
+  const clear = (x, y) => !W.buildings.some(q =>
+    x >= q.bb.x0 && x <= q.bb.x1 && y >= q.bb.y0 && y <= q.bb.y1 && pointInPoly(q.pts, x, y));
+  const base = (b.bb.y1 - b.bb.y0) * 0.5 + 30;
+  let off = base;
+  for (let k = 0; k < 80; k++) {
+    const y = b.cy - (base + k);
+    if (clear(b.cx, y) && clear(b.cx, y - 14)) { off = base + k; break; }
+  }
   window.__tp(b.cx, b.cy - off, Math.PI / 2);       // +y is north-ish; face the wall
   P.car.vx = P.car.vy = 0;
-  /* GHOST, AND FULL HEALTH. Thirty metres off a tower block is not a car park:
-     the spot can be inside another footprint, or on top of a taxi, and the car
-     then spends the seconds before the first measurement being crushed. On the
-     runs where that happened it was wrecked by the time anything was read, the
-     death camera took over, and both the facade and the wheels went with it —
-     which read as a flaky test rather than as what it was. */
+  /* GHOST, AND FULL HEALTH. Even on an empty bit of road the spot can be on top
+     of a taxi, and the car then spends the seconds before the first measurement
+     being crushed. On the runs where that happened it was wrecked by the time
+     anything was read, the death camera took over, and both the facade and the
+     wheels went with it — which read as a flaky test rather than as what it
+     was. */
   window.__ghost(true);
   window.__heal();
-  return { h: +b.h.toFixed(1), wide: +(b.bb.x1 - b.bb.x0).toFixed(1), stood: +off.toFixed(1) };
+  return { h: +b.h.toFixed(1), wide: +(b.bb.x1 - b.bb.x0).toFixed(1),
+           stood: +off.toFixed(1), searched: +(off - base).toFixed(1) };
 });
 await p.waitForTimeout(3000);
 // daylight, where a window is a dark rectangle on a light wall and the sky has
@@ -347,7 +368,16 @@ out.frozeCity = await freeze();
    So the count is per SIDE of the car, and both sides have to have some and
    neither may be wildly bigger than the other. The player's paint is forced to
    a colour with no red in it first, because a red car would answer this
-   question for itself. */
+   question for itself.
+
+   AND ONLY PIXELS THAT BELONG TO THE CAR ARE COUNTED. Scanning the whole frame
+   for red was fine while a tower block filled it and there was nothing else to
+   see; from a hundred metres back the street comes into view, and one brick
+   gable on the near side put 779 red pixels left of the car against 153 right
+   and failed a pair of lamps that were both there. The car's own pixels are
+   exactly the ones that change when __plainCars strips the detail off it, which
+   section 3 already relies on — a brick wall is identical in both frames and
+   subtracts itself. */
 await p.evaluate(() => {
   window.__playerColour('#22c0c8');
   window.__noShadow(true);
@@ -355,10 +385,14 @@ await p.evaluate(() => {
 });
 {
   const px = await grab();
+  await p.evaluate(() => window.__plainCars(true));
+  const plain = await grab();
+  await p.evaluate(() => window.__plainCars(false));
   const mid = await p.evaluate(() => window.__project(P.car.x, P.car.y)[0] * DPR);
   let left = 0, right = 0;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = at(x, y);
+    if (Math.abs(lum(px, i) - lum(plain, i)) <= 6) continue;
     const r = px[i], g = px[i + 1], b = px[i + 2];
     if (r > 95 && r > g + 55 && r > b + 55) (x < mid ? left++ : right++);
   }

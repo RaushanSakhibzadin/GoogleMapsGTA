@@ -673,16 +673,28 @@ function markPassable(roads) {
 /* Landmarks you're meant to drive into, so they go transparent and stop colliding
    exactly like a building with a road through it. Both tagging styles land here:
    the way form, where the hospital IS the building, and the node form, where a
-   garage node sits inside someone else's footprint. */
+   garage node sits inside someone else's footprint.
+
+   AND HOW HIGH THE BEACON HAS TO START. Transparent is a 2D word: the top-down
+   view draws these at 45% alpha, the chase view draws a solid box like any
+   other, and a landmark's marker column stands at the POI — which for the way
+   form is the middle of the building's own floor. A thirteen-metre column
+   inside a twenty-metre block is not a marker, it is furniture nobody will ever
+   see, and the only reason it ever showed was that half the city's walls were
+   being culled away by a winding bug. So the height of whatever the POI is
+   standing in is recorded here, where the containing building is already being
+   looked up, and the column starts on its roof. */
 function markPOIBuildings() {
   for (const p of W.pois) {
+    p.lift = 0;
     const arr = W.buckets.get(Math.floor(p.x / W.bcell) + ',' + Math.floor(p.y / W.bcell));
     if (!arr) continue;
     for (const bi of arr) {
       const b = W.buildings[bi];
-      if (b.passable) continue;
       if (p.x < b.bb.x0 || p.x > b.bb.x1 || p.y < b.bb.y0 || p.y > b.bb.y1) continue;
-      if (pointInPoly(b.pts, p.x, p.y)) b.passable = true;
+      if (!pointInPoly(b.pts, p.x, p.y)) continue;
+      b.passable = true;
+      if (b.h > p.lift) p.lift = b.h;
     }
   }
 }

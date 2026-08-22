@@ -126,15 +126,34 @@ out.visible = a.n > 250 && b.n * 8 < a.n;
    inside a wall — the beacon was drawn, correctly depth-tested, and hidden
    behind the building the lens was buried in. So the spot is searched for: rings
    outwards from the landmark, taking the first bearing that puts the car on
-   actual tarmac, which is where a player would be looking at it from. */
+   actual tarmac, which is where a player would be looking at it from.
+
+   AND WITH THE LANDMARK IN SIGHT. Tarmac alone is not a view: a road round the
+   corner from the garage is a perfectly good bit of road with a block of flats
+   across the line of sight, and the beacon is then correctly hidden behind it.
+   That passed for as long as half the city's walls were being culled away and
+   you could see through them, and started failing the moment they were not,
+   which makes it the second piece of staging in this suite to have been quietly
+   resting on that bug. The segment to the landmark is now walked and has to be
+   clear of every footprint — stopping short of the last eight metres, because
+   the garage is itself a building and the beacon stands on it. */
 out.poi = await p.evaluate(() => {
   const q = window.__nearestPOI('repair');
   if (!q) return null;
+  const clearTo = (x, y) => {
+    const dx = q.x - x, dy = q.y - y, L = Math.hypot(dx, dy);
+    for (let t = 0; t < L - 8; t += 2) {
+      const px = x + dx * t / L, py = y + dy * t / L;
+      if (W.buildings.some(b => px >= b.bb.x0 && px <= b.bb.x1 && py >= b.bb.y0 &&
+                                py <= b.bb.y1 && pointInPoly(b.pts, px, py))) return false;
+    }
+    return true;
+  };
   for (let r = 26; r <= 70; r += 6) {
     for (let i = 0; i < 24; i++) {
       const a = i * Math.PI / 12;
       const x = q.x + Math.cos(a) * r, y = q.y + Math.sin(a) * r;
-      if (!window.__onRoad(x, y)) continue;
+      if (!window.__onRoad(x, y) || !clearTo(x, y)) continue;
       window.__tp(x, y, Math.atan2(q.y - y, q.x - x));
       P.car.vx = P.car.vy = 0;
       return { kind: q.kind, at: [Math.round(q.x), Math.round(q.y)],

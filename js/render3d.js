@@ -1724,9 +1724,9 @@ function render3D() {
       const d = Math.hypot(x - G3.cam.ex, z - G3.cam.ez);
       return clamp((d - near) / span, 0, 1);
     };
-    const shaft = (x, z, h, w, cr, cg, cb, a) => {
+    const shaft = (x, z, h, w, cr, cg, cb, a, lift) => {
       if (a <= 0.004) return;
-      const y = terrainH(x, z);
+      const y = terrainH(x, z) + (lift || 0);
       const v = [[-1, 0], [1, 0], [1, 1], [-1, 0], [1, 1], [-1, 1]];
       for (const [u, t] of v)
         add.push(x + hx * w * u, y + .25 + h * t, z + hz * w * u, cr, cg, cb, a, u, t);
@@ -1754,10 +1754,18 @@ function render3D() {
     for (const p of W.pois) {
       if (dist2(p.x, p.y, cam.x, cam.y) > 150 * 150) continue;
       const q = parseColour(POI_COL[p.kind]) || [255, 255, 255];
-      // a shorter column, so a shorter fade — but the same rule, and this is the
-      // one you end up standing in after a bust or a trip to the hospital
+      /* A shorter column, so a shorter fade — but the same rule, and this is the
+         one you end up standing in after a bust or a trip to the hospital.
+
+         STOOD ON THE ROOF WHEN THE LANDMARK IS A BUILDING. p.lift is the height
+         of whatever footprint the POI sits inside, worked out in world.js. A
+         hospital mapped the way form has its POI at the middle of its own floor,
+         and thirteen metres of column inside a twenty-metre block never reaches
+         daylight — so the marker for the one thing you are trying to find is the
+         one thing you cannot see. On the roof it reads as a sign on the
+         building, which is what it is for. */
       shaft(p.x, p.y, 13, 1.5, q[0] / 255, q[1] / 255, q[2] / 255,
-            .30 * fadeIn(p.x, p.y, 10, 18));
+            .30 * fadeIn(p.x, p.y, 10, 18), p.lift);
       corona(p.x, p.y, 3.2, q[0] / 255, q[1] / 255, q[2] / 255, .26);
     }
   }
