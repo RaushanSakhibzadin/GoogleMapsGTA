@@ -393,6 +393,33 @@ void main() {
   outC = vec4(vC.rgb, a);
 }`;
 
+/* A SIGN: one textured quad, alpha-cut, fogged like everything else so a name a
+   quarter of a mile away fades into the haze with the building carrying it. It
+   takes the theme's ambient rather than the sun, because a fascia sign is lit
+   from in front at night and painted white by day, and either way it should not
+   go black when it happens to face away from the sun. */
+const SH_SIGN_V = `#version 300 es
+in vec3 aPos; in vec2 aUV;
+uniform mat4 uVP;
+out vec2 vU; out float vD;
+void main() { vec4 p = uVP * vec4(aPos, 1.0); gl_Position = p; vU = aUV; vD = p.w; }`;
+const SH_SIGN_F = `#version 300 es
+precision mediump float;
+in vec2 vU; in float vD;
+uniform sampler2D uTex;
+uniform vec3 uFog, uInk;
+uniform vec2 uFogR;
+out vec4 outC;
+void main() {
+  vec4 t = texture(uTex, vU);
+  if (t.a <= 0.02) discard;
+  float f = clamp((vD - uFogR.x) / (uFogR.y - uFogR.x), 0.0, 1.0);
+  /* The glyphs are white and their rim is black; multiplying by the ink colour
+     tints the letters without touching the rim, which is what keeps them legible
+     on a pale wall in daylight and warm at dusk. */
+  outC = vec4(mix(t.rgb * uInk, uFog, f), t.a * (1.0 - f));
+}`;
+
 /* THE CAR, which is the one thing in this world that is a MODEL rather than
    geometry generated from the map.
 
@@ -560,6 +587,7 @@ function initGL3() {
   G3.dep = GL.program(SH_DEP_V, SH_DEP_F);
   G3.sky = GL.program(SH_SKY_V, SH_SKY_F);
   G3.car = GL.program(SH_CAR_V, SH_CAR_F);
+  G3.sign = GL.program(SH_SIGN_V, SH_SIGN_F);
   {
     const m = carMesh();
     const mesh = GL.mesh(m, [[G3.car.a.aPos, 3], [G3.car.a.aNrm, 3], [G3.car.a.aPal, 1]]);
@@ -629,7 +657,7 @@ function syncIndex3() {
     dropAllCells();
   }
 }
-function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); }
+function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); GL.free(c.sgn); }
 function dropAllCells() {
   for (const c of G3.cells.values()) freeCell(c);
   G3.cells.clear();
@@ -743,10 +771,166 @@ function clipToCell(pts, x0, z0, x1, z1) {
   return cur;
 }
 
+/* THE NAME OVER THE DOOR.
+
+   OpenStreetMap knows what a great many of these buildings are called — 329 of
+   the 3502 in the bundled Stari grad capture carry a name, and the shops and
+   garages inside the rest carry their own. A city where the casino says GRAND
+   CASINO ADMIRAL across its parapet is a different place from one made of
+   anonymous boxes, and it is the single cheapest thing that can be done with
+   data already in the payload.
+
+   A SIGN IS A TEXTURE, and text is the one thing WebGL cannot draw. So the
+   letters are painted with the 2D canvas — the same one the radar uses — into a
+   shared atlas, and each sign is one quad reading one cell of it. The atlas is
+   allocated once at a fixed size and written a cell at a time with
+   texSubImage2D, because re-uploading a megabyte every time a new shop comes
+   into view is exactly the kind of thing that turns a smooth drive into a
+   stutter.
+
+   Sixty-four cells, and no eviction. Signs are baked into a cell's static mesh
+   with their texture coordinates already in the buffer, so recycling a slot
+   would silently rename a building three streets back. When the atlas is full,
+   later names simply do not get a sign — which is a city with fewer signs in it,
+   not a city with wrong ones. */
+const SIGN_W = 256, SIGN_H = 64, SIGN_COLS = 4, SIGN_ROWS = 16;
+const SIGN_MAX = SIGN_COLS * SIGN_ROWS;
+const SIGN = { tex: null, cv: null, g: null, map: new Map(), n: 0 };
+
+function signSlot(text) {
+  if (SIGN.map.has(text)) return SIGN.map.get(text);
+  if (SIGN.n >= SIGN_MAX) return null;
+  const gl = GL.gl;
+  if (!gl) return null;
+  if (!SIGN.tex) {
+    SIGN.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SIGN_W * SIGN_COLS, SIGN_H * SIGN_ROWS,
+                  0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    SIGN.cv = document.createElement('canvas');
+    SIGN.cv.width = SIGN_W; SIGN.cv.height = SIGN_H;
+    SIGN.g = SIGN.cv.getContext('2d');
+  }
+  const i = SIGN.n++;
+  const col = i % SIGN_COLS, row = (i / SIGN_COLS) | 0;
+  const g = SIGN.g;
+  g.clearRect(0, 0, SIGN_W, SIGN_H);
+  /* Upper case and the HUD's condensed face, because that is what a fascia sign
+     looks like and because narrow letters fit more of a long Serbian name across
+     a wall. Cyrillic and Latin both come out of the same font stack. */
+  const label = text.toUpperCase();
+  const face = getComputedStyle(document.body).getPropertyValue('--hud');
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  /* SHRUNK TO FIT, NOT SQUEEZED. The first version scaled the letters
+     horizontally to make a long name fit the cell, which turned GRAND CASINO
+     ADMIRAL into a column of vertical bars. A name that needs more room gets a
+     smaller point size instead, and the QUAD gets wider — because a long name
+     genuinely is wider relative to its height, and the sign on the wall should
+     say so. */
+  const room = SIGN_W - 10;
+  let px = 46;
+  g.font = px + 'px ' + face;
+  const w0 = Math.max(1, g.measureText(label).width);
+  if (w0 > room) { px = Math.max(13, Math.floor(px * room / w0)); g.font = px + 'px ' + face; }
+  const m = g.measureText(label);
+  const asc = m.actualBoundingBoxAscent || px * 0.72;
+  const dsc = m.actualBoundingBoxDescent || 0;
+  const x = 5, y = Math.min(SIGN_H - 5, (SIGN_H + asc - dsc) / 2);
+  // a dark rim so white letters still read against a pale stucco wall
+  g.lineWidth = Math.max(3, px * 0.12); g.lineJoin = 'round';
+  g.strokeStyle = 'rgba(0,0,0,.55)';
+  g.strokeText(label, x, y);
+  g.fillStyle = '#fff';
+  g.fillText(label, x, y);
+  gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, col * SIGN_W, row * SIGN_H,
+                   gl.RGBA, gl.UNSIGNED_BYTE, SIGN.cv);
+  /* THE QUAD IS THE INK, not the cell. Mapping the whole 256x64 cell onto the
+     wall would hang the letters in the middle of a large invisible rectangle —
+     they would come out a third of the size asked for, with the rest of the sign
+     padding. So the box the glyphs actually cover is measured and only that is
+     mapped, which makes `h` on the wall the height of the letters themselves. */
+  const pad = 4;
+  const bx0 = Math.max(0, x - pad), bx1 = Math.min(SIGN_W, x + Math.min(room, m.width) + pad);
+  const by0 = Math.max(0, y - asc - pad), by1 = Math.min(SIGN_H, y + dsc + pad);
+  const AW = SIGN_W * SIGN_COLS, AH = SIGN_H * SIGN_ROWS;
+  const s = {
+    u0: (col * SIGN_W + bx0) / AW,
+    u1: (col * SIGN_W + bx1) / AW,
+    v0: (row * SIGN_H + by0) / AH,
+    v1: (row * SIGN_H + by1) / AH,
+    aspect: (bx1 - bx0) / Math.max(1, by1 - by0)
+  };
+  SIGN.map.set(text, s);
+  return s;
+}
+
+/* Letters standing off the wall they are bolted to, which is what stops them
+   fighting the masonry for the same depth and is also what a channel-letter sign
+   physically does. */
+const SIGN_STANDOFF = 0.18;
+/* Worked out separately from the pushing so a test can ask where a sign WOULD go
+   without reading it back off the GPU. Returns null when the building does not
+   get one, and otherwise the two ends of the sign, its top and bottom, and the
+   wall it is on. */
+function signQuad(b, fp, wind, top, foot) {
+  const s = signSlot(b.sign);
+  if (!s) return null;
+  /* THE WIDEST WALL GETS IT. A name goes on the front of a building, and the
+     front of a building in a footprint with no other information is its longest
+     side — which for a block on a corner is the one facing the main road. */
+  let bi = -1, bl = 0, n = fp.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const L = Math.hypot(fp[i].x - fp[j].x, fp[i].y - fp[j].y);
+    if (L > bl) { bl = L; bi = i; }
+  }
+  if (bi < 0 || bl < 10) return null;         // no wall worth signing
+  const a = fp[(bi + n - 1) % n], c = fp[bi];
+  const p = wind > 0 ? c : a, q = wind > 0 ? a : c;
+  const ex = (q.x - p.x) / bl, ez = (q.y - p.y) / bl;
+  const nx = -ez, nz = ex;                    // outward, matching the wall's own
+  /* SIZED OFF THE BUILDING, THEN CUT DOWN TO THE WALL. Letters get a fifth of
+     the facade's height, which is what a fascia sign takes on a real one, and
+     the width follows from the name's own proportions. Only if that would run
+     off the end of the wall does the width lead instead — a long name on a
+     narrow shopfront gets smaller letters, exactly as it would in the street.
+
+     Doing it the other way round was the first attempt and produced seven metres
+     of lettering on a ninety-metre casino: a stamp, not a sign. */
+  const wallH = top - foot;
+  let h = clamp(wallH * 0.20, 1.2, 6);
+  let w = h * s.aspect;
+  if (w > bl * 0.8) { w = bl * 0.8; h = w / s.aspect; }
+  if (h < 0.8) return null;                   // too small to read; leave it off
+  const cxp = p.x + ex * bl / 2, czp = p.y + ez * bl / 2;
+  const y1 = top - Math.max(0.5, h * 0.35), y0 = y1 - h;
+  if (y0 < foot + 0.5) return null;           // no room under the roofline
+  const ox = nx * SIGN_STANDOFF, oz = nz * SIGN_STANDOFF;
+  const L = { x: cxp - ex * w / 2 + ox, z: czp - ez * w / 2 + oz };
+  const R = { x: cxp + ex * w / 2 + ox, z: czp + ez * w / 2 + oz };
+  return { L, R, y0, y1, s, w, h, wall: bl };
+}
+function pushSign(out, b, fp, wind, top, foot) {
+  const q = signQuad(b, fp, wind, top, foot);
+  if (!q) return;
+  const { L, R, y0, y1, s } = q;
+  out.push(L.x, y0, L.z, s.u0, s.v1,
+           R.x, y0, R.z, s.u1, s.v1,
+           R.x, y1, R.z, s.u1, s.v0);
+  out.push(L.x, y0, L.z, s.u0, s.v1,
+           R.x, y1, R.z, s.u1, s.v0,
+           L.x, y1, L.z, s.u0, s.v0);
+}
+
 /* Everything in one 512 m square, turned into two GPU meshes. */
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
-  const gnd = [], lit = [];
+  const gnd = [], lit = [], sgn = [];
   let ymin = Infinity, ymax = -Infinity;
   const note = y => { if (y < ymin) ymin = y; if (y > ymax) ymax = y; };
 
@@ -891,13 +1075,16 @@ function buildCell(kx, kz) {
       for (const p of cr > 0 ? [p0, p2, p1] : [p0, p1, p2])
         lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0);   // a roof has no facade
     }
+    // and its name across the widest wall, if OSM gave it one
+    if (b.sign) pushSign(sgn, b, fp, wind, top, base + 1);
   }
 
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   return {
     kx, kz, x0, z0, x1, z1, y0: ymin - 2, y1: ymax + 2,
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
-    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]])
+    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]]),
+    sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null
   };
 }
 
@@ -1566,6 +1753,38 @@ function render3D() {
     G3.tris += cell.lit.n / 3;
     G3.drawn++;
   }
+  /* ---- the names on the buildings ----
+
+     After the masonry and before the cars, because a sign is bolted to a wall
+     and a car can park in front of it. Depth test on so it is hidden by whatever
+     is between you and it, depth WRITE off because the glyphs are cut out with
+     alpha and the transparent corners of the quad would otherwise punch a
+     rectangular hole in everything drawn afterwards. */
+  if (SIGN.tex) {
+    gl.useProgram(G3.sign.p);
+    gl.uniformMatrix4fv(G3.sign.u.uVP, false, G3.VP);
+    gl.uniform3fv(G3.sign.u.uFog, th.sky);
+    gl.uniform2f(G3.sign.u.uFogR, FOG0, VIEW3);
+    /* Warm at dusk, plain white by day — the same lamp colour the street lights
+       use, so a fascia sign after dark belongs to the same night as everything
+       under it. */
+    gl.uniform3fv(G3.sign.u.uInk, themeName === 'day' ? [1, 1, 1] : [1, .93, .80]);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
+    gl.uniform1i(G3.sign.u.uTex, 1);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    for (const cell of draw) if (cell.sgn) {
+      gl.bindVertexArray(cell.sgn.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, cell.sgn.n);
+      G3.tris += cell.sgn.n / 3;
+    }
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.useProgram(G3.lit.p);
+  }
+
   if (dyn.length && G3.cars.n) {
     gl.uniform1f(G3.lit.u.uPaint, 1);          // paint: keeps its colour after dark
     gl.bindVertexArray(G3.cars.vao);

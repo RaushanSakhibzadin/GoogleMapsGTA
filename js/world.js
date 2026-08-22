@@ -222,6 +222,8 @@ function parseOSM(els) {
       // drawn twice, collides twice, and only the first copy is marked passable —
       // so an archway you could drive through becomes a wall you cannot.
       buildings.push({ id: el.id, pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
+                       // what it is called, for the sign across its widest wall
+                       sign: (t.name || '').slice(0, 34),
                        mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
                        neon: (signable && Math.random() < .22) ? pick(PAL.neon) : null });
     } else if (t.leisure || t.landuse) {
@@ -695,6 +697,12 @@ function markPOIBuildings() {
       if (!pointInPoly(b.pts, p.x, p.y)) continue;
       b.passable = true;
       if (b.h > p.lift) p.lift = b.h;
+      /* AND THE SHOP LENDS THE BUILDING ITS NAME. A block of flats is rarely
+         named in OSM and the bakery on its ground floor almost always is, which
+         is the right way round for a street sign: what you read on a facade is
+         the business, not the freeholder. A name the building already has wins,
+         because that is the more specific fact. */
+      if (!b.sign && p.name) b.sign = p.name.slice(0, 34);
     }
   }
 }
