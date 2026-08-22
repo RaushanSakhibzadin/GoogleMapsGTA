@@ -314,6 +314,14 @@ out.frozeCity = await freeze();
    anywhere near it, so counting how many of the changed pixels are that dark
    asks the question directly: is there something black down there now. */
 {
+  /* AND THE STREET IS CLEARED FIRST, because __plainCars strips the detail off
+     EVERY car and the question is about this one. Parked close to the wall there
+     was nothing else in shot and the count without wheels was reliably zero;
+     from further back the road comes into view, and eight hundred near-black
+     pixels of other people's tyres turned a clean 8:1 margin into 896 against
+     805. The frame is frozen, so nothing respawns — and both frames are taken
+     with the same empty street, which is the whole point of the subtraction. */
+  await p.evaluate(() => { traffic.length = 0; cops.length = 0; peds.length = 0; });
   await p.evaluate(() => window.__noShadow(true));
   await p.evaluate(() => { for (let i = 0; i < 4; i++) window.__px3(0, 0, 1, 1); });
   const withWh = await grab();
