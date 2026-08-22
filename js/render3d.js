@@ -94,12 +94,26 @@ const PAL_GROUND = 0, PAL_PARK = 1, PAL_KERB = 2, PAL_ROAD = 3, PAL_BIG = 4, PAL
    shadow it throws down a street. Low light also means a lit wall ends up
    brighter than a roof, which is not a mismatch to apologise for — it is what
    late afternoon looks like. */
+/* AND THE SUN IS IN THE SOUTH, because this city is at 44° north and the sun
+   has never once been anywhere else.
+
+   ld points TOWARDS the light. +x is east and +z is south — projY negates
+   latitude, so a larger world y is a lower latitude — and both themes used to
+   carry a negative z, which put the sun in the NORTH-west and lit every north
+   face while the south of every building sat in shadow all day. Nobody who has
+   not stood in the street would spot it from a screenshot; anybody who lives
+   there sees it immediately, and it was reported from Belgrade.
+
+   Flipping that one sign puts both themes in the south-west — bearing 226 and
+   230°, elevation 18 and 16° — which is a northern-hemisphere afternoon going
+   into evening, and the low angle the shadows were tuned for in the first
+   place. */
 const SKY = {
   dusk: {
     // a shade above PAL.ground on purpose, so the horizon is a line rather than
     // the place two identical blacks meet
     sky: [.105, .062, .175], amb: [.085, .070, .135], lc: [.15, .125, .17],
-    ld: [-.70, .26, -.58], shadowK: .82,
+    ld: [-.70, .26, .58], shadowK: .82,
     // overhead at dusk is nearly black; the last of the light is on the skyline
     zen: [.035, .022, .085], glow: [.16, .09, .20],
     // after dark a third of the windows are somebody's front room
@@ -108,7 +122,7 @@ const SKY = {
   },
   day: {
     sky: [.62, .70, .80], amb: [.34, .355, .39], lc: [.64, .60, .53],
-    ld: [-.66, .30, -.64], shadowK: .58,
+    ld: [-.66, .30, .64], shadowK: .58,
     /* The zenith of the reference photograph, near enough. It is a much stronger
        blue than the horizon, and getting that difference wrong in either
        direction is the difference between "outdoors" and "a grey backdrop". */
