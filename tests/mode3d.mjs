@@ -256,27 +256,28 @@ out.casts =
    honestly once already, when the light sat at 34° and the disc was permanently
    above the top edge of a camera that looked 18° down. */
 out.sun = await p.evaluate(() => window.__sun());
-/* SKY ONLY, AND THE AVERAGE OF IT. The strip across the top of the frame is
-   mostly sky and partly rooftop, and taking its brightest pixel meant taking a
-   sunlit wall whenever one reached that high — which is exactly what happens
-   when you turn AWAY from the sun, because then the walls facing you are the
-   lit ones. Facing away duly came out brighter than facing towards, 236 to 199,
-   and the sun was in the right place the whole time.
+/* THE SAME PIXELS, SKY IN BOTH FRAMES. The strip across the top of the frame is
+   mostly sky and partly rooftop, and three attempts at reading it went wrong in
+   the same way — by comparing quantities that geometry could move.
 
-   Nothing in this city's masonry is blue-dominant and every sky in it is, at
-   both times of day, so that separates them; and the mean over what is left
-   answers the question the section actually asks, which is whether the glow
-   round the sun reaches the screen at all. */
-const skyMean = px => {
-  let s = 0, n = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    if (px[i + 2] < px[i] - 4) continue;          // warmer than it is blue: not sky
-    s += .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
-    n++;
-  }
-  return { mean: n ? +(s / n).toFixed(1) : 0, sky: n };
-};
-const topHi = async () => skyMean(await grab(0, Math.floor(H * 0.80), W, Math.floor(H * 0.18)));
+   Its brightest pixel meant its brightest ROOFTOP whenever one reached that
+   high, and the walls that reach it facing you are the ones facing AWAY from
+   the sun, which are the lit ones: facing away duly measured brighter than
+   facing towards, 236 to 199, with the sun in the right place all along. Taking
+   the mean of the sky-coloured pixels instead swapped one confound for another,
+   because the two directions do not show the same AMOUNT of sky — 42906 pixels
+   against 27477 — and the sky has a vertical gradient, so a strip with more of
+   it low down averages differently. That version passed with the glow deleted
+   outright, which is the definition of a test that measures nothing.
+
+   The sky's colour depends only on how high up the screen it is, so the same
+   screen position in both frames is the same sky. Comparing pixel against pixel
+   where both are sky holds the gradient still and leaves the one thing that does
+   change with the direction the camera points: the glow around the sun. */
+const SKY_LO = Math.floor(H * 0.80), SKY_BAND = Math.floor(H * 0.18);
+const skyish = (px, i) => px[i + 2] >= px[i] - 4;   // no masonry here is blue-led
+const lumAt = (px, i) => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+const strip = () => grab(0, SKY_LO, W, SKY_BAND);
 const face = turn => p.evaluate(t => {
   const s = window.__sun();
   // the sun's compass bearing; +y is south in this projection
@@ -285,12 +286,24 @@ const face = turn => p.evaluate(t => {
 }, turn);
 await face(0);
 await p.waitForTimeout(900);
-out.brightFacingSun = await topHi();
+const sunward = await strip();
 await face(Math.PI);
 await p.waitForTimeout(900);
-out.brightFacingAway = await topHi();
-out.sunVisible = out.brightFacingSun.sky > 500 && out.brightFacingAway.sky > 500 &&
-                 out.brightFacingSun.mean > out.brightFacingAway.mean + 3;
+const away = await strip();
+{
+  let sum = 0, n = 0;
+  for (let i = 0; i < sunward.length; i += 4) {
+    if (!skyish(sunward, i) || !skyish(away, i)) continue;
+    sum += lumAt(sunward, i) - lumAt(away, i);
+    n++;
+  }
+  out.glow = { pairs: n, gap: n ? +(sum / n).toFixed(2) : 0 };
+  /* Threshold set from the measurement rather than from taste: the glow is
+     worth +16.6 levels averaged over the 8153 sky pixels the two frames share,
+     and a build with the glow line deleted from the sky shader gives -43.0.
+     One is a long way inside that. */
+  out.sunVisible = out.glow.pairs > 2000 && out.glow.gap > 1.0;
+}
 
 /* ---------- 6. toScreen agrees with the camera ---------- */
 /* The objective arrow, and several tests, ask toScreen() where a world point

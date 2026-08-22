@@ -897,14 +897,36 @@ function signQuad(b, fp, wind, top, foot) {
   if (!s) return null;
   /* THE WIDEST WALL GETS IT. A name goes on the front of a building, and the
      front of a building in a footprint with no other information is its longest
-     side — which for a block on a corner is the one facing the main road. */
-  let bi = -1, bl = 0, n = fp.length;
+     side — which for a block on a corner is the one facing the main road.
+
+     TIES GO TO THE WALL FACING SOUTH, and they have to be broken by something,
+     because "the first one I found" depends on which vertex OpenStreetMap
+     happened to start the ring at and which way round it wound it. A square
+     building has four equally widest walls, so the same building drawn from the
+     same place would put its name on a different one depending on how the
+     outline was listed — winding.mjs exists to catch exactly that and duly
+     caught it, half a per cent of the frame moving, all of it lettering.
+
+     South rather than a coin toss because at 44° north that is the lit side and
+     the side a boulevard is usually on. Breaking the tie on the midpoint instead
+     was the first attempt: also deterministic, and it hung half the signs on
+     north walls where the test camera could not see them and neither could a
+     driver. */
+  const n = fp.length;
+  let a = null, c = null, bl = 0, bs = -2;
   for (let i = 0, j = n - 1; i < n; j = i++) {
     const L = Math.hypot(fp[i].x - fp[j].x, fp[i].y - fp[j].y);
-    if (L > bl) { bl = L; bi = i; }
+    if (L < 10) continue;                     // no wall worth signing
+    // the outward normal of this wall, and how far south it points
+    const u = wind > 0 ? fp[i] : fp[j], v = wind > 0 ? fp[j] : fp[i];
+    const south = (v.x - u.x) / L;            // nz of (-(ez), ex): +1 is due south
+    const win = !a ? true
+      : L > bl + 0.05 ? true
+      : L < bl - 0.05 ? false
+      : south > bs;
+    if (win) { a = fp[j]; c = fp[i]; bl = L; bs = south; }
   }
-  if (bi < 0 || bl < 10) return null;         // no wall worth signing
-  const a = fp[(bi + n - 1) % n], c = fp[bi];
+  if (!a) return null;
   const p = wind > 0 ? c : a, q = wind > 0 ? a : c;
   const ex = (q.x - p.x) / bl, ez = (q.y - p.y) / bl;
   const nx = -ez, nz = ex;                    // outward, matching the wall's own

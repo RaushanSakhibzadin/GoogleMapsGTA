@@ -28,7 +28,8 @@
  * footprint in the world is reversed in place. Nothing about a building's
  * appearance may depend on that. It is a stronger statement than any threshold
  * on a screenshot, because the two frames should be IDENTICAL, and on the build
- * that had the fault they differ across 8.6% of the picture.
+ * that had the fault they differ across 8.6% of the picture, against half a
+ * per cent of seam here.
  *
  * Reversal alone would still pass if both directions were broken in the same
  * way, so section 2 anchors it against something absolute: a magenta post is
@@ -176,12 +177,21 @@ const shot = await p.evaluate(() => {
 out.reversed = shot.after;
 out.reallyReversed = String(shot.after) === String(out.setup.windings.map(v => -v));
 out.diff = { movedPct: shot.movedPct, swappedPct: shot.swappedPct };
-/* Not zero: the roof triangulator walks the polygon, so a reversed outline
-   splits the roof into the same shape from different corners and a handful of
-   pixels along a shared triangle edge land differently. Whole surfaces
-   appearing and disappearing is what this is watching for, and that measured
-   8.6% of the frame moved and 6.1% wholly repainted before the fix. */
-out.sameEitherWay = shot.movedPct < 0.5 && shot.swappedPct < 0.2;
+/* NOT ZERO, AND THE TWO NUMBERS ARE NOT EQUALLY INTERESTING. The roof
+   triangulator walks the polygon, so a reversed outline splits the same roof
+   from different corners and the pixels along the seam between a roof triangle
+   and the wall top under it can land either way. That is a one-pixel line, but
+   it is a long one, and how many of those pixels cross a threshold depends on
+   how different a roof and a wall look — which is why moving the sun into the
+   southern sky took this from 0.17 to 0.54 without anything about the geometry
+   changing: the wall facing the camera became the LIT one, so the seam gained
+   contrast. Measured across builds: 0.17 before the signs existed, 0.16 with
+   them, 0.54 with the sun moved.
+
+   swappedPct is the one carrying the assertion. A whole surface appearing or
+   disappearing is what the fault did, and that measured 8.6% of the frame moved
+   with 6.1% wholly repainted — two orders of magnitude above the seam. */
+out.sameEitherWay = shot.movedPct < 1.5 && shot.swappedPct < 0.2;
 
 /* ---- 2. and the boxes are solid, in both directions ---- */
 out.post = { a: shot.postA, b: shot.postB };
