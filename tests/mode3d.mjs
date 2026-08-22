@@ -256,7 +256,27 @@ out.casts =
    honestly once already, when the light sat at 34° and the disc was permanently
    above the top edge of a camera that looked 18° down. */
 out.sun = await p.evaluate(() => window.__sun());
-const topHi = async () => stats(await grab(0, Math.floor(H * 0.80), W, Math.floor(H * 0.18))).hi;
+/* SKY ONLY, AND THE AVERAGE OF IT. The strip across the top of the frame is
+   mostly sky and partly rooftop, and taking its brightest pixel meant taking a
+   sunlit wall whenever one reached that high — which is exactly what happens
+   when you turn AWAY from the sun, because then the walls facing you are the
+   lit ones. Facing away duly came out brighter than facing towards, 236 to 199,
+   and the sun was in the right place the whole time.
+
+   Nothing in this city's masonry is blue-dominant and every sky in it is, at
+   both times of day, so that separates them; and the mean over what is left
+   answers the question the section actually asks, which is whether the glow
+   round the sun reaches the screen at all. */
+const skyMean = px => {
+  let s = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 2] < px[i] - 4) continue;          // warmer than it is blue: not sky
+    s += .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+    n++;
+  }
+  return { mean: n ? +(s / n).toFixed(1) : 0, sky: n };
+};
+const topHi = async () => skyMean(await grab(0, Math.floor(H * 0.80), W, Math.floor(H * 0.18)));
 const face = turn => p.evaluate(t => {
   const s = window.__sun();
   // the sun's compass bearing; +y is south in this projection
@@ -269,7 +289,8 @@ out.brightFacingSun = await topHi();
 await face(Math.PI);
 await p.waitForTimeout(900);
 out.brightFacingAway = await topHi();
-out.sunVisible = out.brightFacingSun > out.brightFacingAway + 12;
+out.sunVisible = out.brightFacingSun.sky > 500 && out.brightFacingAway.sky > 500 &&
+                 out.brightFacingSun.mean > out.brightFacingAway.mean + 3;
 
 /* ---------- 6. toScreen agrees with the camera ---------- */
 /* The objective arrow, and several tests, ask toScreen() where a world point
