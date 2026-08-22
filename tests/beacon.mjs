@@ -85,10 +85,20 @@ await p.evaluate(() => {
    high. It is drawn additively over whatever is behind it, so the test asks for
    "strongly pink" rather than for the exact value: red and blue both well up,
    green held down between them. */
-const scanPink = px => {
+/* AND ONLY WHERE THE FRAME CHANGED. The two grabs are identical apart from the
+   objective, so a pink pixel that is pink in both is not the beacon — it is the
+   sky. That started mattering the day the sun moved into the southern half of
+   the sky, which put the dusk glow behind the objective: a purple wash that
+   answers this matcher perfectly and put 881 pink pixels into the frame with the
+   beacon switched OFF, against 2232 with it on. The beacon was fine; the counter
+   was measuring the sunset. Subtracting the unchanged pixels leaves the additive
+   column and nothing else. */
+const scanPink = (px, ref) => {
   let n = 0, top = -1;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = at(x, y);
+    if (Math.abs(px[i] - ref[i]) + Math.abs(px[i + 1] - ref[i + 1]) +
+        Math.abs(px[i + 2] - ref[i + 2]) <= 12) continue;
     const r = px[i], g = px[i + 1], b = px[i + 2];
     if (r > 120 && b > 120 && g < r - 45 && g < b - 45) { n++; if (y > top) top = y; }
   }
@@ -100,7 +110,7 @@ await p.evaluate(() => { MISSION.state = 'none'; MISSION.pick = null; });
 const without = await grab();
 await p.evaluate(() => { state = window.__keepStateB; });
 
-const a = scanPink(withIt), b = scanPink(without);
+const a = scanPink(withIt, without), b = scanPink(without, withIt);
 out.pink = { withObjective: a.n, without: b.n };
 /* HOW HIGH IT REACHES, which is the whole design and not a detail. The column is
    depth-tested like everything else, so a building in front of it hides it —
