@@ -837,15 +837,38 @@ function buildCell(kx, kz) {
     base -= 1;
     const top = terrainH(b.cx, b.cy) + b.h;
     note(base); note(top);
+    const fp = b.pts;
     const wall = b.mWall, roof = b.mRoof;
     const wr = wall[0] / 255, wg = wall[1] / 255, wb = wall[2] / 255;
-    const wind = windingOf(b.pts);
+    /* WHICH WAY ROUND THE OUTLINE IS LISTED, and why both the normal and the
+       triangles have to be told.
+
+       OpenStreetMap does not agree on a direction for a building's outline: of
+       the 3502 buildings in the bundled Stari grad capture, 1855 run one way
+       and 1647 the other. So the outward side of a wall cannot be read off the
+       edge alone — hence `wind`, which flips the normal for a footprint listed
+       the other way round.
+
+       THE NORMAL IS ONLY HALF OF IT. The GPU decides what to draw by the order
+       the triangle's own corners arrive in, not by the normal it carries, and
+       that order comes straight from the direction the outline is walked. So a
+       clockwise building used to get a correct normal — lit correctly, windows
+       in the right place — on triangles the hardware then culled as
+       back-facing. The near walls vanished and you looked straight into the far
+       ones from behind: an open book standing in the street where a block
+       should be, reported as "some buildings look like walls". Walking the edge
+       backwards for those buildings turns the triangles round to match the
+       normal, and costs nothing. */
+    const wind = windingOf(fp);
     for (let i = 0, j = n - 1; i < n; j = i++) {
-      const ax = b.pts[j].x, az = b.pts[j].y, bx = b.pts[i].x, bz = b.pts[i].y;
+      const p = wind > 0 ? fp[i] : fp[j], q = wind > 0 ? fp[j] : fp[i];
+      const ax = p.x, az = p.y, bx = q.x, bz = q.y;
       const ex = bx - ax, ez = bz - az;
       const L = Math.hypot(ex, ez);
       if (L < 1e-4) continue;
-      const nx = wind * ez / L, nz = -wind * ex / L;      // outward, in the ground plane
+      // outward, in the ground plane — the edge is already reversed above for a
+      // clockwise footprint, so the normal follows it without a sign of its own
+      const nx = -ez / L, nz = ex / L;
       /* aWall is (how far up this vertex is, how tall this wall is). The base is
          a metre INTO the hill, so the height that matters to the facade is
          measured from the ground at the footprint rather than from the buried
@@ -860,10 +883,10 @@ function buildCell(kx, kz) {
                ax, top, az, nx, 0, nz, wr, wg, wb, H, H);
     }
     // the roof, which is the one part that genuinely needs a triangulator
-    const tri = earClip(b.pts);
+    const tri = earClip(fp);
     const rr = roof[0] / 255, rg = roof[1] / 255, rb = roof[2] / 255;
     for (let i = 0; i < tri.length; i += 3) {
-      const p0 = b.pts[tri[i]], p1 = b.pts[tri[i + 1]], p2 = b.pts[tri[i + 2]];
+      const p0 = fp[tri[i]], p1 = fp[tri[i + 1]], p2 = fp[tri[i + 2]];
       const cr = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
       for (const p of cr > 0 ? [p0, p2, p1] : [p0, p1, p2])
         lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0);   // a roof has no facade
