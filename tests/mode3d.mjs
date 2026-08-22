@@ -274,6 +274,31 @@ out.sun = await p.evaluate(() => window.__sun());
    screen position in both frames is the same sky. Comparing pixel against pixel
    where both are sky holds the gradient still and leaves the one thing that does
    change with the direction the camera points: the glow around the sun. */
+/* AND IT IS DONE FROM OPEN GROUND, because "sky in both frames" is only as good
+   as the sky in the frames. Wherever the drive happened to stop, a tower on one
+   side and none on the other means the two strips are not comparable at all: run
+   inside the suite, with the timing that gives, this came back at -55 where the
+   same build alone gives +16.6. So a spot is found with no building within a
+   bucket of it in any direction, and the camera is turned on the axle there. */
+out.openGround = await p.evaluate(() => {
+  const clear = (x, y) => {
+    const cx = Math.floor(x / W.bcell), cy = Math.floor(y / W.bcell);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const arr = W.buckets.get((cx + i) + ',' + (cy + j));
+      if (arr && arr.length) return false;
+    }
+    return true;
+  };
+  for (const r of W.driveRoads) for (const q of r.pts) {
+    if (!clear(q.x, q.y)) continue;
+    window.__tp(q.x, q.y, 0);
+    P.car.vx = P.car.vy = 0;
+    traffic.length = 0; cops.length = 0; peds.length = 0;
+    return { x: Math.round(q.x), y: Math.round(q.y) };
+  }
+  return null;
+});
+await p.waitForTimeout(1200);
 const SKY_LO = Math.floor(H * 0.80), SKY_BAND = Math.floor(H * 0.18);
 const skyish = (px, i) => px[i + 2] >= px[i] - 4;   // no masonry here is blue-led
 const lumAt = (px, i) => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
@@ -298,11 +323,13 @@ const away = await strip();
     n++;
   }
   out.glow = { pairs: n, gap: n ? +(sum / n).toFixed(2) : 0 };
-  /* Threshold set from the measurement rather than from taste: the glow is
-     worth +16.6 levels averaged over the 8153 sky pixels the two frames share,
-     and a build with the glow line deleted from the sky shader gives -43.0.
-     One is a long way inside that. */
-  out.sunVisible = out.glow.pairs > 2000 && out.glow.gap > 1.0;
+  /* Threshold set from the measurement rather than from taste. From open ground
+     the whole strip is sky in both frames — 97200 pairs of it — and the glow is
+     worth +47.9 levels across them. A build with the glow line deleted from the
+     sky shader gives +2.0, not zero, because the chase camera's pitch follows
+     the ground and the two headings do not sit at exactly the same angle. Ten
+     is five times clear of that and five times under the real thing. */
+  out.sunVisible = !!out.openGround && out.glow.pairs > 20000 && out.glow.gap > 10;
 }
 
 /* ---------- 6. toScreen agrees with the camera ---------- */
