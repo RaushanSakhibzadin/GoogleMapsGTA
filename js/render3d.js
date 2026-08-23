@@ -963,6 +963,131 @@ function pushSign(out, b, fp, wind, top, foot) {
            L.x, y1, L.z, s.u0, s.v0);
 }
 
+/* STREET TREES.
+
+   Belgrade's boulevards are lined with plane trees and its blocks are green
+   behind them, and a city drawn without any is a model of a city rather than a
+   place. OpenStreetMap does map individual trees, but sparsely and unevenly —
+   whole avenues that plainly have them carry none — so these are generated
+   instead, which was the way it was asked for.
+
+   WHERE A TREE CAN ACTUALLY STAND: on the verge beside a drivable road, off the
+   tarmac, and not inside a building. The first two are grid lookups the game
+   already keeps for the off-road penalty; the third is the same bucket walk that
+   marks a POI's building. Anything that fails is simply not planted, so a tree
+   never appears in a wall or in the middle of a carriageway.
+
+   AND IN THE SAME PLACE EVERY TIME. The position along the road decides
+   everything — spacing, height, how green it is — through a hash of the
+   coordinate, so a cell dropped and rebuilt comes back identical and two
+   players in the same street see the same trees. The spacing is walked from the
+   start of each SEGMENT rather than from the cell, so a tree lands in exactly
+   one cell and the row does not restart at every cell boundary. */
+const TREE_GAP = 16, TREE_VERGE = 2.8;
+/* Integer hash rather than sin(): the argument here is a world coordinate that
+   reaches ±18000, and sin() of a number that size has almost no fraction left —
+   the same reason the window shader carries its own. */
+function hash2(x, z) {
+  let h = Math.imul(Math.round(x * 8) | 0, 374761393) ^ Math.imul(Math.round(z * 8) | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function insideBuilding(x, y) {
+  const arr = W.buckets.get(Math.floor(x / W.bcell) + ',' + Math.floor(y / W.bcell));
+  if (!arr) return false;
+  for (const bi of arr) {
+    const b = W.buildings[bi];
+    if (x < b.bb.x0 || x > b.bb.x1 || y < b.bb.y0 || y > b.bb.y1) continue;
+    if (pointInPoly(b.pts, x, y)) return true;
+  }
+  return false;
+}
+/* One triangle with its own face normal, which is what makes a canopy read as
+   faceted foliage rather than as a flat green blob.
+
+   THE ORDER OF THE CORNERS IS THE OUTWARD SIDE. cross(b-a, c-a) has to come out
+   pointing away from the middle of the tree, which is the same convention the
+   walls use — and getting it backwards produces exactly what it produced on the
+   buildings: normals facing into the trunk, so no sunlight ever lands on them
+   and every tree in the city is a black blob lit by ambient alone. Which is what
+   the first version of this looked like, one commit after fixing the identical
+   fault in the masonry. */
+function pushTri(o, ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b) {
+  let nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+  let ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+  let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  const l = Math.hypot(nx, ny, nz) || 1;
+  nx /= l; ny /= l; nz /= l;
+  o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0,
+         bx, by, bz, nx, ny, nz, r, g, b, 0, 0,
+         cx, cy, cz, nx, ny, nz, r, g, b, 0, 0);
+}
+/* A trunk and an eight-sided crown: sixteen triangles, which is two per cent of
+   one building and reads as a tree from a car. */
+function pushTree(o, x, z, note) {
+  const k = hash2(x, z);
+  const y = terrainH(x, z);
+  const H = 5.0 + k * 3.4;                    // 5 to 8.4 m to the top of the crown
+  const trunkH = H * 0.34, rad = 0.62 * (H * 0.66) + k * 0.5;   // wider than tall
+  note(y); note(y + H);
+  const tr = 0.13 + k * 0.06;
+  const br = 0.24, bg = 0.19, bb = 0.15;
+  for (let i = 0; i < 4; i++) {
+    const a0 = i * Math.PI / 2, a1 = (i + 1) * Math.PI / 2;
+    const x0 = x + Math.cos(a0) * tr, z0 = z + Math.sin(a0) * tr;
+    const x1 = x + Math.cos(a1) * tr, z1 = z + Math.sin(a1) * tr;
+    pushTri(o, x0, y, z0, x1, y + trunkH, z1, x1, y, z1, br, bg, bb);
+    pushTri(o, x0, y, z0, x0, y + trunkH, z0, x1, y + trunkH, z1, br, bg, bb);
+  }
+  /* Greener or browner by a few per cent per tree, from the same hash — a row of
+     identical crowns is the one thing that makes generated planting look
+     generated. */
+  const g0 = 0.52 + k * 0.16, r0 = 0.28 + k * 0.12, b0 = 0.20 + k * 0.09;
+  /* SEVEN SIDES, AND THE WIDEST PART LOW. Four sides with a point at each end is
+     a rhombus on a stick, which is what the first attempt looked like from the
+     car — the silhouette of a bipyramid is its two points and nothing else.
+     Seven is enough that the outline reads as round at the distance a tree is
+     ever looked at, odd so a flat edge never faces the camera square on, and
+     still only twenty-one triangles. */
+  const SIDES = 7;
+  const crown = H - trunkH;
+  const cy0 = y + trunkH, cy1 = y + H, mid = y + trunkH + crown * 0.52;
+  for (let i = 0; i < SIDES; i++) {
+    const a0 = (i * 2 * Math.PI) / SIDES + k, a1 = ((i + 1) * 2 * Math.PI) / SIDES + k;
+    const x0 = x + Math.cos(a0) * rad, z0 = z + Math.sin(a0) * rad;
+    const x1 = x + Math.cos(a1) * rad, z1 = z + Math.sin(a1) * rad;
+    pushTri(o, x, cy1, z, x1, mid, z1, x0, mid, z0, r0, g0, b0);
+    // the underside is in its own shade, which is most of what says "canopy"
+    pushTri(o, x, cy0, z, x0, mid, z0, x1, mid, z1, r0 * .62, g0 * .62, b0 * .62);
+  }
+}
+/* `sites` is for the tests: pass an array and every trunk position that was
+   planted lands in it, so the placement rules can be checked as coordinates
+   rather than guessed at from pixels. Production passes nothing. */
+function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
+  const off = r.w / 2 + TREE_VERGE;
+  for (let i = 0; i < r.pts.length - 1; i++) {
+    const a = r.pts[i], b = r.pts[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const L = Math.hypot(dx, dy);
+    if (L < 4) continue;
+    const ex = dx / L, ey = dy / L, px = -ey, py = ex;
+    for (let s = TREE_GAP * 0.5; s < L; s += TREE_GAP) {
+      for (let side = -1; side <= 1; side += 2) {
+        const j = hash2(a.x + ex * s, a.y + ey * s + side);
+        if (j < 0.22) continue;               // gaps: driveways, corners, a stump
+        const d = off + j * 1.6;
+        const tx = a.x + ex * s + px * d * side, tz = a.y + ey * s + py * d * side;
+        // exactly one cell owns it, so a tree is never built twice
+        if (tx < x0 || tx >= x1 || tz < z0 || tz >= z1) continue;
+        if (onTarmac(tx, tz) || insideBuilding(tx, tz)) continue;
+        pushTree(o, tx, tz, note);
+        if (sites) sites.push(tx, tz);
+      }
+    }
+  }
+}
+
 /* Everything in one 512 m square, turned into two GPU meshes. */
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
@@ -1114,6 +1239,9 @@ function buildCell(kx, kz) {
     // and its name across the widest wall, if OSM gave it one
     if (b.sign) pushSign(sgn, b, fp, wind, top, base + 1);
   }
+
+  // the planting, last, because it needs the buildings' footprints to avoid
+  for (const r of rs) if (r.drive) treesAlong(lit, r, x0, z0, x1, z1, note);
 
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   return {
