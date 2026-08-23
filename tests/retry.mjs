@@ -218,7 +218,13 @@ out.pass =
   !/Savski venac/.test(out.city.atStart.city) &&
   out.city.afterRetries.retry.log.some(l => l.kind === 'city' && l.ok) &&
   // 2. the wide map arrived after the fact
-  out.skeleton.atStart.skel === null && !!out.skeleton.afterRetries.skel &&
+  /* THE STAND-IN IS NOT THE ANSWER. This used to read "no skeleton at the
+     start", which stopped being the same question the day a refused sweep
+     started grafting the bundled city's arterials in rather than leaving the
+     player in a 5.5 km box. There IS a wide map at the start now — it is just
+     not the real one, and what the retry has to deliver is the real one. */
+  (out.skeleton.atStart.skel === null || out.skeleton.atStart.skel.bundled === true) &&
+  !!out.skeleton.afterRetries.skel && out.skeleton.afterRetries.skel.bundled === false &&
   // 3. and the garages
   out.landmarks.atStart.pois === 0 && out.landmarks.afterRetries.pois > 0 &&
   // 4. and the buildings

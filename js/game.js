@@ -419,7 +419,13 @@ function retryLater(what) {
 function retryWanted() {
   if (RETRY.city && FELLBACK) return 'city';
   if (W.procedural || W.bundled) return null;   // nothing to fetch for these
-  if (!W.skelRect) return 'skeleton';
+  /* A BUNDLED SKELETON IS A STAND-IN, NOT AN ANSWER. It fills the world so a
+     refused sweep does not leave you in a 5.5 km box, and it is somebody else's
+     capture of this city from a fortnight ago — the real one is still worth
+     fetching, so this keeps asking. Without the flag the graft looked like
+     success and the retry never ran again: the player kept the stand-in for the
+     whole session even once the mirrors came back. */
+  if (!W.skelRect || W.skelBundled) return 'skeleton';
   // the two that a wasted run actually needs somewhere to send you
   const gone = missingKinds();
   if (gone.includes('hospital') || gone.includes('police')) return 'landmarks';
@@ -431,7 +437,8 @@ async function runRetry(kind) {
   if (kind === 'city') return retryCity();
   if (kind === 'skeleton') {
     const skel = await loadSkeleton();
-    if (!skel) return false;
+    // the stand-in coming back a second time is not progress
+    if (!skel || skel.bundled) return false;
     WIDE_MAP = true;
     prerenderMap();
     toast('MAP EXTENDED\n' + Math.round(skel.radius / 1000) + ' KM OF ROADS', 2600);

@@ -266,7 +266,21 @@ out.aiUnaffected = out.ai.offKmh > 10 && Math.abs(out.ai.offKmh - out.ai.onKmh) 
 out.frontier = await p.evaluate(async () => {
   window.__ghost(false);
   const bb = window.__chunks().bounds;
-  // well past the loaded tiles but inside the reserved fence
+  /* WITH NO WIDE MAP, WHICH IS THE ONLY WAY THIS GROUND EXISTS. Three hundred
+     metres inside the far edge used to be well past everything, because a
+     session whose arterial sweep failed had no skeleton at all and the fence
+     stood at 2740 m. A refused sweep now falls back to the skeleton in the
+     bundle, and the fence is SIZED off that skeleton — so every point inside it
+     has road data, the car correctly crawls between the motorways, and this
+     measured 14 km/h and called it a regression.
+
+     The condition under test is unchanged and still reachable: a city the bundle
+     does not cover, whose sweep failed, has tiles and nothing else. Dropping the
+     rectangle for the length of this section is that session — roadDataHere
+     falls back to asking which tiles have landed, which is the question it was
+     written around — and it is put back afterwards. */
+  const keepRect = W.skelRect;
+  W.skelRect = null;
   const x = bb.x1 - 300;
   const known = window.__roadDataHere(x, 0);
   window.__tp(x, 0, 0);
@@ -282,6 +296,7 @@ out.frontier = await p.evaluate(async () => {
     requestAnimationFrame(tick);
   });
   window.__setInput(null);
+  W.skelRect = keepRect;
   return { x: Math.round(x), roadDataHere: known, topKmh: Math.round(best * 3.6) };
 });
 // unmapped is not the same as off-road: it must not crawl out here

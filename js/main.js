@@ -175,7 +175,7 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   grid: W.gw + 'x' + W.gh, maskBytes: W.grid ? W.grid.length : 0,
   maskBox: { x0: W.gx0, y0: W.gy0, x1: W.gx0 + W.gw * W.cell, y1: W.gy0 + W.gh * W.cell },
   maskHalf: MASK_HALF,
-  skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2 }, wideMap: WIDE_MAP,
+  skel: W.skelRect && { r: (W.skelRect.x1 - W.skelRect.x0) / 2, bundled: W.skelBundled }, wideMap: WIDE_MAP,
   fixed: [...W.fixed], roaded: ROADED.size, roadIds: W.roadIds.size,
   mapScale: +W.mapScale.toFixed(4), mapWhole: !!W.mapWhole,
   mapOrigin: { x: Math.round(W.mapOrigin.x), y: Math.round(W.mapOrigin.y) },

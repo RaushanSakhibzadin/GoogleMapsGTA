@@ -23,6 +23,7 @@ const W = {
   dcell: 300, dbuckets: new Map(),       // drivable roads, for spawning and snapping
   roadIds: new Set(),                    // every way already in the world, so none lands twice
   skelRect: null,                        // the wide arterial box, if one landed
+  skelBundled: false,                    // and whether it came out of the bundle rather than the wire
   tiles: new Map(), fixed: new Set(),    // streamed tiles; the ones that predate play are permanent
   map: null, mapScale: 1,                // pre-rendered minimap
   mapOrigin: { x: 0, y: 0 },             // world point the pre-render's top-left corner is
@@ -1522,6 +1523,7 @@ async function loadSkeleton(onMsg) {
       // Set before merging: mergeChunk sizes the grid off this rectangle, and it
       // has to grow even when every road in the response was already a duplicate.
       W.skelRect = { x0: -R, y0: -R, x1: R, y1: R };
+      W.skelBundled = false;          // the real thing, not the stand-in
       const added = mergeChunk(data, 'skel');
       return { radius: R, roads: added, places: data.places.length };
     } catch (err) {
@@ -1565,6 +1567,7 @@ async function bundledSkeleton() {
   const data = parseOSM(city.skeleton);
   if (!data.roads.length) return null;
   W.skelRect = { x0: -half, y0: -half, x1: half, y1: half };
+  W.skelBundled = true;
   const added = mergeChunk(data, 'skel');
   return { radius: half, roads: added, places: data.places.length, bundled: true };
 }
