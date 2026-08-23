@@ -338,6 +338,14 @@ out.frozeCity = await freeze();
      805. The frame is frozen, so nothing respawns — and both frames are taken
      with the same empty street, which is the whole point of the subtraction. */
   await p.evaluate(() => { traffic.length = 0; cops.length = 0; peds.length = 0; });
+  /* AND THE CAR IS PAINTED A COLOUR THAT IS NOT ALREADY BLACK. The measurement
+     counts near-black pixels and calls them tyres, which holds while the paint
+     is bright and falls apart on the runs where the lottery hands out a dark
+     navy: the PLAIN box then reads as 1656 near-black pixels of its own against
+     934 for the wheels, and the ratio inverts. Section 4 already forces a colour
+     for the same kind of reason — a red car cannot be asked about its brake
+     lights. */
+  await p.evaluate(() => window.__playerColour('#22c0c8'));
   await p.evaluate(() => window.__noShadow(true));
   await p.evaluate(() => { for (let i = 0; i < 4; i++) window.__px3(0, 0, 1, 1); });
   const withWh = await grab();
@@ -345,13 +353,24 @@ out.frozeCity = await freeze();
   const none = await grab();
   await p.evaluate(() => { window.__plainCars(false); window.__noShadow(false); });
 
+  /* NEAR-BLACK AND NEUTRAL. Dark alone is not a tyre: the shaded side of the
+     plain box is dark too, and on a cyan car it averages (10, 31, 41) — under
+     the luma threshold and nothing like black. It put 1418 pixels into the
+     "without" count against 825 for the wheels and inverted the ratio. A tyre is
+     (0.06, 0.06, 0.07) before lighting, so it stays grey whatever falls on it,
+     and the paint on this car cannot: requiring the three channels to sit within
+     twelve of each other separates them without caring what colour the car is. */
+  const tyre = (px, i) => {
+    const r = px[i], g2 = px[i + 1], b2 = px[i + 2];
+    return Math.max(r, g2, b2) < 34 && Math.max(r, g2, b2) - Math.min(r, g2, b2) < 12;
+  };
   let n = 0, darkWith = 0, darkNone = 0;
   for (let i = 0; i < withWh.length; i += 4) {
     const a = lum(withWh, i), b = lum(none, i);
     if (Math.abs(a - b) <= 6) continue;
     n++;
-    if (a < 30) darkWith++;
-    if (b < 30) darkNone++;
+    if (tyre(withWh, i)) darkWith++;
+    if (tyre(none, i)) darkNone++;
   }
   const total = withWh.length / 4;
   out.wheels = {

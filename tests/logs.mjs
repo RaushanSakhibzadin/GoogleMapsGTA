@@ -216,12 +216,20 @@ out.refused = await p.evaluate(() => {
   const went = window.__setMode3d(true);
   HTMLCanvasElement.prototype.getContext = real;
   const f = LOG.build();
-  return { went, fail: GL.fail, attempts: f.snapshot.gl.attempts,
+  const soft = SOFT3D;
+  window.__setMode3d(false);
+  return { went, soft, fail: GL.fail, attempts: f.snapshot.gl.attempts,
            note: (f.errors || []).filter(e => e.level === 'gl').map(e => e.msg) };
 });
 /* The reason the browser gave has to survive all the way into the file — "3D
-   NEEDS WEBGL2" on a phone that ran the chase view yesterday is not a report. */
-out.refusalExplained = out.refused.went === false &&
+   NEEDS WEBGL2" on a phone that ran the chase view yesterday is not a report.
+
+   AND THE VIEW STILL OPENS. This used to require the switch to come back false,
+   which was right when a refused context meant no chase view at all; it now
+   falls back to the software renderer, so the switch succeeds and SOFT3D is how
+   you tell which one you got. The log still has to explain what happened —
+   quietly drawing it the slow way with no record would be its own bug. */
+out.refusalExplained = out.refused.went === true && out.refused.soft === true &&
                        out.refused.attempts >= 1 &&
                        /out of memory \(staged\)/.test(out.refused.fail) &&
                        out.refused.note.some(m => /out of memory \(staged\)/.test(m));

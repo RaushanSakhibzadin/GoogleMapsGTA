@@ -269,24 +269,55 @@ function softTreeSites(cx, cy) {
   near.sort((a, b) => a.d - b.d);
   return near.slice(0, SOFT_MAX_TREES);
 }
+/* THE SAME CROSSED-QUAD TREE, as a sprite.
+
+   Two quads at right angles is what the GL path draws and what San Andreas drew,
+   and from any one viewpoint what you see of a cross is a single upright picture
+   of a tree. So here it is a single upright picture of a tree: the same painted
+   canvas, drawn between the projected foot and the projected top. Screen-aligned
+   rather than world-aligned, which is the one visible difference and the right
+   trade — a Canvas2D drawImage cannot shear a bitmap onto an arbitrary quad
+   without a transform per tree, and this renderer exists because the machine
+   running it has no GPU to spare. */
 function softTree(g, th, t) {
+  const cv = treeCanvas();
+  if (!cv) return;
   const k = hash2(t.x, t.z);
   const y = terrainH(t.x, t.z);
-  const H = 8.5 + k * 5.0, trunkH = H * 0.34, rad = 0.29 * H + k * 0.5;
-  const bw = 0.22;
-  softPoly(g, [t.x - bw, y, t.z, t.x + bw, y, t.z,
-               t.x + bw, y + trunkH, t.z, t.x - bw, y + trunkH, t.z], 'rgb(58,46,36)');
-  /* A crown facing the camera about its own vertical axis — the horizontal axis
-     is the camera's heading turned a quarter turn, the same trick the GL beacons
-     use, so it never turns edge-on and vanishes. */
-  const a = G3.cam.h + Math.PI / 2;
-  const hx = Math.cos(a), hz = Math.sin(a);
-  const cy0 = y + trunkH, cy1 = y + H, mid = y + trunkH + (H - trunkH) * 0.52;
-  softPoly(g, [t.x - hx * rad, mid, t.z - hz * rad,
-               t.x, cy0, t.z,
-               t.x + hx * rad, mid, t.z + hz * rad,
-               t.x, cy1, t.z],
-           softShade([0.28 + k * 0.12, 0.52 + k * 0.16, 0.20 + k * 0.09], 0, .55, -.84, th));
+  const H = 8.5 + k * 5.0;
+  const foot = softView(t.x, y, t.z, [0, 0, 0]);
+  const top = softView(t.x, y + H, t.z, [0, 0, 0]);
+  if (foot[2] > -SOFT_NEAR || top[2] > -SOFT_NEAR) return;   // behind the eye
+  const fp = softProject(foot, [0, 0]), tp = softProject(top, [0, 0]);
+  const h = fp[1] - tp[1];
+  if (h < 4) return;                       // a few pixels of tree is not worth a draw
+  const w = h * 0.62;
+  g.drawImage(softTreeArt(th), fp[0] - w / 2, tp[1], w, h);
+}
+
+/* THE TREE, DARKENED ONCE PER THEME RATHER THAN ONCE PER TREE.
+
+   The first version set ctx.filter = 'brightness(...)' before each drawImage,
+   which is correct and costs a separate compositing pass per call: ninety trees
+   took the frame rate from 59 to 13. A filter is not a cheap flag. So the tint
+   is baked into a second canvas the first time a theme asks for it —
+   source-atop paints only where the leaves already are, leaving the cutout
+   alone — and every tree after that is a plain blit. */
+const TREE_ART = {};
+function softTreeArt(th) {
+  const key = themeName;
+  if (TREE_ART[key]) return TREE_ART[key];
+  const src = treeCanvas();
+  const lit = clamp(th.amb[1] + th.lc[1] * 0.55, 0.25, 1);
+  if (lit > 0.92) return (TREE_ART[key] = src);
+  const cv = document.createElement('canvas');
+  cv.width = src.width; cv.height = src.height;
+  const g = cv.getContext('2d');
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = 'rgba(0,0,0,' + (1 - lit).toFixed(3) + ')';
+  g.fillRect(0, 0, cv.width, cv.height);
+  return (TREE_ART[key] = cv);
 }
 
 /* The cars, as the same boxes the far half of the GL view uses. body3d.js works

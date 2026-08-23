@@ -435,6 +435,44 @@ void main() {
   outC = vec4(mix(t.rgb * uInk, uFog, f), t.a * (1.0 - f));
 }`;
 
+/* A TREE: two quads crossed at right angles, with one cutout texture on both.
+
+   Which is how every tree in San Andreas is drawn, and it is the right answer
+   for the same reason it was then. A tree has no flat sides, so any amount of
+   modelled geometry is an approximation of a shape the eye already knows; a
+   photograph of the silhouette is a better one, and it costs four triangles
+   instead of twenty-one. Crossed rather than turned to face you because a
+   billboard that pivots is obvious the moment two of them are near each other
+   or you drive a circle round one — the cross has a real orientation, it just
+   happens to look the same from most of them.
+
+   ALPHA TEST, NOT BLENDING. The fragment is either leaf or it is not, so it can
+   be discarded outright and the tree can write depth like anything solid. That
+   is what lets a hundred of them be drawn in any order, and it is why this can
+   live in the same static per-cell mesh the buildings do rather than needing to
+   be sorted every frame. */
+const SH_TREE_V = `#version 300 es
+in vec3 aPos; in vec2 aUV;
+uniform mat4 uVP;
+out vec2 vU; out float vD;
+void main() { vec4 p = uVP * vec4(aPos, 1.0); gl_Position = p; vU = aUV; vD = p.w; }`;
+const SH_TREE_F = `#version 300 es
+precision mediump float;
+in vec2 vU; in float vD;
+uniform sampler2D uTex;
+uniform vec3 uFog, uLit;
+uniform vec2 uFogR;
+out vec4 outC;
+void main() {
+  vec4 t = texture(uTex, vU);
+  /* Half, not "greater than nothing". A soft edge kept as a fringe of
+     half-transparent pixels writes depth for the whole fringe and punches a halo
+     of nothing through whatever is behind it. */
+  if (t.a < 0.5) discard;
+  float f = clamp((vD - uFogR.x) / (uFogR.y - uFogR.x), 0.0, 1.0);
+  outC = vec4(mix(t.rgb * uLit, uFog, f), 1.0);
+}`;
+
 /* THE CAR, which is the one thing in this world that is a MODEL rather than
    geometry generated from the map.
 
@@ -603,6 +641,7 @@ function initGL3() {
   G3.sky = GL.program(SH_SKY_V, SH_SKY_F);
   G3.car = GL.program(SH_CAR_V, SH_CAR_F);
   G3.sign = GL.program(SH_SIGN_V, SH_SIGN_F);
+  G3.tree = GL.program(SH_TREE_V, SH_TREE_F);
   {
     const m = carMesh();
     const mesh = GL.mesh(m, [[G3.car.a.aPos, 3], [G3.car.a.aNrm, 3], [G3.car.a.aPal, 1]]);
@@ -685,7 +724,7 @@ function syncIndex3() {
     dropAllCells();
   }
 }
-function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); GL.free(c.sgn); }
+function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); GL.free(c.sgn); GL.free(c.tre); }
 function dropAllCells() {
   for (const c of G3.cells.values()) freeCell(c);
   G3.cells.clear();
@@ -1016,68 +1055,98 @@ function insideBuilding(x, y) {
   }
   return false;
 }
-/* One triangle with its own face normal, which is what makes a canopy read as
-   faceted foliage rather than as a flat green blob.
+/* THE TREE ITSELF, painted once into a texture.
 
-   THE ORDER OF THE CORNERS IS THE OUTWARD SIDE. cross(b-a, c-a) has to come out
-   pointing away from the middle of the tree, which is the same convention the
-   walls use — and getting it backwards produces exactly what it produced on the
-   buildings: normals facing into the trunk, so no sunlight ever lands on them
-   and every tree in the city is a black blob lit by ambient alone. Which is what
-   the first version of this looked like, one commit after fixing the identical
-   fault in the masonry. */
-function pushTri(o, ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b) {
-  let nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
-  let ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
-  let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  const l = Math.hypot(nx, ny, nz) || 1;
-  nx /= l; ny /= l; nz /= l;
-  o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0,
-         bx, by, bz, nx, ny, nz, r, g, b, 0, 0,
-         cx, cy, cz, nx, ny, nz, r, g, b, 0, 0);
+   Drawn rather than downloaded, for the same reason everything else here is:
+   this game has no assets, it has code, and a plane tree is a trunk and a mass
+   of overlapping foliage. Two dozen circles with a little variation in size and
+   tone gives a silhouette with holes near the edges, which is what stops a
+   cutout tree reading as a green lollipop.
+
+   PREMULTIPLIED BY NOTHING AND FILTERED WITHOUT MIPMAPS. The alpha test wants a
+   hard edge; a mipmapped cutout fades its own silhouette away at distance and
+   the avenue thins out as you drive down it. */
+const TREE_TEX = { tex: null, canvas: null };
+/* Painted separately from the upload, because the renderer that most needs this
+   is the one with no GL to upload it to: soft3d.js draws the same canvas with
+   drawImage. */
+function treeCanvas() {
+  if (TREE_TEX.canvas) return TREE_TEX.canvas;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = S; cv.height = S;
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, S, S);
+  // the trunk, which is most of the bottom third and none of the top
+  g.fillStyle = '#4a3a2a';
+  g.fillRect(S * 0.46, S * 0.52, S * 0.08, S * 0.48);
+  /* A deterministic scatter, so every build paints the same tree — this runs
+     once per session but the texture is compared in a test. */
+  let seed = 1;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const blobs = [];
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.6) * 0.30;
+    blobs.push({ x: 0.5 + Math.cos(a) * r, y: 0.34 + Math.sin(a) * r * 0.82,
+                 r: 0.055 + rnd() * 0.075, k: rnd() });
+  }
+  // darkest first, so the lighter foliage reads as the lit top of the canopy
+  blobs.sort((p, q) => p.y - q.y);
+  for (const b of blobs) {
+    const t = 1 - b.y;                       // higher up the canopy is lighter
+    const r = Math.round(38 + b.k * 26 + t * 22);
+    const gg = Math.round(74 + b.k * 44 + t * 46);
+    const bb = Math.round(30 + b.k * 22 + t * 16);
+    g.fillStyle = 'rgb(' + r + ',' + gg + ',' + bb + ')';
+    g.beginPath();
+    g.arc(b.x * S, b.y * S, b.r * S, 0, Math.PI * 2);
+    g.fill();
+  }
+  TREE_TEX.canvas = cv;
+  return cv;
 }
-/* A trunk and an eight-sided crown: sixteen triangles, which is two per cent of
-   one building and reads as a tree from a car. */
+function treeTexture() {
+  if (TREE_TEX.tex) return TREE_TEX.tex;
+  const gl = GL.gl;
+  if (!gl) return null;
+  const cv = treeCanvas();
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  TREE_TEX.tex = tex;
+  return tex;
+}
+
+/* Two quads, crossed, both carrying the whole texture. Four triangles, twenty
+   floats a vertex fewer than the old crown, and a shape the eye reads as a tree
+   from any direction rather than as a faceted blob from one. */
 function pushTree(o, x, z, note) {
   const k = hash2(x, z);
   const y = terrainH(x, z);
-  const H = 8.5 + k * 5.0;                    // 8.5 to 13.5 m to the top of the crown
-  const trunkH = H * 0.34, rad = 0.29 * H + k * 0.5;   // a crown about 8 m across
+  const H = 8.5 + k * 5.0;                    // 8.5 to 13.5 m to the top
+  const Wd = H * 0.62;                        // the texture is about as wide as tall
   note(y); note(y + H);
-  const tr = 0.20 + k * 0.10;
-  const br = 0.24, bg = 0.19, bb = 0.15;
-  for (let i = 0; i < 4; i++) {
-    const a0 = i * Math.PI / 2, a1 = (i + 1) * Math.PI / 2;
-    const x0 = x + Math.cos(a0) * tr, z0 = z + Math.sin(a0) * tr;
-    const x1 = x + Math.cos(a1) * tr, z1 = z + Math.sin(a1) * tr;
-    pushTri(o, x0, y, z0, x1, y + trunkH, z1, x1, y, z1, br, bg, bb);
-    pushTri(o, x0, y, z0, x0, y + trunkH, z0, x1, y + trunkH, z1, br, bg, bb);
-  }
-  /* Greener or browner by a few per cent per tree, from the same hash — a row of
-     identical crowns is the one thing that makes generated planting look
-     generated. */
-  const g0 = 0.52 + k * 0.16, r0 = 0.28 + k * 0.12, b0 = 0.20 + k * 0.09;
-  /* SEVEN SIDES, AND THE WIDEST PART LOW. Four sides with a point at each end is
-     a rhombus on a stick, which is what the first attempt looked like from the
-     car — the silhouette of a bipyramid is its two points and nothing else.
-     Seven is enough that the outline reads as round at the distance a tree is
-     ever looked at, odd so a flat edge never faces the camera square on, and
-     still only twenty-one triangles. */
-  const SIDES = 7;
-  const crown = H - trunkH;
-  const cy0 = y + trunkH, cy1 = y + H, mid = y + trunkH + crown * 0.52;
-  for (let i = 0; i < SIDES; i++) {
-    const a0 = (i * 2 * Math.PI) / SIDES + k, a1 = ((i + 1) * 2 * Math.PI) / SIDES + k;
-    const x0 = x + Math.cos(a0) * rad, z0 = z + Math.sin(a0) * rad;
-    const x1 = x + Math.cos(a1) * rad, z1 = z + Math.sin(a1) * rad;
-    pushTri(o, x, cy1, z, x1, mid, z1, x0, mid, z0, r0, g0, b0);
-    // the underside is in its own shade, which is most of what says "canopy"
-    pushTri(o, x, cy0, z, x0, mid, z0, x1, mid, z1, r0 * .62, g0 * .62, b0 * .62);
-  }
+  const a = k * Math.PI;                      // each tree turned a little, from its own hash
+  const c1 = Math.cos(a) * Wd / 2, s1 = Math.sin(a) * Wd / 2;
+  const c2 = Math.cos(a + Math.PI / 2) * Wd / 2, s2 = Math.sin(a + Math.PI / 2) * Wd / 2;
+  const quad = (dx, dz) => {
+    o.push(x - dx, y, z - dz, 0, 0,
+           x + dx, y, z + dz, 1, 0,
+           x + dx, y + H, z + dz, 1, 1);
+    o.push(x - dx, y, z - dz, 0, 0,
+           x + dx, y + H, z + dz, 1, 1,
+           x - dx, y + H, z - dz, 0, 1);
+  };
+  quad(c1, s1);
+  quad(c2, s2);
 }
-/* `sites` is for the tests: pass an array and every trunk position that was
-   planted lands in it, so the placement rules can be checked as coordinates
-   rather than guessed at from pixels. Production passes nothing. */
+
 function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
   const off = r.w / 2 + TREE_VERGE;
   for (let i = 0; i < r.pts.length - 1; i++) {
@@ -1105,7 +1174,7 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
 /* Everything in one 512 m square, turned into two GPU meshes. */
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
-  const gnd = [], lit = [], sgn = [];
+  const gnd = [], lit = [], sgn = [], tre = [];
   let ymin = Infinity, ymax = -Infinity;
   const note = y => { if (y < ymin) ymin = y; if (y > ymax) ymax = y; };
 
@@ -1255,14 +1324,15 @@ function buildCell(kx, kz) {
   }
 
   // the planting, last, because it needs the buildings' footprints to avoid
-  for (const r of rs) if (r.drive) treesAlong(lit, r, x0, z0, x1, z1, note);
+  for (const r of rs) if (r.drive) treesAlong(tre, r, x0, z0, x1, z1, note);
 
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   return {
     kx, kz, x0, z0, x1, z1, y0: ymin - 2, y1: ymax + 2,
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
     lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]]),
-    sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null
+    sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null,
+    tre: tre.length ? GL.mesh(new Float32Array(tre), [[G3.tree.a.aPos, 3], [G3.tree.a.aUV, 2]]) : null
   };
 }
 
@@ -1931,6 +2001,38 @@ function render3D() {
     G3.tris += cell.lit.n / 3;
     G3.drawn++;
   }
+  /* ---- the planting ----
+
+     Alpha-tested, so it writes depth and needs no sorting: a tree occludes what
+     is behind it and is occluded by what is in front, in any order. Drawn with
+     culling off, because a cross of two quads is meant to be seen from both
+     sides of each. */
+  {
+    const tex = treeTexture();
+    if (tex) {
+      gl.useProgram(G3.tree.p);
+      gl.uniformMatrix4fv(G3.tree.u.uVP, false, G3.VP);
+      gl.uniform3fv(G3.tree.u.uFog, th.sky);
+      gl.uniform2f(G3.tree.u.uFogR, FOG0, VIEW3);
+      /* One light term for the whole tree, since a billboard has no normal worth
+         the name: the theme's ambient plus half its sun. It keeps a night avenue
+         dark and a daylit one green without pretending to shade a flat quad. */
+      gl.uniform3f(G3.tree.u.uLit,
+                   th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55, th.amb[2] + th.lc[2] * .55);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1i(G3.tree.u.uTex, 2);
+      gl.disable(gl.CULL_FACE);
+      for (const cell of draw) if (cell.tre) {
+        gl.bindVertexArray(cell.tre.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, cell.tre.n);
+        G3.tris += cell.tre.n / 3;
+      }
+      gl.enable(gl.CULL_FACE);
+      gl.useProgram(G3.lit.p);
+    }
+  }
+
   /* ---- the names on the buildings ----
 
      After the masonry and before the cars, because a sign is bolted to a wall
