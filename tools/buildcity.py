@@ -30,8 +30,16 @@ import gzip, json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(ROOT, 'tests', 'fixtures')
-SRC = os.path.join(FIX, 'autokomanda')          # streets and scenery
-SKEL_SRC = os.path.join(FIX, 'stari-grad')      # and the arterials
+# Streets and scenery from every capture there is — they are all the same city
+# within a couple of kilometres, the geometry is absolute lat/lon, and the world
+# dedupes ways on their OSM id, so overlapping captures simply fill each other's
+# gaps. The arterials come from the skadarlija session because that one arrived
+# whole (15,574 ways) FROM THE SAME CENTRE: the earlier build had to borrow a
+# skeleton captured 1.14 km away, because the session that had the streets lost
+# its own 44 MB arterials reply to the log's cap.
+SRCS = [os.path.join(FIX, 'autokomanda'), os.path.join(FIX, 'skadarlija')]
+SRC = SRCS[0]                                   # whose centre the city is built around
+SKEL_SRC = os.path.join(FIX, 'skadarlija')      # and whose arterials it uses
 DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'data', 'belgrade.js')
 
 # How far the offline horizon reaches, in metres. The online world is 36 km in
@@ -136,10 +144,10 @@ def clip(els, half, nid):
             nid[0] += 1
     return out
 
-streets = [slim(e) for e in all_of(SRC, 'streets')]
+streets = [slim(e) for src in SRCS for e in all_of(src, 'streets')]
 # scenery only where you can see it from the middle; the outer tiles keep their
 # streets, which is what the offline city is actually for
-buildings = clip(all_of(SRC, 'buildings'), BLD_HALF, [800000000])
+buildings = clip([e for src in SRCS for e in all_of(src, 'buildings')], BLD_HALF, [800000000])
 skeleton = clip(all_of(SKEL_SRC, 'arterials'), SKEL_HALF, [900000000])
 
 city = {
@@ -153,9 +161,10 @@ header = (
     '/* VICE MAPS — the bundled offline city.\n\n'
     '   Belgrade, around Autokomanda. Captured from real OpenStreetMap data by\n'
     '   the in-game LOG button and trimmed out of tests/fixtures by\n'
-    '   tools/buildcity.py -- streets and scenery from the later session, the\n'
-    '   arterial skeleton from the earlier one. This is what loads when the map\n'
-    '   servers cannot be reached, in place of a generated grid.\n\n'
+    '   tools/buildcity.py -- streets and scenery from every captured session,\n'
+    '   the arterial skeleton from the one that arrived whole. This is what\n'
+    '   loads when the map servers cannot be reached, in place of a generated\n'
+    '   grid.\n\n'
     '   Generated \u2014 do not edit. Rebuild with: python3 tools/buildcity.py\n\n'
     '   A classic script assigning one global, NOT JSON fetched at runtime:\n'
     '   fetch() is refused for file:// URLs and a <script> tag is not, and\n'

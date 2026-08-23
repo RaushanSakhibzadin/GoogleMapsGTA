@@ -1,0 +1,196 @@
+{
+ "source": "in-game LOG button",
+ "build": null,
+ "savedAt": "2026-08-23T07:19:16.826Z",
+ "sessionSeconds": 25.38,
+ "capture": {
+  "bytes": 25693874,
+  "cappedAt": 26214400,
+  "repliesDropped": 2,
+  "bytesDropped": 2620219
+ },
+ "snapshot": {
+  "url": "https://raushansakhibzadin.github.io/GoogleMapsGTA/",
+  "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_6_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/151.0.7922.112 Mobile/15E148 Safari/604.1",
+  "screen": "390x669 @3",
+  "state": "play",
+  "city": "Your neighbourhood",
+  "procedural": false,
+  "world": {
+   "roads": 15938,
+   "drive": 15850,
+   "buildings": 5503,
+   "parks": 507,
+   "pois": 307,
+   "grid": "9000x9000",
+   "bounds": {
+    "x0": -60040,
+    "y0": -60040,
+    "x1": 60040,
+    "y1": 60040
+   },
+   "skeleton": 60000,
+   "wideMap": true
+  },
+  "tiles": {
+   "loaded": 2,
+   "roaded": 2,
+   "failed": 0,
+   "evicted": 0,
+   "live": 3
+  },
+  "car": {
+   "x": 1.2,
+   "y": -1.2,
+   "h": 0.81,
+   "kmh": 0,
+   "hp": 100,
+   "onRoad": true,
+   "onTarmac": true,
+   "roadDataHere": true,
+   "ghost": false,
+   "street": "",
+   "zone": "Скадарлија",
+   "cash": 0,
+   "wanted": 0
+  },
+  "perf": {
+   "upd": 1.26,
+   "ren": 2.59,
+   "steps": 1.14
+  }
+ },
+ "replies": [
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 901,
+   "bbox": {
+    "s": 44.80748847749992,
+    "w": 20.458988746006302,
+    "n": 44.82377217570872,
+    "e": 20.481782785410292
+   },
+   "chars": 998556,
+   "sha256": "a6b0342db8ddd8fb7864f1daa5174eb0ed99bafeb3969a5f1823b38edf2f7f97",
+   "elements": 1117,
+   "file": "streets1.json.gz",
+   "bytes": 125105
+  },
+  {
+   "kind": "buildings",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 648,
+   "bbox": {
+    "s": 44.80748847749992,
+    "w": 20.458988746006302,
+    "n": 44.82377217570872,
+    "e": 20.481782785410292
+   },
+   "chars": 3225067,
+   "sha256": "b9b3b00dbb989cf720c86ede9b1c6d92895d7df2d00638501cc1ce2d085afc82",
+   "elements": 3698,
+   "file": "buildings1.json.gz",
+   "bytes": 455819
+  },
+  {
+   "kind": "pois",
+   "host": "api.de",
+   "status": 200,
+   "ms": 6802,
+   "bbox": {
+    "s": 44.65279334451639,
+    "w": 20.24244537166839,
+    "n": 44.97846730869225,
+    "e": 20.698326159748206
+   },
+   "chars": 5015869,
+   "sha256": "8c4901d7261efb6074829e8661183e107772a05dcf9af2bf4418d55660cf184f",
+   "elements": 12721,
+   "file": "pois1.json.gz",
+   "bytes": 872736
+  },
+  {
+   "kind": "arterials",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 12813,
+   "bbox": {
+    "s": 44.272840386311216,
+    "w": 19.710584452241932,
+    "n": 45.358420266897426,
+    "e": 21.230187079174662
+   },
+   "chars": 16454110,
+   "sha256": "635713ec534b3686ecb806591ba1571300cb7689ccfb5d7e9470645b76cbc8c6",
+   "elements": 15574,
+   "file": "arterials1.json.gz",
+   "bytes": 1996801
+  },
+  {
+   "kind": "streets",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 214,
+   "bbox": {
+    "s": 44.82377217570872,
+    "w": 20.458988746006302,
+    "n": 44.840055873917514,
+    "e": 20.481782785410292
+   },
+   "chars": 272,
+   "sha256": "70fc7393f4f5b54c46d39351d01fda7946bafbc5b4921cafeb5a8a508a31e9c0",
+   "elements": 0,
+   "file": "empty.json"
+  }
+ ],
+ "errors": [
+  {
+   "at": 8.89,
+   "level": "mirror",
+   "msg": "pois · osm.jp: unreachable (616ms)"
+  },
+  {
+   "at": 9.47,
+   "level": "mirror",
+   "msg": "arterials · osm.jp: unreachable (1198ms)"
+  },
+  {
+   "at": 10.44,
+   "level": "mirror",
+   "msg": "pois · kumi.systems: unreachable (1550ms)"
+  },
+  {
+   "at": 11.13,
+   "level": "mirror",
+   "msg": "arterials · kumi.systems: unreachable (1658ms)"
+  },
+  {
+   "at": 16.59,
+   "level": "mirror",
+   "msg": "pois · maps.mail.ru: too slow (12717ms)"
+  },
+  {
+   "at": 16.59,
+   "level": "mirror",
+   "msg": "pois · private.coffee: too slow (6148ms)"
+  },
+  {
+   "at": 18.42,
+   "level": "mirror",
+   "msg": "arterials · api.de: too slow (12348ms)"
+  },
+  {
+   "at": 18.42,
+   "level": "mirror",
+   "msg": "arterials · private.coffee: too slow (7290ms)"
+  },
+  {
+   "at": 23.83,
+   "level": "mirror",
+   "msg": "streets · osm.ch: returned nothing (214ms)"
+  }
+ ]
+}
