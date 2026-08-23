@@ -996,7 +996,7 @@ function pushSign(out, b, fp, wind, top, foot) {
    players in the same street see the same trees. The spacing is walked from the
    start of each SEGMENT rather than from the cell, so a tree lands in exactly
    one cell and the row does not restart at every cell boundary. */
-const TREE_GAP = 16, TREE_VERGE = 2.8;
+const TREE_GAP = 9, TREE_VERGE = 2.6;
 /* Integer hash rather than sin(): the argument here is a world coordinate that
    reaches ±18000, and sin() of a number that size has almost no fraction left —
    the same reason the window shader carries its own. */
@@ -1040,10 +1040,10 @@ function pushTri(o, ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b) {
 function pushTree(o, x, z, note) {
   const k = hash2(x, z);
   const y = terrainH(x, z);
-  const H = 5.0 + k * 3.4;                    // 5 to 8.4 m to the top of the crown
-  const trunkH = H * 0.34, rad = 0.62 * (H * 0.66) + k * 0.5;   // wider than tall
+  const H = 8.5 + k * 5.0;                    // 8.5 to 13.5 m to the top of the crown
+  const trunkH = H * 0.34, rad = 0.29 * H + k * 0.5;   // a crown about 8 m across
   note(y); note(y + H);
-  const tr = 0.13 + k * 0.06;
+  const tr = 0.20 + k * 0.10;
   const br = 0.24, bg = 0.19, bb = 0.15;
   for (let i = 0; i < 4; i++) {
     const a0 = i * Math.PI / 2, a1 = (i + 1) * Math.PI / 2;
@@ -1088,7 +1088,7 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
     for (let s = TREE_GAP * 0.5; s < L; s += TREE_GAP) {
       for (let side = -1; side <= 1; side += 2) {
         const j = hash2(a.x + ex * s, a.y + ey * s + side);
-        if (j < 0.22) continue;               // gaps: driveways, corners, a stump
+        if (j < 0.08) continue;               // gaps: driveways, corners, a stump
         const d = off + j * 1.6;
         const tx = a.x + ex * s + px * d * side, tz = a.y + ey * s + py * d * side;
         // exactly one cell owns it, so a tree is never built twice
