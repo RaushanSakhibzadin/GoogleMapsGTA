@@ -32,6 +32,7 @@ sitemap.xml     one URL, for Search Console
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
 tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
+tools/treeart.mjs   cuts a tree out of a photograph into js/foliage.js
 tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
@@ -44,7 +45,9 @@ js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
 js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
+js/foliage.js   the night tree, cut out of a photograph — the one generated asset
 js/render.js    the top-down view
+js/soft3d.js    the chase view again, on a canvas, for a browser with no WebGL
 js/render3d.js  the chase view, and the switch between the two
 js/main.js      the loop, the menus, the debug hooks
 ```
@@ -122,6 +125,18 @@ pulls in the rest.
   bisected by pressing a button. `render()` and `toScreen()` are a two-line dispatcher over the
   pair. The radar, the city map and the whole HUD are shared — they were already separate canvases
   and DOM.
+
+  **And a third renderer for the phones that have no GPU to lend.** Reported three times from the
+  same iPhone, and the log said it without ambiguity in the end: no `webgl2`, no `webgl`, no
+  constructor, no error message — Chrome on iOS with WebGL switched off, which Lockdown Mode does.
+  Nothing is broken and there is no driver to fix. The button used to answer that with a toast and
+  put you back in the map, which on such a browser means never seeing the chase view at all. It
+  now draws the same street on the 2D canvas: the same camera, the same matrices, the same
+  footprints and heights, sorted far to near and filled as flat polygons — a painter's algorithm,
+  which is what a depth buffer is for and what you use instead when you have not got one.
+  Buildings, trees and cars go through **one** sorted list rather than a pass each, because
+  separate passes put every tree in front of every wall. Thirty frames a second at 900×600 with
+  220 buildings and 90 trees in view, against sixty for the map — enough to drive.
 - **Facades, not slabs.** A street reads as a street because of rows of glass, so walls carry a
   window grid worked out in the fragment shader — no texture, no atlas, nothing to download. The
   horizontal coordinate is the wall's own normal turned a quarter turn, which is free and runs
@@ -158,6 +173,27 @@ pulls in the rest.
   the same reason the offline city is a `.js` and not a JSON document. The tool maps material
   names onto the seven slots and tells you, loudly, when a model has only one material, because
   that is the case that cannot work.
+- **Trees, and one of them is a photograph.** Belgrade's boulevards are lined with plane trees and
+  the city was drawn without a single one; OSM maps individual trees far too sparsely to build a
+  street from, so the planting is generated — spaced along both verges of every drivable way, off
+  the tarmac, out of the footprints, and derived from the coordinates so a cell dropped and rebuilt
+  comes back with the same trees rather than a street that rearranges itself behind you. Each is
+  **two crossed quads carrying one alpha-tested cutout**, which is how San Andreas drew a tree and
+  is still the right answer: four triangles, a shape the eye reads from any direction, and
+  `discard` rather than blending, so it writes depth and needs no sorting.
+
+  The cutout itself is the one asset in this repository that was not drawn in code. Two dozen
+  shaded circles read as a green lollipop at any distance, because what makes a canopy look like a
+  canopy is the clumping — leaves at every scale, a few of them catching a street lamp and the rest
+  not. So after dark the trees are **a photograph of a real one on a real Belgrade street**, taken
+  by the person this was built for. The photograph has no outline in it — it looks up through the
+  branches — so the silhouette is still painted and the photograph fills it, lifted onto a dark
+  blue-green floor rather than from black, because keying the shadow out dissolved the canopy into
+  lace. It ships as a 30 KB data: URI inside `js/foliage.js`, so there is still nothing to fetch,
+  it still opens off a disk, and the existing `?v=` stamping covers it. **It is not lit twice**:
+  the street lamp is already in the pixels, and multiplying the dusk ambient into it a second time
+  leaves a black smudge where a lamplit tree should be. Daylight keeps the painted tree until
+  there is a daylight photograph to cut.
 - **The objective is a beacon you can see.** The top-down game paints a marker on the ground; from
   a camera six metres up behind a car that is a thin ellipse hidden behind the next vehicle, so in
   the chase view the pickup was on the radar, on the city map and on the screen-edge arrow and
@@ -345,5 +381,8 @@ metre coordinates to place tiles against.
 
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
 Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
+
+The foliage in `js/foliage.js` is cut from a photograph of a plane tree on a Belgrade street,
+taken by Raushan Sakhibzadin and used here with permission. Everything else is drawn in code.
 
 A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.

@@ -308,7 +308,10 @@ function softTreeArt(th) {
   const key = themeName;
   if (TREE_ART[key]) return TREE_ART[key];
   const src = treeCanvas();
-  const lit = clamp(th.amb[1] + th.lc[1] * 0.55, 0.25, 1);
+  /* The same term the GL view multiplies in, so the two renderers agree about
+     how dark the avenue is — and so the photographed night tree, which was lit
+     by a real street lamp before it ever got here, is not dimmed twice. */
+  const lit = clamp(treeLit(th)[1], 0.25, 1);
   if (lit > 0.92) return (TREE_ART[key] = src);
   const cv = document.createElement('canvas');
   cv.width = src.width; cv.height = src.height;

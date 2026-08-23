@@ -1066,12 +1066,59 @@ function insideBuilding(x, y) {
    PREMULTIPLIED BY NOTHING AND FILTERED WITHOUT MIPMAPS. The alpha test wants a
    hard edge; a mipmapped cutout fades its own silhouette away at distance and
    the avenue thins out as you drive down it. */
-const TREE_TEX = { tex: null, canvas: null };
+const TREE_TEX = { tex: {}, painted: null, night: null, asked: false };
+
+/* THE NIGHT TREE IS A PHOTOGRAPH. js/foliage.js carries a cutout of a real
+   lamplit plane tree on a Belgrade street, and after dark it replaces the
+   painted one, because the thing a painted canopy cannot fake is the clumping —
+   leaves at every scale, a few of them catching a lamp and the rest not.
+   Daylight keeps the painted tree until there is a daylight photograph to cut.
+
+   DECODED ONCE, ASYNCHRONOUSLY, AND NOT WAITED FOR. It is a data: URI so there
+   is nothing to fetch and the decode is a few milliseconds, but an <img> is
+   asynchronous however local it is. Until it lands the painted tree stands in,
+   which is why nothing here can block: a frame is due every 16 ms whatever the
+   trees look like. */
+function nightCanvas() {
+  if (TREE_TEX.night || TREE_TEX.asked) return TREE_TEX.night;
+  TREE_TEX.asked = true;
+  if (typeof TREE_NIGHT_PNG !== 'string') return null;   // foliage.js missing: paint them
+  const im = new Image();
+  im.onload = () => {
+    const cv = document.createElement('canvas');
+    cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+    cv.getContext('2d').drawImage(im, 0, 0);
+    TREE_TEX.night = cv;
+    /* Both renderers keep something derived from the old tree — an uploaded GL
+       texture here, a tinted canvas in soft3d.js — and both are now of the wrong
+       one. Dropped rather than rebuilt: whichever is in use will ask again. */
+    TREE_TEX.tex = {};
+    if (typeof TREE_ART === 'object') for (const k in TREE_ART) delete TREE_ART[k];
+  };
+  im.src = TREE_NIGHT_PNG;
+  return null;
+}
+/* Which of the two the theme wants, resolved every time rather than cached: the
+   answer changes when the sun goes down and again when the photograph decodes. */
+function treeKind() { return (themeName === 'dusk' && nightCanvas()) ? 'night' : 'painted'; }
+
+/* The lighting to apply on top. The painted tree carries none of its own and
+   takes the theme's; the photograph was taken under a street lamp that is
+   already in its pixels, and multiplying a night ambient into a night
+   photograph a second time leaves a black smudge on the pavement. */
+function treeLit(th) {
+  if (treeKind() === 'night') return [.70, .70, .70];
+  return [th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55, th.amb[2] + th.lc[2] * .55];
+}
+
 /* Painted separately from the upload, because the renderer that most needs this
    is the one with no GL to upload it to: soft3d.js draws the same canvas with
    drawImage. */
 function treeCanvas() {
-  if (TREE_TEX.canvas) return TREE_TEX.canvas;
+  return treeKind() === 'night' ? TREE_TEX.night : paintedTree();
+}
+function paintedTree() {
+  if (TREE_TEX.painted) return TREE_TEX.painted;
   const S = 128;
   const cv = document.createElement('canvas');
   cv.width = S; cv.height = S;
@@ -1102,11 +1149,12 @@ function treeCanvas() {
     g.arc(b.x * S, b.y * S, b.r * S, 0, Math.PI * 2);
     g.fill();
   }
-  TREE_TEX.canvas = cv;
+  TREE_TEX.painted = cv;
   return cv;
 }
 function treeTexture() {
-  if (TREE_TEX.tex) return TREE_TEX.tex;
+  const kind = treeKind();
+  if (TREE_TEX.tex[kind]) return TREE_TEX.tex[kind];
   const gl = GL.gl;
   if (!gl) return null;
   const cv = treeCanvas();
@@ -1119,7 +1167,7 @@ function treeTexture() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  TREE_TEX.tex = tex;
+  TREE_TEX.tex[kind] = tex;
   return tex;
 }
 
@@ -2015,10 +2063,10 @@ function render3D() {
       gl.uniform3fv(G3.tree.u.uFog, th.sky);
       gl.uniform2f(G3.tree.u.uFogR, FOG0, VIEW3);
       /* One light term for the whole tree, since a billboard has no normal worth
-         the name: the theme's ambient plus half its sun. It keeps a night avenue
-         dark and a daylit one green without pretending to shade a flat quad. */
-      gl.uniform3f(G3.tree.u.uLit,
-                   th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55, th.amb[2] + th.lc[2] * .55);
+         the name: the theme's ambient plus half its sun, or a flat term for the
+         photographed one that already has a street lamp in it. */
+      const tl = treeLit(th);
+      gl.uniform3f(G3.tree.u.uLit, tl[0], tl[1], tl[2]);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(G3.tree.u.uTex, 2);
