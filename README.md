@@ -32,7 +32,8 @@ sitemap.xml     one URL, for Search Console
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
 tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
-tools/treeart.mjs   cuts a tree out of a photograph into js/foliage.js
+tools/treeart.mjs   cuts trees out of photographs into js/foliage.js
+tools/walltex.mjs   cuts a seamless wall out of a photograph into js/walltex.js
 tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
@@ -45,7 +46,8 @@ js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
 js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
-js/foliage.js   the night tree, cut out of a photograph — the one generated asset
+js/foliage.js   the night trees, cut out of photographs — one of two generated assets
+js/walltex.js   the render on the walls, cut out of a photograph — the other
 js/render.js    the top-down view
 js/soft3d.js    the chase view again, on a canvas, for a browser with no WebGL
 js/render3d.js  the chase view, and the switch between the two
@@ -204,6 +206,23 @@ pulls in the rest.
   already in the pixels, and multiplying the dusk ambient in a second time leaves black smudges
   where lamplit trees should be. Daylight keeps the painted trees until there are daylight
   photographs to cut.
+- **Render, not flat colour.** Between the windows a facade was one colour, which is what made a
+  street of real footprints at real heights still read as a heap of boxes: real render is patched
+  where it has been repaired, stained under every sill, cracked along the line of every floor slab.
+  So the walls carry a seamless grey tile cut from a photograph of a Belgrade block, tiled every
+  four metres off **the same world-anchored facade coordinate the window grid uses** — so it runs
+  continuously round a corner, does not stretch on a long block, and does not swim as you drive.
+  Three things happened to that photograph beyond the crop. It is **flattened**, divided by a heavy
+  wrapped blur of itself, so the street lamp's falloff and the balcony's shadow come out and only
+  what belongs to the wall stays — a tile with a bright corner in it tiles as a bright corner every
+  four metres, which is wallpaper. It is **wrapped** by offsetting half a tile and cross-fading the
+  join, rather than mirrored into a 2×2, which also tiles and puts an axis of symmetry down every
+  wall in the city. And it is **grey**: a multiplier around 1.0 rather than a picture of a wall, so
+  it gives a Tokyo block Belgrade's render without giving it Belgrade's ochre. Mipmapped and
+  repeating, which is the opposite of what the tree cutout wants and for the opposite reason — this
+  one repeats, so a distant wall wants the average rather than a hard edge, and without mipmaps it
+  is crawling static. 18 KB. It shows in daylight and it is nearly invisible at dusk, because the
+  dusk ambient is 0.085 and nothing multiplied into a wall that close to black moves a pixel.
 - **The objective is a beacon you can see.** The top-down game paints a marker on the ground; from
   a camera six metres up behind a car that is a thin ellipse hidden behind the next vehicle, so in
   the chase view the pickup was on the radar, on the city map and on the screen-edge arrow and
@@ -392,7 +411,8 @@ metre coordinates to place tiles against.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
 Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
 
-The foliage and bark in `js/foliage.js` are cut from photographs of trees on Belgrade streets,
-taken by Raushan Sakhibzadin and used here with permission. Everything else is drawn in code.
+The foliage and bark in `js/foliage.js`, and the wall render in `js/walltex.js`, are cut from
+photographs taken on Belgrade streets by Raushan Sakhibzadin and used here with permission.
+Everything else is drawn in code.
 
 A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.

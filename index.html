@@ -30,7 +30,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=25c789234b">
+<link rel="stylesheet" href="style.css?v=9f73060849">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -38,7 +38,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='25c789234b';</script>
+<script>window.BUILD='9f73060849';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -243,35 +243,37 @@ addEventListener('error', function (e) {
   if (el && el.tagName === 'SCRIPT' && el.src) window.__lost.push(el.src);
 }, true);
 </script>
-<script src="js/util.js?v=25c789234b"></script>
-<script src="js/log.js?v=25c789234b"></script>
-<script src="js/geo.js?v=25c789234b"></script>
-<script src="js/world.js?v=25c789234b"></script>
+<script src="js/util.js?v=9f73060849"></script>
+<script src="js/log.js?v=9f73060849"></script>
+<script src="js/geo.js?v=9f73060849"></script>
+<script src="js/world.js?v=9f73060849"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=25c789234b"></script>
-<script src="js/body3d.js?v=25c789234b"></script>
-<script src="js/entities.js?v=25c789234b"></script>
-<script src="js/io.js?v=25c789234b"></script>
-<script src="js/game.js?v=25c789234b"></script>
+<script src="js/terrain.js?v=9f73060849"></script>
+<script src="js/body3d.js?v=9f73060849"></script>
+<script src="js/entities.js?v=9f73060849"></script>
+<script src="js/io.js?v=9f73060849"></script>
+<script src="js/game.js?v=9f73060849"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=25c789234b"></script>
-<!-- One generated file: a photograph of a Belgrade plane tree at night, cut to a
-     cutout and carried as a data: URI. Anywhere before render3d.js will do.
+<script src="js/gl.js?v=9f73060849"></script>
+<!-- The two generated files: photographs of Belgrade at night — the trees, and
+     the render on the walls — cut to textures and carried as data: URIs.
+     Anywhere before render3d.js will do.
 
      Deliberately NOT in the integrity check below. Every other file there is one
      whose absence is a crash, and blocking the DRIVE button is the right answer
      for those. This one is a picture of a tree: render3d.js checks for it and
      paints its own if it never arrived, and a playable game with plainer trees
      beats a dead button. -->
-<script src="js/foliage.js?v=25c789234b"></script>
-<script src="js/carmesh.js?v=25c789234b"></script>
-<script src="js/render.js?v=25c789234b"></script>
-<script src="js/soft3d.js?v=25c789234b"></script>
-<script src="js/render3d.js?v=25c789234b"></script>
-<script src="js/main.js?v=25c789234b"></script>
+<script src="js/foliage.js?v=9f73060849"></script>
+<script src="js/walltex.js?v=9f73060849"></script>
+<script src="js/carmesh.js?v=9f73060849"></script>
+<script src="js/render.js?v=9f73060849"></script>
+<script src="js/soft3d.js?v=9f73060849"></script>
+<script src="js/render3d.js?v=9f73060849"></script>
+<script src="js/main.js?v=9f73060849"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one

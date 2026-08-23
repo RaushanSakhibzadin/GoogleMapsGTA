@@ -254,6 +254,11 @@ void main() {
 const SH_LIT_F = FS_HEAD + `in vec3 vC; in highp vec3 vW;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
+/* The render: a grey tile cut from a photograph of a Belgrade wall, tiled off the
+   same world-anchored facade coordinate the window grid uses. uGrimeK is 0 until
+   it has decoded, and 0 for cars, which have paint rather than render. */
+uniform sampler2D uGrime;
+uniform float uGrimeK;
 /* How tall a wall has to be before it gets windows. Sheds and lock-ups do not,
    and a test sets it out of reach to render the identical frame with the facades
    plain — which costs nothing, because the comparison is on the fast path
@@ -281,6 +286,30 @@ void main() {
   float d = max(dot(nn, uLdir), 0.0);
   float s = max(nn.y, 0.0) * 0.30;
   vec3 base = vC;
+
+  /* THE RENDER, which is the difference between a wall and a coloured slab.
+
+     Real render is never flat: it is patched where it has been repaired, stained
+     under every sill, cracked along the line of every floor slab. None of that is
+     worth a shader, and all of it is in one photograph of one Belgrade block.
+
+     TILED OFF THE SAME COORDINATE THE WINDOWS USE, so it is anchored to the world
+     rather than to the wall: it runs continuously round a corner, it does not
+     stretch on a long block or squeeze on a short one, and it does not swim as you
+     drive. Four metres a tile.
+
+     The tile is grey around a mean of 0.5, so doubling it gives a multiplier
+     around 1.0: it says where the wall is dirty and leaves the theme to say what
+     colour it is. (No backticks in here, and no dollar-brace either — every
+     shader in this file is a JavaScript template literal, and a backtick in a
+     GLSL comment ends it. This one did, and the file threw "2 is not a function"
+     on load, which is what a stray asterisk two lines down parses as.)
+     Facades only: vW is zero on a roof or a car, and sampling one texel of a tile
+     for every roof in the city would be a flat tint applied for no reason. */
+  if (uGrimeK > 0.0 && uPaint < 0.5 && abs(nn.y) < 0.5 && vW.z > 0.001) {
+    float grime = texture(uGrime, vec2(vW.x, vW.y) * 0.25).r;
+    base *= mix(1.0, grime * 2.0, uGrimeK);
+  }
 
   /* WINDOWS, which is the whole difference between a city and a heap of boxes.
 
@@ -1117,6 +1146,49 @@ function treeLit(th) {
 function treeCanvas() {
   return treeKind() === 'night' ? TREE_TEX.night : paintedTree();
 }
+/* THE WALL RENDER, uploaded once. js/walltex.js carries a seamless grey tile cut
+   from a photograph of a Belgrade block; the wall shader multiplies it over
+   whatever colour the theme gave the masonry.
+
+   MIPMAPPED AND REPEATING, which is the opposite of what the tree wants and for
+   the opposite reason. A cutout has a silhouette to protect and no repetition, so
+   mipmapping fades it away at distance; this repeats every four metres, so by the
+   time a block is far enough to matter there are several tiles to a pixel and
+   what you want is their average. Without mipmaps a distant facade is crawling
+   static.
+
+   Like the trees: decoded asynchronously and never waited for. uGrimeK stays at
+   zero until it lands, which is a plain wall — exactly what shipped before it. */
+const GRIME = { tex: null, img: null, asked: false, ready: false };
+function grimeTexture() {
+  const gl = GL.gl;
+  if (!gl) return null;
+  if (GRIME.tex) return GRIME.tex;
+  if (!GRIME.ready) {
+    if (GRIME.asked || typeof WALL_GRIME_PNG !== 'string') return null;
+    GRIME.asked = true;
+    const im = new Image();
+    im.onload = () => { GRIME.img = im; GRIME.ready = true; };
+    im.src = WALL_GRIME_PNG;
+    return null;
+  }
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, GRIME.img);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  GRIME.tex = tex;
+  return tex;
+}
+/* How much of it to mix in. Not a theme value: render is a fact about the
+   building, not about the time of day. */
+const GRIME_K = 0.80;
+
 /* HOW MANY TREES ARE IN THE TEXTURE, and the reason there is one answer rather
    than one per art style: the column a tree uses is baked into its cell's UVs,
    and the theme can change under a cell that was built hours ago. So the painted
@@ -2076,6 +2148,19 @@ function render3D() {
   gl.uniform1f(G3.lit.u.uGlassE, th.glassE);
   gl.uniform1f(G3.lit.u.uWinMin, G3.noWin ? 1e9 : WIN_MIN_H);
   gl.uniform1f(G3.lit.u.uPaint, 0);            // masonry: the theme's light makes it
+  {
+    const gt = grimeTexture();
+    /* SET EVEN WHEN THERE IS NOTHING TO BIND. A sampler uniform defaults to unit
+       0, and unit 0 holds the shadow map — a sampler2D and a sampler2DShadow
+       pointing at the same unit is an INVALID_OPERATION at draw time in WebGL2,
+       whether or not the shader ever reaches the sample. So uGrime always names a
+       unit of its own, and an empty one reads as WebGL's default black texture
+       that nothing samples because uGrimeK is zero. */
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, gt);
+    gl.uniform1i(G3.lit.u.uGrime, 3);
+    gl.uniform1f(G3.lit.u.uGrimeK, gt && !G3.noGrime ? GRIME_K : 0);
+  }
   for (const cell of draw) if (cell.lit) {
     gl.bindVertexArray(cell.lit.vao);
     gl.drawArrays(gl.TRIANGLES, 0, cell.lit.n);
