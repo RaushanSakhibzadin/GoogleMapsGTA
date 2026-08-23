@@ -645,6 +645,19 @@ function glContextLost() {
    an index over a few thousand centroids is well under a millisecond — the
    expensive part is the GPU geometry, and only the cells still on screen get
    rebuilt, one per frame. */
+/* A building ALREADY in the world has changed, so whatever was built for its
+   cell is now out of date. syncIndex3 covers buildings that are new — it drops
+   the cell of every arrival — but not one that has been standing for a minute
+   and has just been handed the name of the shop on its ground floor. Called
+   from world.js when that happens; a no-op before the chase view has ever been
+   switched on, which is why it checks for the map at all. */
+function dirtyCellAt(x, z) {
+  if (!G3.cells) return;
+  const k = cellKey(cellOf(x), cellOf(z));
+  const c = G3.cells.get(k);
+  if (c) { freeCell(c); G3.cells.delete(k); }
+}
+
 function syncIndex3() {
   if (W.buildings.length < G3.seen) {
     G3.idx.clear();

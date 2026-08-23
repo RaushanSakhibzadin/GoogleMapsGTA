@@ -12,6 +12,7 @@ const W = {
   minX: 0, minY: 0, maxX: 0, maxY: 0,
   places: [],                            // named districts / neighbourhoods
   pois: [],                              // police stations, hospitals, repair shops
+  shops: [],                             // named shopfronts, for the signs on the facades
   sweptTo: 0, sweeping: false,           // how many rungs of the landmark sweep have run
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   gx0: 0, gy0: 0,                        // and its own origin — it stops before the world does
@@ -268,6 +269,42 @@ function parseMonuments(els) {
     out.push(makeMonument(x, y, monumentPts(x, y, kind), kind, t, el.id));
   }
   return out;
+}
+
+/* THE NAMES OVER THE SHOPFRONTS, out of the same reply.
+
+   Deliberately not POIs. A POI in this game is somewhere you get sent — a
+   police station, a hospital, a garage — and it earns a coloured dot on the
+   radar and a column of light over it. A bakery earns neither, and a city with
+   a beacon over every corner shop would be unreadable. These exist only so the
+   building they sit in can wear the right name, so they are kept in a list of
+   their own and touch nothing else. */
+function parseShops(els) {
+  const out = [];
+  for (const el of els) {
+    const t = el.tags || {};
+    if (!t.name || (!t.shop && !t.amenity)) continue;
+    if (POI_KIND(t) || MONU_KIND(t)) continue;      // already handled, and better
+    const lat = el.lat != null ? el.lat : el.center && el.center.lat;
+    const lon = el.lon != null ? el.lon : el.center && el.center.lon;
+    if (lat == null || lon == null) continue;
+    out.push({ x: projX(lon), y: projY(lat), name: t.name.slice(0, 34) });
+  }
+  return out;
+}
+/* The sweep runs at widening radii and the inner rungs come back inside the
+   outer ones, so the same shop arrives several times. Ten metres and the same
+   name is the same shop. */
+function addShops(list) {
+  let n = 0;
+  for (const q of list) {
+    let dup = false;
+    for (const e of W.shops)
+      if (e.name === q.name && Math.abs(e.x - q.x) < 10 && Math.abs(e.y - q.y) < 10) { dup = true; break; }
+    if (dup) continue;
+    W.shops.push(q); n++;
+  }
+  return n;
 }
 
 /* Into the world, with the same de-duplication buildings already need — the
@@ -686,6 +723,12 @@ function markPassable(roads) {
    being culled away by a winding bug. So the height of whatever the POI is
    standing in is recorded here, where the containing building is already being
    looked up, and the column starts on its roof. */
+/* A name arriving after the fact has to reach the geometry, which was built
+   without it. The 3D renderer may never have been switched on, so this asks
+   rather than assumes. */
+function signChanged(b) {
+  if (typeof dirtyCellAt === 'function') dirtyCellAt(b.cx, b.cy);
+}
 function markPOIBuildings() {
   for (const p of W.pois) {
     p.lift = 0;
@@ -702,7 +745,22 @@ function markPOIBuildings() {
          is the right way round for a street sign: what you read on a facade is
          the business, not the freeholder. A name the building already has wins,
          because that is the more specific fact. */
-      if (!b.sign && p.name) b.sign = p.name.slice(0, 34);
+      if (!b.sign && p.name) { b.sign = p.name.slice(0, 34); signChanged(b); }
+    }
+  }
+  /* AND THE SHOPFRONTS, which is where most of a street's names actually live.
+     Same walk, without the passable flag: a supermarket does not make the block
+     above it something you can drive through. A name the building already has
+     wins, because it is the more specific fact — the block is called what it is
+     called, whatever opened on its ground floor. */
+  for (const q of W.shops) {
+    const arr = W.buckets.get(Math.floor(q.x / W.bcell) + ',' + Math.floor(q.y / W.bcell));
+    if (!arr) continue;
+    for (const bi of arr) {
+      const b = W.buildings[bi];
+      if (b.sign) continue;
+      if (q.x < b.bb.x0 || q.x > b.bb.x1 || q.y < b.bb.y0 || q.y > b.bb.y1) continue;
+      if (pointInPoly(b.pts, q.x, q.y)) { b.sign = q.name; signChanged(b); break; }
     }
   }
 }
@@ -1403,7 +1461,11 @@ async function widenLandmarkSearch() {
     const before = W.pois.length;
     addPOIs(parsePOIs(els));
     const mons = addMonuments(parseMonuments(els));
+    const shops = addShops(parseShops(els));
     const found = W.pois.length - before;
+    // shops change no dot on the radar, only the lettering, so they need the
+    // building pass and not the prerender
+    if (shops && !(found || mons)) markPOIBuildings();
     if (found || mons) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
     return { radius: R, missing, found, stillMissing: missingKinds() };
   } catch (err) {

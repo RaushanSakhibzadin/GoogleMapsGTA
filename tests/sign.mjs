@@ -55,14 +55,22 @@ const BUILDINGS = { elements: [
   { type: 'way', id: 7002, tags: { building: 'retail', height: '8', name: 'Панда' },
     geometry: ring(-20, 40, -40, -70) },
   { type: 'way', id: 7003, tags: { building: 'apartments', height: '16' },
-    geometry: ring(70, 150, -40, -80) }
+    geometry: ring(70, 150, -40, -80) },
+  { type: 'way', id: 7004, tags: { building: 'apartments', height: '15' },
+    geometry: ring(160, 220, -40, -80) },
+  { type: 'way', id: 7005, tags: { building: 'apartments', height: '15' },
+    geometry: ring(230, 290, -40, -80) }
 ] };
-/* A garage, because the game's POIs are the three things it has gameplay for —
-   police, hospital, car repair — and a supermarket is not one of them. What is
-   being tested is that a named point inside a nameless footprint hands its name
-   up to the building, which is the same path whatever the kind. */
+/* A garage AND a supermarket. The garage is one of the three things the game has
+   gameplay for and becomes a POI; the supermarket is not, and is fetched purely
+   so a facade can carry the name that is really on it — Belgrade's ground floors
+   are SUPER VOK and IDEA, and a street of them with blank walls is not that
+   street. Both must reach a building, by different routes. */
 const POIS = { elements: [
-  { type: 'node', id: 5001, ...toLL(110, -60), tags: { shop: 'car_repair', name: 'AUTO CENTAR' } }
+  { type: 'node', id: 5001, ...toLL(110, -60), tags: { shop: 'car_repair', name: 'AUTO CENTAR' } },
+  { type: 'node', id: 5002, ...toLL(180, -60), tags: { shop: 'supermarket', name: 'IDEA' } },
+  // no name: must not put a blank sign on anything
+  { type: 'node', id: 5003, ...toLL(250, -60), tags: { shop: 'bakery' } }
 ] };
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -111,6 +119,14 @@ out.named = await p.evaluate(() =>
 out.ownName = out.named.some(b => b.id === 7001 && b.sign === 'GRAND CASINO ADMIRAL');
 out.cyrillic = out.named.some(b => b.id === 7002 && b.sign === 'Панда');
 out.shopLendsItsName = out.named.some(b => b.id === 7003 && b.sign === 'AUTO CENTAR');
+out.shopfrontNamesIt = out.named.some(b => b.id === 7004 && b.sign === 'IDEA');
+// a shop with no name must leave the wall alone rather than sign it with ''
+out.namelessStaysBlank = out.named.some(b => b.id === 7005 && b.sign === '');
+/* AND THE SUPERMARKET IS NOT A LANDMARK. It exists to letter a wall; a beacon
+   over every corner shop would make the radar useless and the skyline worse. */
+out.shopsAreNotPois = await p.evaluate(() =>
+  W.pois.filter(q => /IDEA|bakery/i.test(q.name || '')).length === 0 &&
+  W.pois.length === 1 && W.shops.length === 1);
 
 /* ---- 1. the names put pixels on the walls ---- */
 /* Both frames from one paused evaluate, and the only thing that changes between
@@ -197,6 +213,7 @@ out.longNamesGetWider = out.shape.short > 0 && out.shape.long > out.shape.short 
 
 out.errs = errs.slice(0, 3);
 out.pass = out.ownName && out.cyrillic && out.shopLendsItsName &&
+           out.shopfrontNamesIt && out.namelessStaysBlank && out.shopsAreNotPois &&
            out.signsAreDrawn && out.staysOnTheWall && out.longNamesGetWider &&
            !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
