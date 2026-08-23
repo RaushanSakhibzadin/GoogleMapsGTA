@@ -148,6 +148,15 @@ function snapshot() {
         probe = c.getContext('webgl2') ? 'yes' : (c.getContext('webgl') ? 'webgl1 only' : 'no');
       } catch (e) { probe = String(e && e.message || e); }
       s.gl.probe = probe;
+      /* AND WHETHER THE BROWSER HAS WEBGL AT ALL, which is the difference
+         between two faults that look identical from here. If the constructors
+         are missing then the engine was built or configured without WebGL — iOS
+         Lockdown Mode switches it off wholesale, and so do some managed
+         profiles — and no amount of closing tabs will help. If they exist and a
+         context still cannot be had, something is exhausted and closing tabs is
+         exactly what does help. A report of "3D is not available" is one of
+         those two and there was no way to tell them apart. */
+      s.gl.ctor = { webgl2: typeof WebGL2RenderingContext, webgl: typeof WebGLRenderingContext };
     }
   } catch (e) { s.glError = String(e && e.message || e); }
   try { s.shops = W.shops.length; } catch (e) {}

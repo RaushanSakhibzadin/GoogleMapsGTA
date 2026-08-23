@@ -2264,7 +2264,16 @@ function setMode3D(on) {
     if (!ok) {
       const why = GL.fail || err || 'initGL3 returned false';
       if (typeof LOG !== 'undefined' && LOG.note) LOG.note('gl', '3D refused: ' + why);
-      toast('3D NEEDS WEBGL2', 2000);
+      /* SAY WHICH KIND OF NO IT IS. "3D NEEDS WEBGL2" is true and useless: the
+         person reading it cannot tell whether the phone is incapable, out of
+         memory, or has the feature switched off in a settings screen they have
+         never opened. A missing constructor means WebGL is off in this browser
+         — Lockdown Mode on iOS does exactly that — and that is the one case
+         they can actually go and fix. */
+      const none = typeof WebGL2RenderingContext === 'undefined' &&
+                   typeof WebGLRenderingContext === 'undefined';
+      toast(none ? 'WEBGL IS OFF IN THIS BROWSER — CHECK LOCKDOWN MODE'
+                 : '3D NEEDS WEBGL2', 3200);
       return false;
     }
   }

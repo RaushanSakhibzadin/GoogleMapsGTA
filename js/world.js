@@ -1532,7 +1532,41 @@ async function loadSkeleton(onMsg) {
       sessAbort(sess);
     }
   }
-  return null;
+  return bundledSkeleton();
+}
+
+/* EVERY RUNG REFUSED, AND THERE IS A REAL SKELETON IN THE BUNDLE.
+
+   Reported from a phone in Belgrade: sixty kilometres timed out, then
+   thirty-six, then eighteen, then nine, and the session ended up in a five and a
+   half kilometre box with no arterials in it at all — while data/belgrade.js sat
+   in the same download holding 6,585 ways of that city's real motorways and
+   boulevards, because the offline city only ever loaded when EVERYTHING failed.
+   Partial failure is the common case, not total failure: the streets for the
+   tile you are standing on are one small request and they nearly always arrive,
+   and it is the wide sweep — the biggest, slowest query the game makes — that
+   the mirrors refuse.
+
+   ONLY IF IT IS THE SAME CITY. The bundle is Belgrade; grafting it under
+   somebody who typed Osaka would be worse than no skeleton at all. It carries
+   its own centre and the radius it was clipped to, so the test is whether this
+   session's origin lies well inside that — and the box handed to the grid is the
+   part of it that genuinely surrounds the player, not the part that runs off the
+   edge of what was bundled. */
+async function bundledSkeleton() {
+  let city = null;
+  try { city = await loadOfflineCity(); } catch (e) { return null; }
+  if (!city || !city.skeleton || !city.skeleton.length || !city.skeletonRadius) return null;
+  // where the bundle's centre falls in THIS session's coordinates
+  const dx = projX(city.lon), dy = projY(city.lat);
+  const half = Math.round(city.skeletonRadius - Math.hypot(dx, dy));
+  // less than this and the offline horizon is no wider than the tiles already are
+  if (!(half >= 5000)) return null;
+  const data = parseOSM(city.skeleton);
+  if (!data.roads.length) return null;
+  W.skelRect = { x0: -half, y0: -half, x1: half, y1: half };
+  const added = mergeChunk(data, 'skel');
+  return { radius: half, roads: added, places: data.places.length, bundled: true };
 }
 
 /* THIS RUNS WHILE YOU ARE DRIVING, not while you are watching a bar.
