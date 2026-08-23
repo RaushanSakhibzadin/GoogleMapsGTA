@@ -177,18 +177,32 @@ await p.waitForTimeout(2000);
 out.frozeSky = await freeze();
 {
   const px = await grab();
+  /* SKY PIXELS ONLY, ROW BY ROW. The buildings are out of the way for this
+     section, but the planting is not — and once the trees grew to thirteen
+     metres their crowns reached well above the horizon line, so the rows this
+     samples first were part canopy. The gradient did not change; the sample
+     did, and it read 153 at the horizon instead of 175 while the zenith stayed
+     at 143.5 to the decimal, which is what gave it away.
+
+     Nothing in this frame that is not sky leads on blue: not the road, not the
+     masonry, and certainly not a tree. Rows that end up with too little sky in
+     them are left as NaN and skipped rather than averaged from three pixels. */
   const rows = [];
   for (let y = 0; y < H; y++) {
-    let s = 0;
-    for (let x = 0; x < W; x++) s += lum(px, at(x, y));
-    rows.push(s / W);
+    let s = 0, n = 0;
+    for (let x = 0; x < W; x++) {
+      const i = at(x, y);
+      if (px[i + 2] < px[i] + 8) continue;         // warmer than it is blue: not sky
+      s += lum(px, i); n++;
+    }
+    rows.push(n > W * 0.5 ? s / n : NaN);
   }
-  // rows[] runs bottom to top; the biggest step is ground meeting sky
-  let hz = 0, big = 0;
-  for (let y = 1; y < H; y++) {
-    const d = Math.abs(rows[y] - rows[y - 1]);
-    if (d > big) { big = d; hz = y; }
-  }
+  /* rows[] runs bottom to top, and the horizon is where sky starts existing at
+     all — the lowest row that is more than half sky, which is a sharper answer
+     than the biggest step between two averages now that the rows below it are
+     NaN rather than dark. */
+  let hz = 0;
+  for (let y = 0; y < H; y++) if (!Number.isNaN(rows[y])) { hz = y; break; }
   /* Twelve rows clear of the horizon, not one. The skyline is antialiased and
      the terrain behind it is uneven, so the rows immediately above it are a
      blend of sky and hillside and step by several units — which is real, and
@@ -196,7 +210,9 @@ out.frozeSky = await freeze();
   const first = hz + 12;
   const low = rows[first], high = rows[H - 1];
   let jump = 0;
-  for (let y = first + 1; y < H; y++) jump = Math.max(jump, Math.abs(rows[y] - rows[y - 1]));
+  for (let y = first + 1; y < H; y++)
+    if (!Number.isNaN(rows[y]) && !Number.isNaN(rows[y - 1]))
+      jump = Math.max(jump, Math.abs(rows[y] - rows[y - 1]));
   out.sky = {
     horizonRow: hz,
     skyRows: H - first,
