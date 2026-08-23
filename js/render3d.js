@@ -36,6 +36,7 @@
    surface in the main pass asks before deciding whether it is lit. */
 
 let MODE3D = false;
+let SOFT3D = false;      // the chase view, without a GPU
 
 /* How far the world is drawn, in metres. Fog closes over the last third of it,
    so cells stop existing behind a wall of sky rather than popping out of a clear
@@ -2234,7 +2235,10 @@ function trimCells() {
 /* One name, two renderers. Everything outside this file — main.js's loop, the
    test hooks, drawArrow, drawBuilding — calls render() and toScreen() and never
    learns which one it got. */
-function render() { MODE3D ? render3D() : render2D(); }
+/* THREE VIEWS, ONE SWITCH. SOFT is the chase view drawn on the 2D canvas, for
+   the browsers that have no WebGL at all — it is a different rasteriser, not a
+   different game, so everything above this line treats it as the chase view. */
+function render() { MODE3D ? (SOFT3D ? render3DSoft() : render3D()) : render2D(); }
 function toScreen(wx, wy) { return MODE3D ? toScreen3D(wx, wy) : toScreen2D(wx, wy); }
 
 function resize3D() {
@@ -2251,6 +2255,7 @@ function resize3D() {
    rather than left looking at a black rectangle. */
 function setMode3D(on) {
   if (on && !MODE3D) {
+    SOFT3D = false;
     GL.attempts++;
     /* AND SAY SO IN THE LOG. This used to put a toast on the screen and leave no
        trace anywhere else, so a report of "3D is not available again" arrived
@@ -2264,17 +2269,22 @@ function setMode3D(on) {
     if (!ok) {
       const why = GL.fail || err || 'initGL3 returned false';
       if (typeof LOG !== 'undefined' && LOG.note) LOG.note('gl', '3D refused: ' + why);
-      /* SAY WHICH KIND OF NO IT IS. "3D NEEDS WEBGL2" is true and useless: the
-         person reading it cannot tell whether the phone is incapable, out of
-         memory, or has the feature switched off in a settings screen they have
-         never opened. A missing constructor means WebGL is off in this browser
-         — Lockdown Mode on iOS does exactly that — and that is the one case
-         they can actually go and fix. */
+      /* NO WEBGL IS NOT NO CHASE VIEW. It used to be: the button said "3D NEEDS
+         WEBGL2" and put you back in the top-down game, which on a browser with
+         WebGL switched off means never seeing the thing at all — and that is a
+         browser, not a broken phone. Everything the GL renderer uses except the
+         GL is ordinary JavaScript, so the same street is drawn on the 2D canvas
+         instead. It gives up the shading, the shadows and the window grid; it
+         keeps being behind the car in a street with depth.
+
+         The toast still names the fault, because one of the two is something the
+         player can go and change: a missing constructor means WebGL is switched
+         off in this browser, which on iOS is what Lockdown Mode does. */
+      SOFT3D = true;
       const none = typeof WebGL2RenderingContext === 'undefined' &&
                    typeof WebGLRenderingContext === 'undefined';
-      toast(none ? 'WEBGL IS OFF IN THIS BROWSER — CHECK LOCKDOWN MODE'
-                 : '3D NEEDS WEBGL2', 3200);
-      return false;
+      toast(none ? 'NO WEBGL HERE — DRAWING 3D THE SLOW WAY'
+                 : '3D WITHOUT A GPU — THE SLOW WAY', 3000);
     }
   }
   MODE3D = !!on;
@@ -2284,7 +2294,7 @@ function setMode3D(on) {
      the tests written against it stay honest. */
   TERRAIN = MODE3D;
   terrainSeed();
-  $('gl').classList.toggle('on', MODE3D);
+  $('gl').classList.toggle('on', MODE3D && !SOFT3D);
   $('modeN').textContent = MODE3D ? '2D' : '3D';
   $('modeBtn').title = MODE3D ? 'Switch to the top-down view' : 'Switch to the chase view';
   document.body.classList.toggle('mode-3d', MODE3D);
