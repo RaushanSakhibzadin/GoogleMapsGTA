@@ -85,6 +85,13 @@ const LOG = (() => {
     build() {
       return {
         vicemaps: 1,
+        /* WHICH BUILD THIS IS, at the very top, because the first question about
+           any report is whether it describes the code in front of you. Every
+           script and stylesheet is already addressed by this hash — it is a hash
+           of their contents — so it names the running program exactly, and a
+           phone quietly serving a fortnight-old cache says so here instead of
+           being argued about. */
+        build: typeof BUILD === 'string' ? BUILD : (window.BUILD || 'unknown'),
         savedAt: new Date().toISOString(),
         sessionSeconds: at(),
         osm,
@@ -124,6 +131,26 @@ function snapshot() {
               street: NAV.street, zone: NAV.zone, cash: P.cash, wanted: P.wanted };
   } catch (e) { s.carError = String(e && e.message || e); }
   try { s.perf = { upd: +PERF.upd.toFixed(2), ren: +PERF.ren.toFixed(2), steps: +PERF.steps.toFixed(2) }; } catch (e) {}
+  /* THE STATE OF THE CHASE VIEW, whether or not anybody pressed the button.
+     "3D is not available" was reported twice with a log that had no way to say
+     anything about it: no record of whether a context had ever been asked for,
+     what the browser said when it refused, or whether the machine has WebGL at
+     all. `probe` is the honest answer to "could this phone do it right now" —
+     a throwaway canvas, so it costs nothing and cannot disturb the real one. */
+  try {
+    s.gl = { mode3d: typeof MODE3D !== 'undefined' ? MODE3D : null,
+             attempts: GL.attempts, ready: !!GL.gl, fail: GL.fail,
+             why: GL.why, webgl1: GL.webgl1, renderer: GL.renderer, lost: GL.lost };
+    if (!GL.gl) {
+      let probe = 'no';
+      try {
+        const c = document.createElement('canvas');
+        probe = c.getContext('webgl2') ? 'yes' : (c.getContext('webgl') ? 'webgl1 only' : 'no');
+      } catch (e) { probe = String(e && e.message || e); }
+      s.gl.probe = probe;
+    }
+  } catch (e) { s.glError = String(e && e.message || e); }
+  try { s.shops = W.shops.length; } catch (e) {}
   return s;
 }
 

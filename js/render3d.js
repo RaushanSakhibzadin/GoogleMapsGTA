@@ -2251,7 +2251,19 @@ function resize3D() {
    rather than left looking at a black rectangle. */
 function setMode3D(on) {
   if (on && !MODE3D) {
-    if (!GL.init($('gl')) || !initGL3()) {
+    GL.attempts++;
+    /* AND SAY SO IN THE LOG. This used to put a toast on the screen and leave no
+       trace anywhere else, so a report of "3D is not available again" arrived
+       with a log that recorded mirror timings, the car's position and nothing at
+       all about the one thing that had gone wrong. initGL3 compiles every shader
+       in the game, so it is caught as well: a link error on one phone's driver
+       is a plausible cause and would otherwise escape as a bare stack trace. */
+    let ok = false, err = '';
+    try { ok = !!GL.init($('gl')) && initGL3(); }
+    catch (e) { err = String(e && e.message || e); }
+    if (!ok) {
+      const why = GL.fail || err || 'initGL3 returned false';
+      if (typeof LOG !== 'undefined' && LOG.note) LOG.note('gl', '3D refused: ' + why);
       toast('3D NEEDS WEBGL2', 2000);
       return false;
     }

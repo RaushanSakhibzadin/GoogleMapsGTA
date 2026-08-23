@@ -138,7 +138,10 @@ function boxInFrustum(pl, x0, y0, z0, x1, y1, z1) {
 const GL = {
   gl: null,
   canvas: null,
-  fail: '',                        // why 3D is unavailable, for the toast
+  fail: '',                        // why 3D is unavailable, for the toast and the log
+  why: '', webgl1: false,          // the browser's own reason, and whether WebGL1 came up
+  renderer: '',                    // which GPU answered, when one did
+  lost: 0, attempts: 0,            // contexts lost, and times the chase view was asked for
 
   /* Returns the context, or null. Called once, lazily, the first time anybody
      asks for the 3D view — a player who never presses the button never pays for
@@ -149,6 +152,16 @@ const GL = {
     if (this.fail) return null;
     this.canvas = canvas;
     let gl = null;
+    /* WHY IT FAILED, NOT JUST THAT IT DID. getContext returns null for a dozen
+       unrelated reasons — no WebGL2 at all, too many live contexts, the GPU
+       process gone, the system out of memory — and the browser explains which
+       through a webglcontextcreationerror event that nobody listens for by
+       default. A report saying "3D NEEDS WEBGL2" from a phone that has run the
+       chase view happily for a fortnight is not a report at all; this is the one
+       line that turns it into one. */
+    let why = '';
+    const onWhy = e => { why = (e && e.statusMessage) || ''; };
+    canvas.addEventListener('webglcontextcreationerror', onWhy, false);
     try {
       gl = canvas.getContext('webgl2', {
         alpha: false, antialias: true, depth: true, stencil: false,
@@ -156,15 +169,32 @@ const GL = {
         preserveDrawingBuffer: false,
         powerPreference: 'high-performance'
       });
-    } catch (e) { gl = null; }
-    if (!gl) { this.fail = 'WebGL2 unavailable'; return null; }
+    } catch (e) { gl = null; why = why || String(e && e.message || e); }
+    canvas.removeEventListener('webglcontextcreationerror', onWhy, false);
+    if (!gl) {
+      /* Whether WebGL1 comes up separates "this browser has no WebGL2" from
+         "this browser could not give me a context just now", which are two
+         different bugs with two different answers. */
+      let one = false;
+      try { one = !!(canvas.getContext('webgl') || canvas.getContext('experimental-webgl')); } catch (e) {}
+      this.fail = 'WebGL2 unavailable' + (why ? ': ' + why : '') + (one ? ' (WebGL1 works)' : '');
+      this.why = why; this.webgl1 = one;
+      return null;
+    }
     this.gl = gl;
+    try {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      this.renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+                          : gl.getParameter(gl.RENDERER);
+    } catch (e) { this.renderer = ''; }
     /* A lost context is not an error to report — it is a laptop switching GPUs, a
        phone waking up, or a driver reset. Swallow the default (which kills the
        canvas permanently), drop everything built from the dead context, and let
        the next frame rebuild it. */
     canvas.addEventListener('webglcontextlost', e => {
       e.preventDefault();
+      this.lost++;
+      if (typeof LOG !== 'undefined' && LOG.note) LOG.note('gl', 'context lost (' + this.lost + ')');
       if (typeof glContextLost === 'function') glContextLost();
     }, false);
     return gl;

@@ -135,6 +135,17 @@ function overpassQL(s, w, n, e, kind, opt) {
   if (kind === 'buildings') {
     return `[out:json][timeout:60];(` +
       `way["building"](${bb});` +
+      /* AND THE NAMES OVER THE SHOPFRONTS, which belong HERE and not on the
+         landmark sweep. They went on the sweep first, and the sweep searches
+         rings out to sixty kilometres: asking that for every named shop turned a
+         145 KB reply into five megabytes of twelve thousand bakeries, once per
+         ring, on a phone. This request is one tile of the place you are actually
+         driving through, which is the only place a fascia can be read from, and
+         it scales with the tile rather than with Serbia.
+
+         Only named ones, because the name is the entire point of asking. */
+      `node["shop"]["name"](${bb});` +
+      `node["amenity"~"^(restaurant|cafe|bar|fast_food|pharmacy|bank|cinema|theatre|fuel)$"]["name"](${bb});` +
       `way["leisure"~"^(park|garden|golf_course)$"](${bb});` +
       `way["landuse"~"^(grass|forest|recreation_ground)$"](${bb});` +
       `);out geom qt;`;
@@ -172,20 +183,6 @@ function overpassQL(s, w, n, e, kind, opt) {
     return `[out:json][timeout:40];(` +
       `nwr["amenity"~"^(police|hospital)$"](${bb});` +
       `nwr["shop"="car_repair"](${bb});` +
-      /* AND THE NAMES OVER THE SHOPFRONTS. These are not points of interest —
-         nothing in the game sends you to a bakery and a skyline of beacons over
-         every corner shop would be worse than none — they are asked for purely
-         so a facade can carry the name that is actually on it. Belgrade's ground
-         floors are SUPER VOK and PANDA and IDEA, and a street of them with blank
-         walls is not that street.
-
-         Only the ones with a name, because a name is the entire reason for
-         asking, and only the trades that put a sign up: a dentist's flat above a
-         courtyard has an `amenity` and no fascia. It rides on the landmark sweep
-         rather than the critical path, so a refused reply costs lettering and
-         nothing else. */
-      `nwr["shop"]["name"](${bb});` +
-      `nwr["amenity"~"^(restaurant|cafe|bar|fast_food|pharmacy|bank|cinema|theatre|fuel)$"]["name"](${bb});` +
       /* MONUMENTS, which are scenery rather than services — but they ride with
          the landmark sweep because they want the same treatment: sparse,
          tag-indexed, and worth finding well outside the streets we could load.

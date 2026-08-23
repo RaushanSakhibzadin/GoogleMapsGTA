@@ -13,6 +13,7 @@ const W = {
   places: [],                            // named districts / neighbourhoods
   pois: [],                              // police stations, hospitals, repair shops
   shops: [],                             // named shopfronts, for the signs on the facades
+  shopKeys: new Set(),                   // and the ones already seen, so a tile seam costs nothing
   sweptTo: 0, sweeping: false,           // how many rungs of the landmark sweep have run
   cell: 8, gw: 0, gh: 0, grid: null,     // drivable mask
   gx0: 0, gy0: 0,                        // and its own origin — it stops before the world does
@@ -160,7 +161,7 @@ function makeMonument(cx, cy, pts, kind, t, id) {
 }
 
 function parseOSM(els) {
-  const roads = [], buildings = [], parks = [], places = [], pois = [];
+  const roads = [], buildings = [], parks = [], places = [], pois = [], shops = [];
   for (const el of els) {
     const t = el.tags || {};
 
@@ -171,6 +172,9 @@ function parseOSM(els) {
       }
       const pk = POI_KIND(t);
       if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
+      // a named shopfront: not a point of interest, just a name for a wall
+      else if (t.name && (t.shop || t.amenity))
+        shops.push({ x: projX(el.lon), y: projY(el.lat), name: t.name.slice(0, 34) });
       const mk = MONU_KIND(t);
       if (mk) {
         const mx = projX(el.lon), my = projY(el.lat);
@@ -231,7 +235,7 @@ function parseOSM(els) {
       parks.push({ pts, bb: bbox(pts) });
     }
   }
-  return { roads, buildings, parks, places, pois };
+  return { roads, buildings, parks, places, pois, shops };
 }
 
 /* The wide landmark sweep asks for `out center`, so a way arrives as a single
@@ -271,37 +275,22 @@ function parseMonuments(els) {
   return out;
 }
 
-/* THE NAMES OVER THE SHOPFRONTS, out of the same reply.
-
-   Deliberately not POIs. A POI in this game is somewhere you get sent — a
-   police station, a hospital, a garage — and it earns a coloured dot on the
-   radar and a column of light over it. A bakery earns neither, and a city with
-   a beacon over every corner shop would be unreadable. These exist only so the
-   building they sit in can wear the right name, so they are kept in a list of
-   their own and touch nothing else. */
-function parseShops(els) {
-  const out = [];
-  for (const el of els) {
-    const t = el.tags || {};
-    if (!t.name || (!t.shop && !t.amenity)) continue;
-    if (POI_KIND(t) || MONU_KIND(t)) continue;      // already handled, and better
-    const lat = el.lat != null ? el.lat : el.center && el.center.lat;
-    const lon = el.lon != null ? el.lon : el.center && el.center.lon;
-    if (lat == null || lon == null) continue;
-    out.push({ x: projX(lon), y: projY(lat), name: t.name.slice(0, 34) });
-  }
-  return out;
+/* Tiles overlap at their seams and a tile can be asked for twice, so the same
+   shop arrives more than once. Keyed on the name and the position rounded to
+   sixteen metres rather than compared against every shop already known — the
+   first version was a scan of the whole list per arrival, which is fine for the
+   dozen landmarks it was written beside and quadratic for twelve thousand
+   shopfronts: measured against the reply that prompted this, a hundred and
+   forty million comparisons, on the main thread, on a phone. */
+function shopKey(q) {
+  return q.name + '@' + Math.round(q.x / 16) + ',' + Math.round(q.y / 16);
 }
-/* The sweep runs at widening radii and the inner rungs come back inside the
-   outer ones, so the same shop arrives several times. Ten metres and the same
-   name is the same shop. */
 function addShops(list) {
   let n = 0;
   for (const q of list) {
-    let dup = false;
-    for (const e of W.shops)
-      if (e.name === q.name && Math.abs(e.x - q.x) < 10 && Math.abs(e.y - q.y) < 10) { dup = true; break; }
-    if (dup) continue;
+    const k = shopKey(q);
+    if (W.shopKeys.has(k)) continue;
+    W.shopKeys.add(k);
     W.shops.push(q); n++;
   }
   return n;
@@ -815,6 +804,7 @@ function buildWorld(data, name, procedural) {
   W.parks = data.parks;
   W.places = data.places || [];
   W.pois = []; addPOIs(data.pois || []);
+  W.shops = []; W.shopKeys = new Set(); addShops(data.shops || []);
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.tiles = new Map(); W.fixed = new Set();
   W.skelRect = null; WIDE_MAP = false;       // a new city starts with no wide map
@@ -1180,6 +1170,7 @@ function mergeChunk(data, key) {
   for (const x of data.parks) W.parks.push(x);
   for (const p of data.places || []) W.places.push(p);
   addPOIs(data.pois || []);
+  addShops(data.shops || []);
 
   /* A GROWN GRID HAS HOLES IN IT WHERE ROADS RAN OFF THE OLD ONE.
 
@@ -1461,11 +1452,7 @@ async function widenLandmarkSearch() {
     const before = W.pois.length;
     addPOIs(parsePOIs(els));
     const mons = addMonuments(parseMonuments(els));
-    const shops = addShops(parseShops(els));
     const found = W.pois.length - before;
-    // shops change no dot on the radar, only the lettering, so they need the
-    // building pass and not the prerender
-    if (shops && !(found || mons)) markPOIBuildings();
     if (found || mons) { markPOIBuildings(); prerenderMap(); }   // radar and drive-through
     return { radius: R, missing, found, stillMissing: missingKinds() };
   } catch (err) {

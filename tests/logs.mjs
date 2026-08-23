@@ -151,6 +151,19 @@ if (file) {
   out.mirrorNotes = msgs.filter(m => /^mirror:/.test(m)).slice(0, 3);
   out.errorsTimestamped = file.errors.every(e => typeof e.at === 'number');
 
+  /* THE BUILD, AT THE TOP. Asked for by name after a report arrived that could
+     not be matched to a version: every script is addressed by this hash, so it
+     names the running program exactly, and a phone serving a stale cache says so
+     here instead of being argued about. */
+  out.build = file.build;
+  out.hasBuild = typeof file.build === 'string' && /^[0-9a-f]{6,}$/.test(file.build);
+  /* AND WHETHER THE CHASE VIEW COULD RUN. "3D is not available" was reported
+     twice with a log that said nothing whatsoever about WebGL — no record of an
+     attempt, no reason, not even whether the machine has it. */
+  out.gl = file.snapshot && file.snapshot.gl;
+  out.hasGl = !!out.gl && typeof out.gl.ready === 'boolean' &&
+              typeof out.gl.attempts === 'number' && 'fail' in out.gl &&
+              (out.gl.ready || typeof out.gl.probe === 'string');
   out.snapshot = file.snapshot && {
     city: file.snapshot.city, hasCar: !!file.snapshot.car,
     carOnRoad: file.snapshot.car && file.snapshot.car.onRoad,
@@ -182,6 +195,37 @@ const d = await dl;
 out.downloadFallback = { fired: !!d, name: d && d.suggestedFilename() };
 await p2.close();
 
+/* ---- a refused chase view explains itself ---- */
+/* THE CASE THAT ARRIVED UNDIAGNOSABLE. "3D is not available" came in twice with
+   a log that recorded mirror timings, the car's position and not one word about
+   WebGL. Here the context is refused outright — getContext('webgl2') hands back
+   null, which is what a phone out of memory or out of contexts does — and the
+   log has to come back saying so, both as an entry with a reason and in the
+   snapshot's own account of the renderer. */
+out.refused = await p.evaluate(() => {
+  const real = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (t, o2) {
+    if (t === 'webgl2') {
+      this.dispatchEvent(Object.assign(new Event('webglcontextcreationerror'),
+                                       { statusMessage: 'out of memory (staged)' }));
+      return null;
+    }
+    return real.call(this, t, o2);
+  };
+  GL.gl = null; GL.fail = ''; GL.why = ''; GL.attempts = 0;
+  const went = window.__setMode3d(true);
+  HTMLCanvasElement.prototype.getContext = real;
+  const f = LOG.build();
+  return { went, fail: GL.fail, attempts: f.snapshot.gl.attempts,
+           note: (f.errors || []).filter(e => e.level === 'gl').map(e => e.msg) };
+});
+/* The reason the browser gave has to survive all the way into the file — "3D
+   NEEDS WEBGL2" on a phone that ran the chase view yesterday is not a report. */
+out.refusalExplained = out.refused.went === false &&
+                       out.refused.attempts >= 1 &&
+                       /out of memory \(staged\)/.test(out.refused.fail) &&
+                       out.refused.note.some(m => /out of memory \(staged\)/.test(m));
+
 out.fps = await p.evaluate(() => new Promise(r => {
   let n = 0; const t = performance.now();
   const tick = () => { n++; performance.now() - t < 1500 ? requestAnimationFrame(tick) : r(Math.round(n / 1.5)); };
@@ -198,6 +242,7 @@ out.pass = out.buttonOnMenu && out.parses && out.firstIsGeocode &&
   out.streetsMeta.ms && out.streetsMeta.at &&
   out.caughtThrow && out.caughtRejection && out.caughtTileFailure && out.errorsTimestamped &&
   out.snapshot && out.snapshot.city && out.snapshot.hasCar && out.snapshot.roads > 0 &&
+  out.hasBuild && out.hasGl && out.refusalExplained &&
   out.share.used && /\.json$/.test(out.share.name || '') &&
   out.cap.underCap && out.cap.dropped > 0 &&
   out.downloadFallback.fired &&

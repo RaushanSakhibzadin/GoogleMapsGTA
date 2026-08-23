@@ -61,17 +61,21 @@ const BUILDINGS = { elements: [
   { type: 'way', id: 7005, tags: { building: 'apartments', height: '15' },
     geometry: ring(230, 290, -40, -80) }
 ] };
-/* A garage AND a supermarket. The garage is one of the three things the game has
-   gameplay for and becomes a POI; the supermarket is not, and is fetched purely
-   so a facade can carry the name that is really on it — Belgrade's ground floors
-   are SUPER VOK and IDEA, and a street of them with blank walls is not that
-   street. Both must reach a building, by different routes. */
+/* The garage is one of the three things the game has gameplay for, so it comes
+   down with the landmark sweep and becomes a POI. The supermarket is not, and
+   rides with the BUILDINGS of the tile it stands in — which is where shopfronts
+   belong, because a fascia can only be read from the street it is on, and
+   because asking the sixty-kilometre sweep for every named shop turned a 145 KB
+   reply into five megabytes of twelve thousand bakeries. Both have to reach a
+   building, by their different routes. */
 const POIS = { elements: [
-  { type: 'node', id: 5001, ...toLL(110, -60), tags: { shop: 'car_repair', name: 'AUTO CENTAR' } },
+  { type: 'node', id: 5001, ...toLL(110, -60), tags: { shop: 'car_repair', name: 'AUTO CENTAR' } }
+] };
+const SHOPS = [
   { type: 'node', id: 5002, ...toLL(180, -60), tags: { shop: 'supermarket', name: 'IDEA' } },
   // no name: must not put a blank sign on anything
   { type: 'node', id: 5003, ...toLL(250, -60), tags: { shop: 'bakery' } }
-] };
+];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -88,7 +92,7 @@ await p.route('**/api/interpreter', async r => {
              : (/historic/.test(q) || /amenity/.test(q) || /shop/.test(q)) && !/highway/.test(q) ? 'pois'
              : 'streets';
   const body = kind === 'streets' ? streets()
-             : kind === 'buildings' ? BUILDINGS
+             : kind === 'buildings' ? { elements: BUILDINGS.elements.concat(SHOPS) }
              : kind === 'pois' ? POIS : { elements: [] };
   return r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
 });
