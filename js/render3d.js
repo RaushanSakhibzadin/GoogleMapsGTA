@@ -1117,20 +1117,41 @@ function treeLit(th) {
 function treeCanvas() {
   return treeKind() === 'night' ? TREE_TEX.night : paintedTree();
 }
+/* HOW MANY TREES ARE IN THE TEXTURE, and the reason there is one answer rather
+   than one per art style: the column a tree uses is baked into its cell's UVs,
+   and the theme can change under a cell that was built hours ago. So the painted
+   atlas is laid out to match the photographed one, and this is where both read
+   the number from. */
+function treeCols() { return typeof TREE_NIGHT_COLS === 'number' ? TREE_NIGHT_COLS : 2; }
+
 function paintedTree() {
   if (TREE_TEX.painted) return TREE_TEX.painted;
-  const S = 128;
+  const S = 128, COLS = treeCols();
   const cv = document.createElement('canvas');
-  cv.width = S; cv.height = S;
+  cv.width = S * COLS; cv.height = S;
   const g = cv.getContext('2d');
-  g.clearRect(0, 0, S, S);
+  g.clearRect(0, 0, cv.width, S);
+  for (let c = 0; c < COLS; c++) paintOneTree(g, c * S, S, c);
+  TREE_TEX.painted = cv;
+  return cv;
+}
+function paintOneTree(g, x0, S, col) {
   // the trunk, which is most of the bottom third and none of the top
   g.fillStyle = '#4a3a2a';
-  g.fillRect(S * 0.46, S * 0.52, S * 0.08, S * 0.48);
-  /* A deterministic scatter, so every build paints the same tree — this runs
-     once per session but the texture is compared in a test. */
-  let seed = 1;
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  g.fillRect(x0 + S * 0.46, S * 0.52, S * 0.08, S * 0.48);
+  /* A deterministic scatter, so every build paints the same trees — this runs
+     once per session but the texture is compared in a test. Seeded off the
+     column, so the two are different trees rather than one drawn twice.
+
+     XORSHIFT, because the linear congruential generator this used to run
+     correlates consecutive values, and consecutive values here are an angle and
+     then a radius: the photographed crowns built the same way came out as a
+     visible spiral of blobs with a hole through the middle. */
+  let seed = (col * 2654435761 + 1) >>> 0;
+  const rnd = () => {
+    seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
+    return seed / 4294967296;
+  };
   const blobs = [];
   for (let i = 0; i < 26; i++) {
     const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.6) * 0.30;
@@ -1146,11 +1167,9 @@ function paintedTree() {
     const bb = Math.round(30 + b.k * 22 + t * 16);
     g.fillStyle = 'rgb(' + r + ',' + gg + ',' + bb + ')';
     g.beginPath();
-    g.arc(b.x * S, b.y * S, b.r * S, 0, Math.PI * 2);
+    g.arc(x0 + b.x * S, b.y * S, b.r * S, 0, Math.PI * 2);
     g.fill();
   }
-  TREE_TEX.painted = cv;
-  return cv;
 }
 function treeTexture() {
   const kind = treeKind();
@@ -1171,9 +1190,19 @@ function treeTexture() {
   return tex;
 }
 
-/* Two quads, crossed, both carrying the whole texture. Four triangles, twenty
-   floats a vertex fewer than the old crown, and a shape the eye reads as a tree
-   from any direction rather than as a faceted blob from one. */
+/* Two quads, crossed, both carrying one tree out of the atlas. Four triangles,
+   twenty floats a vertex fewer than the old crown, and a shape the eye reads as a
+   tree from any direction rather than as a faceted blob from one.
+
+   WHICH TREE, AND WHICH WAY ROUND. One tree stamped down both verges of a
+   boulevard reads as wallpaper however good the tree is. The texture holds two,
+   and each tree picks its column from its own hash and is mirrored on half of
+   those — four apparent trees out of one texture and one draw call, since the
+   mirror is a swap of two floats that were going into the buffer anyway.
+
+   Off SEPARATE hashes rather than off bits of `k`, which is already spoken for by
+   the height and the rotation: a column that correlated with height would give
+   every young tree the same size and undo the point of having two. */
 function pushTree(o, x, z, note) {
   const k = hash2(x, z);
   const y = terrainH(x, z);
@@ -1183,13 +1212,17 @@ function pushTree(o, x, z, note) {
   const a = k * Math.PI;                      // each tree turned a little, from its own hash
   const c1 = Math.cos(a) * Wd / 2, s1 = Math.sin(a) * Wd / 2;
   const c2 = Math.cos(a + Math.PI / 2) * Wd / 2, s2 = Math.sin(a + Math.PI / 2) * Wd / 2;
+  const cols = treeCols();
+  const col = Math.min(cols - 1, Math.floor(hash2(x, z + 7.77) * cols));
+  const mir = hash2(x + 7.77, z) < 0.5;
+  const uL = (col + (mir ? 1 : 0)) / cols, uR = (col + (mir ? 0 : 1)) / cols;
   const quad = (dx, dz) => {
-    o.push(x - dx, y, z - dz, 0, 0,
-           x + dx, y, z + dz, 1, 0,
-           x + dx, y + H, z + dz, 1, 1);
-    o.push(x - dx, y, z - dz, 0, 0,
-           x + dx, y + H, z + dz, 1, 1,
-           x - dx, y + H, z - dz, 0, 1);
+    o.push(x - dx, y, z - dz, uL, 0,
+           x + dx, y, z + dz, uR, 0,
+           x + dx, y + H, z + dz, uR, 1);
+    o.push(x - dx, y, z - dz, uL, 0,
+           x + dx, y + H, z + dz, uR, 1,
+           x - dx, y + H, z - dz, uL, 1);
   };
   quad(c1, s1);
   quad(c2, s2);

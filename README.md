@@ -182,18 +182,28 @@ pulls in the rest.
   is still the right answer: four triangles, a shape the eye reads from any direction, and
   `discard` rather than blending, so it writes depth and needs no sorting.
 
-  The cutout itself is the one asset in this repository that was not drawn in code. Two dozen
-  shaded circles read as a green lollipop at any distance, because what makes a canopy look like a
-  canopy is the clumping — leaves at every scale, a few of them catching a street lamp and the rest
-  not. So after dark the trees are **a photograph of a real one on a real Belgrade street**, taken
-  by the person this was built for. The photograph has no outline in it — it looks up through the
-  branches — so the silhouette is still painted and the photograph fills it, lifted onto a dark
-  blue-green floor rather than from black, because keying the shadow out dissolved the canopy into
-  lace. It ships as a 30 KB data: URI inside `js/foliage.js`, so there is still nothing to fetch,
-  it still opens off a disk, and the existing `?v=` stamping covers it. **It is not lit twice**:
-  the street lamp is already in the pixels, and multiplying the dusk ambient into it a second time
-  leaves a black smudge where a lamplit tree should be. Daylight keeps the painted tree until
-  there is a daylight photograph to cut.
+  The cutouts are the one asset in this repository not drawn in code. Two dozen shaded circles
+  read as a green lollipop at any distance, because what makes a canopy look like a canopy is the
+  clumping — leaves at every scale, a few of them catching a street lamp and the rest not. So after
+  dark the trees are **photographs of real ones on real Belgrade streets**, taken by the person
+  this was built for. The photographs have no outline in them — they look up through the branches —
+  so the silhouettes are still painted and the photographs fill them, lifted onto a dark blue-green
+  floor rather than from black, because keying the shadow out of the dense one dissolved it into
+  lace.
+
+  **Two trees, in one atlas.** One tree stamped down both verges of every boulevard reads as
+  wallpaper however good the tree is, and the giveaway is a row of identical crowns. The texture
+  holds a mature plane tree and a young thin-branched one; each tree picks a column from its own
+  hash and half of them are mirrored on top of that, which is free — a swap of two floats already
+  going into the buffer. One texture, one draw call, four apparent trees. The painted daylight
+  trees are laid out to match, because the column is baked into the cell's UVs and the theme can
+  change under a cell built an hour ago. Both trunks are **bark**, filled the same way the crowns
+  are: a painted taper, clipped, filled with a photograph of the real thing. The whole atlas is a
+  51 KB data: URI in `js/foliage.js`, so there is still nothing to fetch, it still opens off a
+  disk, and the existing `?v=` stamping covers it. **They are not lit twice**: the street lamps are
+  already in the pixels, and multiplying the dusk ambient in a second time leaves black smudges
+  where lamplit trees should be. Daylight keeps the painted trees until there are daylight
+  photographs to cut.
 - **The objective is a beacon you can see.** The top-down game paints a marker on the ground; from
   a camera six metres up behind a car that is a thin ellipse hidden behind the next vehicle, so in
   the chase view the pickup was on the radar, on the city map and on the screen-edge arrow and
@@ -382,7 +392,7 @@ metre coordinates to place tiles against.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
 Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
 
-The foliage in `js/foliage.js` is cut from a photograph of a plane tree on a Belgrade street,
+The foliage and bark in `js/foliage.js` are cut from photographs of trees on Belgrade streets,
 taken by Raushan Sakhibzadin and used here with permission. Everything else is drawn in code.
 
 A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.

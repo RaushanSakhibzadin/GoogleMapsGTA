@@ -12,7 +12,7 @@
  *   after dark. So the kind is asked for directly, at both themes.
  *
  *   Something is selected but it is not a photograph. A flat green square encoded
- *   as a PNG would pass "is it 192 pixels wide". So the leaf detail is measured —
+ *   as a PNG would pass "is it the right size". So the leaf detail is measured —
  *   the mean step between neighbouring pixels inside the canopy — and compared
  *   against the painted tree, which is flat by construction.
  *
@@ -123,13 +123,65 @@ const out = {};
 
   /* ---- which tree each theme picks ---- */
   out.picks = await p.evaluate(() => {
-    const at = t => { applyTheme(t); return { kind: treeKind(), w: treeCanvas().width }; };
+    const at = t => {
+      applyTheme(t);
+      const cv = treeCanvas();
+      return { kind: treeKind(), w: cv.width, h: cv.height, cols: treeCols() };
+    };
     const dusk = at('dusk'), day = at('day');
     applyTheme('dusk');
     return { dusk, day };
   });
-  out.photographAfterDark = out.picks.dusk.kind === 'night' && out.picks.dusk.w === 192 &&
-                            out.picks.day.kind === 'painted' && out.picks.day.w === 128;
+  /* BOTH ATLASES HAVE TO HAVE THE SAME NUMBER OF COLUMNS. The column a tree uses
+     is baked into its cell's UVs and the theme can change under a cell built an
+     hour ago, so a painted atlas one column wide would put half the day's trees
+     on the seam between two of them. Asserted as a shape — square columns, the
+     same count — rather than by reading treeCols() twice, which would agree with
+     itself whatever it said. */
+  out.photographAfterDark =
+    out.picks.dusk.kind === 'night' && out.picks.day.kind === 'painted' &&
+    out.picks.dusk.cols >= 2 && out.picks.day.cols === out.picks.dusk.cols &&
+    out.picks.dusk.w === out.picks.dusk.h * out.picks.dusk.cols &&
+    out.picks.day.w === out.picks.day.h * out.picks.day.cols &&
+    out.picks.dusk.h !== out.picks.day.h;
+
+  /* ---- and a street uses all of them ----
+
+     The atlas exists so an avenue is not one tree stamped forty times, which is a
+     thing that can be perfectly true of the texture and false of the street: the
+     column is chosen in pushTree and baked into the mesh, so a build that ignored
+     it would ship this exact atlas and draw column 0 the whole way down the road.
+
+     So the real planting is asked. treesAlong feeds pushTree, pushTree writes the
+     UVs, and the u of the left and right corners is read back: which column, and
+     which way round — a mirrored tree is the one whose left corner has the higher
+     u. */
+  out.spread = await p.evaluate(() => {
+    const o = [], cols = treeCols();
+    for (const r of W.driveRoads) {
+      if (!r.drive) continue;
+      treesAlong(o, r, -1e9, -1e9, 1e9, 1e9, () => {});
+      if (o.length / 5 > 6000) break;
+    }
+    const seen = new Array(cols).fill(0), mirrored = new Array(cols).fill(0);
+    let trees = 0;
+    /* Five floats a vertex, six vertices a quad, two quads a tree: one tree is
+       sixty floats, and its first two vertices are the foot corners. */
+    for (let i = 0; i + 60 <= o.length; i += 60) {
+      const l = o[i + 3], r = o[i + 8];
+      const c = Math.floor(Math.min(l, r) * cols + 0.001);
+      if (c < 0 || c >= cols) continue;
+      seen[c]++;
+      if (l > r) mirrored[c]++;
+      trees++;
+    }
+    return { cols, trees, seen, mirrored };
+  });
+  const S = out.spread;
+  out.everyTreeInTheAtlasIsUsed =
+    S.trees > 300 &&
+    S.seen.every(n => n > S.trees * 0.25) &&
+    S.mirrored.every((n, i) => n > S.seen[i] * 0.25 && n < S.seen[i] * 0.75);
 
   /* ---- and it is a photograph, not a green square ----
 
@@ -285,7 +337,7 @@ const out = {};
              vsPainted: cmp(A, B), vsDoubleDim: cmp(A, C), control: cmp(A, D).n };
   });
   out.softDrawsIt = out.soft.soft === true && out.soft.kind === 'night' &&
-                    out.soft.art === 192 && out.soft.control === 0 && out.soft.vsPainted.n > 800 &&
+                    out.soft.art === out.picks.dusk.w && out.soft.control === 0 && out.soft.vsPainted.n > 800 &&
                     out.soft.vsDoubleDim.n > 800 &&
                     out.soft.vsDoubleDim.a > out.soft.vsDoubleDim.b * 1.4;
 
@@ -297,7 +349,8 @@ const out = {};
     const dusk = { kind: treeKind(), art: softTreeArt(SKY.dusk).width };
     return { day, dusk };
   });
-  out.cacheKeyedByTheme = out.themeCache.day.art === 128 && out.themeCache.dusk.art === 192;
+  out.cacheKeyedByTheme = out.themeCache.day.art === out.picks.day.w &&
+                          out.themeCache.dusk.art === out.picks.dusk.w;
 
   out.softErrs = errs.slice(0, 3);
   await p.close();
@@ -323,14 +376,15 @@ const out = {};
              boot: window.__boot ? window.__boot.ok : null };
   });
   out.paintedWithoutIt = out.without.has === 'undefined' && out.without.kind === 'painted' &&
-                         out.without.w === 128 && out.without.boot === true;
+                         out.without.w === out.picks.day.w && out.without.boot === true;
   out.withoutErrs = errs.filter(e => !/foliage/.test(e)).slice(0, 3);
   await p.close();
 }
 
 out.errs = [].concat(out.glErrs, out.softErrs, out.withoutErrs).filter(Boolean);
-out.pass = out.photographAfterDark && out.hasLeafDetail && out.onScreen && out.litOnce &&
-           out.softDrawsIt && out.cacheKeyedByTheme && out.paintedWithoutIt && !out.errs.length;
+out.pass = out.photographAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
+           out.onScreen && out.litOnce && out.softDrawsIt && out.cacheKeyedByTheme &&
+           out.paintedWithoutIt && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

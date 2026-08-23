@@ -292,7 +292,21 @@ function softTree(g, th, t) {
   const h = fp[1] - tp[1];
   if (h < 4) return;                       // a few pixels of tree is not worth a draw
   const w = h * 0.62;
-  g.drawImage(softTreeArt(th), fp[0] - w / 2, tp[1], w, h);
+  /* The same column and the same mirror the GL path bakes into its UVs, off the
+     same two hashes, so a street looks the same in both renderers. The mirror is a
+     negative scale rather than a second copy of the art. */
+  const art = softTreeArt(th);
+  const cols = treeCols(), cw = art.width / cols;
+  const col = Math.min(cols - 1, Math.floor(hash2(t.x, t.z + 7.77) * cols));
+  if (hash2(t.x + 7.77, t.z) < 0.5) {
+    g.save();
+    g.translate(fp[0], 0);
+    g.scale(-1, 1);
+    g.drawImage(art, col * cw, 0, cw, art.height, -w / 2, tp[1], w, h);
+    g.restore();
+  } else {
+    g.drawImage(art, col * cw, 0, cw, art.height, fp[0] - w / 2, tp[1], w, h);
+  }
 }
 
 /* THE TREE, DARKENED ONCE PER THEME RATHER THAN ONCE PER TREE.
