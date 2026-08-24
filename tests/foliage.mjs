@@ -1,4 +1,4 @@
-/* THE NIGHT TREES ARE A PHOTOGRAPH OF A REAL ONE, AND ARE LIT ONCE.
+/* THE TREES ARE PHOTOGRAPHS OF REAL ONES, AND ARE LIT ONCE.
  *
  * Everything else in this game is drawn in code. The trees were too — two dozen
  * circles, shaded lighter towards the top — and two dozen circles read as a green
@@ -89,7 +89,7 @@ async function open(opts = {}) {
   });
   await p.route('**://*/**', r => {
     const u = r.request().url();
-    if (opts.noFoliage && u.includes('js/foliage.js')) return r.abort();
+    if (opts.noFoliage && /js\/(foliage|daytree)\.js/.test(u)) return r.abort();
     return u.startsWith('file:') ? r.continue() : r.abort();
   });
   await p.goto(GAME);
@@ -99,6 +99,19 @@ async function open(opts = {}) {
   await p.waitForTimeout(600);
   await p.evaluate(src => { window.__settle = eval('(' + src[0] + ')'); window.__park = eval('(' + src[1] + ')'); },
                    [SETTLE.toString(), PARK.toString()]);
+  /* BOTH ATLASES DECODE LAZILY, on the first frame that asks for one, and each
+     theme asks for its own. So a test that switches the theme and reads the answer
+     in the same tick gets the painted stand-in — which is the correct behaviour
+     and is the subject of the last section, but is not what the others measure.
+     Asking once in each theme starts both decodes; then wait for them. */
+  await p.evaluate(() => {
+    const was = themeName;
+    applyTheme('day'); treeKind();
+    applyTheme('dusk'); treeKind();
+    applyTheme(was);
+  });
+  await p.waitForFunction(() => TREE_TEX.day && TREE_TEX.night, null, { timeout: 15000 })
+         .catch(() => {});
   return { p, errs };
 }
 
@@ -139,11 +152,11 @@ const out = {};
      same count — rather than by reading treeCols() twice, which would agree with
      itself whatever it said. */
   out.photographAfterDark =
-    out.picks.dusk.kind === 'night' && out.picks.day.kind === 'painted' &&
+    out.picks.dusk.kind === 'night' && out.picks.day.kind === 'day' &&
     out.picks.dusk.cols >= 2 && out.picks.day.cols === out.picks.dusk.cols &&
     out.picks.dusk.w === out.picks.dusk.h * out.picks.dusk.cols &&
     out.picks.day.w === out.picks.day.h * out.picks.day.cols &&
-    out.picks.dusk.h !== out.picks.day.h;
+    out.picks.dusk.h !== out.picks.day.h;      // and they are not the same atlas twice
 
   /* ---- and a street uses all of them ----
 
@@ -205,11 +218,14 @@ const out = {};
     applyTheme('dusk');
     const night = grain(treeCanvas());
     applyTheme('day');
-    const painted = grain(treeCanvas());
+    const day = grain(treeCanvas());
     applyTheme('dusk');
-    return { night, painted };
+    /* paintedTree() directly, because neither theme reaches it any more — and it
+       is the reference: 26 filled circles have no detail inside them at all. */
+    return { night, day, painted: grain(paintedTree()) };
   });
-  out.hasLeafDetail = out.detail.night > out.detail.painted * 4 && out.detail.night > 6;
+  out.hasLeafDetail = out.detail.night > out.detail.painted * 4 && out.detail.night > 6 &&
+                      out.detail.day > out.detail.painted * 4 && out.detail.day > 6;
 
   /* ---- it reaches the screen, and it is not dimmed twice ----
 
@@ -276,6 +292,50 @@ const out = {};
      to the bit when nothing changes. */
   out.onScreen = out.frame.vsPainted.n > 2500 && out.frame.fellBack === 'painted' &&
                  out.frame.control === 0;
+
+  /* ---- and the same question in daylight ----
+
+     Written because removing the daylight half of treeLit() broke nothing. The
+     block above stages dusk, and dusk was the theme the double-dim was found in,
+     so every assertion in it went on passing while daylight quietly went back to
+     being multiplied by its own ambient. A daylight photograph darkened by 0.69 is
+     not the black smudge the night one becomes — it is a tree in permanent shade,
+     which is exactly the kind of wrong that looks fine until you park next to it.
+     Same three frames, same control, one theme along. */
+  out.dayFrame = await p.evaluate(() => {
+    applyTheme('day');
+    window.__park();
+    const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+    const band = () => window.__px3(0, Math.floor(h * 0.30), w, Math.floor(h * 0.45));
+    const settle = () => window.__settle(70);
+    const themeLit = th => [th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55,
+                            th.amb[2] + th.lc[2] * .55];
+    const A = band();
+    const realLit = window.treeLit;
+    window.treeLit = themeLit;
+    settle();
+    const C = band();
+    window.treeLit = realLit;
+    settle();
+    const D = band();
+    applyTheme('dusk');
+    state = 'play';
+    let n = 0, la = 0, lc = 0, ctl = 0;
+    for (let i = 0; i < A.length; i += 4) {
+      const d = Math.abs(A[i] - C[i]) + Math.abs(A[i + 1] - C[i + 1]) + Math.abs(A[i + 2] - C[i + 2]);
+      if (d >= 24) {
+        n++;
+        la += A[i] * .3 + A[i + 1] * .6 + A[i + 2] * .1;
+        lc += C[i] * .3 + C[i + 1] * .6 + C[i + 2] * .1;
+      }
+      if (Math.abs(A[i] - D[i]) + Math.abs(A[i + 1] - D[i + 1]) + Math.abs(A[i + 2] - D[i + 2]) > 3) ctl++;
+    }
+    return { moved: n, control: ctl,
+             lumaShipped: +(la / Math.max(1, n)).toFixed(1),
+             lumaDimmed: +(lc / Math.max(1, n)).toFixed(1) };
+  });
+  out.dayLitOnce = out.dayFrame.moved > 2500 && out.dayFrame.control === 0 &&
+                   out.dayFrame.lumaShipped > out.dayFrame.lumaDimmed * 1.15;
   out.litOnce = out.frame.vsDoubleDim.n > 2500 &&
                 out.frame.vsDoubleDim.a > out.frame.vsDoubleDim.b * 1.6;
 
@@ -349,6 +409,8 @@ const out = {};
     const dusk = { kind: treeKind(), art: softTreeArt(SKY.dusk).width };
     return { day, dusk };
   });
+  out.dayIsItsOwnTree = out.themeCache.day.kind === 'day' &&
+                        out.themeCache.dusk.kind === 'night';
   out.cacheKeyedByTheme = out.themeCache.day.art === out.picks.day.w &&
                           out.themeCache.dusk.art === out.picks.dusk.w;
 
@@ -356,35 +418,43 @@ const out = {};
   await p.close();
 }
 
-/* ================= 3. and without js/foliage.js at all ================= */
-/* It is one generated file carrying one picture. If it 404s, is blocked, or is
+/* ================= 3. and without either atlas at all ================= */
+/* They are generated files carrying pictures. If one 404s, is blocked, or is
    simply not in a cache that has the rest of the build, the game has to start and
-   the trees have to be there — painted, as they were. It is deliberately not in
+   the trees have to be there — painted, as they were. They are deliberately not in
    index.html's integrity check for the same reason: that check blocks the DRIVE
    button, which is the right answer for a file whose absence is a crash and the
-   wrong one for a file whose absence is plainer foliage. */
+   wrong one for a file whose absence is plainer foliage. Both themes are asked,
+   because there is now an atlas behind each of them to be missing. */
 {
   const { p, errs } = await open({ noFoliage: true });
   out.without = await p.evaluate(() => {
     const on = window.__setMode3d(true);
+    const at = t => {
+      applyTheme(t);
+      const cv = treeCanvas();
+      return { kind: treeKind(), w: cv ? cv.width : null };
+    };
     applyTheme('dusk');
     const straight = window.__park();
-    const has = typeof TREE_NIGHT_PNG;
-    const cv = treeCanvas();
+    const has = [typeof TREE_NIGHT_PNG, typeof TREE_DAY_PNG];
+    const dusk = at('dusk'), day = at('day');
     state = 'play';
-    return { on, has, kind: treeKind(), w: cv ? cv.width : null, straight,
+    return { on, has, dusk, day, cols: treeCols(), straight,
              boot: window.__boot ? window.__boot.ok : null };
   });
-  out.paintedWithoutIt = out.without.has === 'undefined' && out.without.kind === 'painted' &&
-                         out.without.w === out.picks.day.w && out.without.boot === true;
+  out.paintedWithoutIt = out.without.has[0] === 'undefined' && out.without.has[1] === 'undefined' &&
+                         out.without.dusk.kind === 'painted' && out.without.day.kind === 'painted' &&
+                         out.without.dusk.w === out.without.cols * 128 &&
+                         out.without.boot === true;
   out.withoutErrs = errs.filter(e => !/foliage/.test(e)).slice(0, 3);
   await p.close();
 }
 
 out.errs = [].concat(out.glErrs, out.softErrs, out.withoutErrs).filter(Boolean);
 out.pass = out.photographAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
-           out.onScreen && out.litOnce && out.softDrawsIt && out.cacheKeyedByTheme &&
-           out.paintedWithoutIt && !out.errs.length;
+           out.onScreen && out.litOnce && out.dayLitOnce && out.softDrawsIt && out.cacheKeyedByTheme &&
+           out.dayIsItsOwnTree && out.paintedWithoutIt && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

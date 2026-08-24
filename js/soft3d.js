@@ -298,14 +298,16 @@ function softTree(g, th, t) {
   const art = softTreeArt(th);
   const cols = treeCols(), cw = art.width / cols;
   const col = Math.min(cols - 1, Math.floor(hash2(t.x, t.z + 7.77) * cols));
+  // half a pixel off each side, for the same reason the GL path insets its UVs
+  const sx = col * cw + 0.5, sw = cw - 1;
   if (hash2(t.x + 7.77, t.z) < 0.5) {
     g.save();
     g.translate(fp[0], 0);
     g.scale(-1, 1);
-    g.drawImage(art, col * cw, 0, cw, art.height, -w / 2, tp[1], w, h);
+    g.drawImage(art, sx, 0, sw, art.height, -w / 2, tp[1], w, h);
     g.restore();
   } else {
-    g.drawImage(art, col * cw, 0, cw, art.height, fp[0] - w / 2, tp[1], w, h);
+    g.drawImage(art, sx, 0, sw, art.height, fp[0] - w / 2, tp[1], w, h);
   }
 }
 

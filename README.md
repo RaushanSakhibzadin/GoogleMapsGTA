@@ -32,7 +32,8 @@ sitemap.xml     one URL, for Search Console
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
 tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
-tools/treeart.mjs   cuts trees out of photographs into js/foliage.js
+tools/treeart.mjs   cuts the night trees out of photographs into js/foliage.js
+tools/daytree.mjs   cuts the daylight ones into js/daytree.js
 tools/walltex.mjs   cuts a seamless wall out of a photograph into js/walltex.js
 tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
@@ -46,8 +47,9 @@ js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
 js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
-js/foliage.js   the night trees, cut out of photographs — one of two generated assets
-js/walltex.js   the render on the walls, cut out of a photograph — the other
+js/foliage.js   the night trees, cut out of photographs — one of three generated assets
+js/daytree.js   the daylight trees, cut the same way — the second
+js/walltex.js   the render on the walls, cut out of a photograph — the third
 js/render.js    the top-down view
 js/soft3d.js    the chase view again, on a canvas, for a browser with no WebGL
 js/render3d.js  the chase view, and the switch between the two
@@ -184,28 +186,38 @@ pulls in the rest.
   is still the right answer: four triangles, a shape the eye reads from any direction, and
   `discard` rather than blending, so it writes depth and needs no sorting.
 
-  The cutouts are the one asset in this repository not drawn in code. Two dozen shaded circles
+  The cutouts are the only assets in this repository not drawn in code. Two dozen shaded circles
   read as a green lollipop at any distance, because what makes a canopy look like a canopy is the
-  clumping — leaves at every scale, a few of them catching a street lamp and the rest not. So after
-  dark the trees are **photographs of real ones on real Belgrade streets**, taken by the person
-  this was built for. The photographs have no outline in them — they look up through the branches —
-  so the silhouettes are still painted and the photographs fill them, lifted onto a dark blue-green
-  floor rather than from black, because keying the shadow out of the dense one dissolved it into
-  lace.
+  clumping — leaves at every scale, a few of them catching the light and the rest not. So the trees
+  are **photographs of real ones on real Belgrade streets**, taken by the person this was built
+  for: two atlases of two trees each, one for after dark and one for daylight.
 
-  **Two trees, in one atlas.** One tree stamped down both verges of every boulevard reads as
-  wallpaper however good the tree is, and the giveaway is a row of identical crowns. The texture
-  holds a mature plane tree and a young thin-branched one; each tree picks a column from its own
-  hash and half of them are mirrored on top of that, which is free — a swap of two floats already
-  going into the buffer. One texture, one draw call, four apparent trees. The painted daylight
-  trees are laid out to match, because the column is baked into the cell's UVs and the theme can
-  change under a cell built an hour ago. Both trunks are **bark**, filled the same way the crowns
-  are: a painted taper, clipped, filled with a photograph of the real thing. The whole atlas is a
-  51 KB data: URI in `js/foliage.js`, so there is still nothing to fetch, it still opens off a
-  disk, and the existing `?v=` stamping covers it. **They are not lit twice**: the street lamps are
-  already in the pixels, and multiplying the dusk ambient in a second time leaves black smudges
-  where lamplit trees should be. Daylight keeps the painted trees until there are daylight
-  photographs to cut.
+  **They are cut two different ways, because they are two different kinds of photograph.** The
+  night ones were taken from underneath, looking up into a ceiling of leaves — there is no outline
+  anywhere in the frame, and keying the night sky out leaves a rectangle full of holes rather than
+  a tree. So those silhouettes are *painted* — a crown of overlapping blobs, bitten back at the rim
+  — and the photograph only fills them, lifted onto a dark blue-green floor rather than from black,
+  because keying the shadow out of the dense one dissolved it into lace. The daylight pair were
+  taken from across the road against the sky, so nothing is painted at all: **the sky is keyed out
+  and what is left is the tree**, with its own ragged leaf edge and its own gaps. Two skies have to
+  go — the blue one and the white haze near the sun, which is not blue at all and hangs a sheet
+  behind half the canopy if you miss it — and the tool finds the crown's own bounding box from the
+  key rather than trusting a hand-tuned crop, because four crop numbers per tree were four chances
+  to clip a crown or leave it floating and every attempt did one or the other.
+
+  **Two trees per atlas.** One tree stamped down both verges of every boulevard reads as wallpaper
+  however good the tree is, and the giveaway is a row of identical crowns. Each tree picks a column
+  from its own hash and half of them are mirrored on top of that, which is free — a swap of two
+  floats already going into the buffer. One texture, one draw call, four apparent trees. The two
+  atlases and the painted fallback all have the same column count, because the column is baked into
+  the cell's UVs and the theme can change under a cell built an hour ago; the UVs are also held half
+  a texel off the boundary, or linear sampling draws a faint line down the middle of every crown.
+  Every trunk is **bark**, filled the same way the night crowns are: a painted taper, clipped,
+  filled with a photograph of the real thing. 51 KB and 84 KB of data: URI, so there is still
+  nothing to fetch, it still opens off a disk, and the existing `?v=` stamping covers both. **And
+  neither is lit twice**: the light that lit them — a sodium lamp, or a September afternoon — is
+  already in the pixels, and running the theme over one again leaves a black smudge at night and a
+  tree in permanent shade by day.
 - **Render, not flat colour.** Between the windows a facade was one colour, which is what made a
   street of real footprints at real heights still read as a heap of boxes: real render is patched
   where it has been repaired, stained under every sill, cracked along the line of every floor slab.
@@ -411,8 +423,8 @@ metre coordinates to place tiles against.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
 Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
 
-The foliage and bark in `js/foliage.js`, and the wall render in `js/walltex.js`, are cut from
-photographs taken on Belgrade streets by Raushan Sakhibzadin and used here with permission.
-Everything else is drawn in code.
+The foliage and bark in `js/foliage.js` and `js/daytree.js`, and the wall render in
+`js/walltex.js`, are cut from photographs taken on Belgrade streets by Raushan Sakhibzadin and
+used here with permission. Everything else is drawn in code.
 
 A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.

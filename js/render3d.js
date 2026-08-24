@@ -1095,48 +1095,57 @@ function insideBuilding(x, y) {
    PREMULTIPLIED BY NOTHING AND FILTERED WITHOUT MIPMAPS. The alpha test wants a
    hard edge; a mipmapped cutout fades its own silhouette away at distance and
    the avenue thins out as you drive down it. */
-const TREE_TEX = { tex: {}, painted: null, night: null, asked: false };
+const TREE_TEX = { tex: {}, painted: null, night: null, day: null, asked: {} };
 
-/* THE NIGHT TREE IS A PHOTOGRAPH. js/foliage.js carries a cutout of a real
-   lamplit plane tree on a Belgrade street, and after dark it replaces the
-   painted one, because the thing a painted canopy cannot fake is the clumping —
-   leaves at every scale, a few of them catching a lamp and the rest not.
-   Daylight keeps the painted tree until there is a daylight photograph to cut.
+/* THE TREES ARE PHOTOGRAPHS. js/foliage.js carries a two-tree atlas cut from
+   photographs of lamplit Belgrade street trees at night; js/daytree.js carries a
+   daylight one, cut from a horse chestnut in full leaf. The painted trees below
+   are what is left if neither file arrived.
 
-   DECODED ONCE, ASYNCHRONOUSLY, AND NOT WAITED FOR. It is a data: URI so there
+   DECODED ONCE, ASYNCHRONOUSLY, AND NOT WAITED FOR. They are data: URIs so there
    is nothing to fetch and the decode is a few milliseconds, but an <img> is
-   asynchronous however local it is. Until it lands the painted tree stands in,
+   asynchronous however local it is. Until one lands the painted trees stand in,
    which is why nothing here can block: a frame is due every 16 ms whatever the
    trees look like. */
-function nightCanvas() {
-  if (TREE_TEX.night || TREE_TEX.asked) return TREE_TEX.night;
-  TREE_TEX.asked = true;
-  if (typeof TREE_NIGHT_PNG !== 'string') return null;   // foliage.js missing: paint them
+function photoTrees(kind) {
+  if (TREE_TEX[kind]) return TREE_TEX[kind];
+  if (TREE_TEX.asked[kind]) return null;
+  TREE_TEX.asked[kind] = true;
+  const src = kind === 'night' ? (typeof TREE_NIGHT_PNG === 'string' ? TREE_NIGHT_PNG : null)
+                               : (typeof TREE_DAY_PNG === 'string' ? TREE_DAY_PNG : null);
+  if (!src) return null;                       // the file is missing: paint them
   const im = new Image();
   im.onload = () => {
     const cv = document.createElement('canvas');
     cv.width = im.naturalWidth; cv.height = im.naturalHeight;
     cv.getContext('2d').drawImage(im, 0, 0);
-    TREE_TEX.night = cv;
-    /* Both renderers keep something derived from the old tree — an uploaded GL
+    TREE_TEX[kind] = cv;
+    /* Both renderers keep something derived from the old trees — an uploaded GL
        texture here, a tinted canvas in soft3d.js — and both are now of the wrong
-       one. Dropped rather than rebuilt: whichever is in use will ask again. */
+       ones. Dropped rather than rebuilt: whichever is in use will ask again. */
     TREE_TEX.tex = {};
     if (typeof TREE_ART === 'object') for (const k in TREE_ART) delete TREE_ART[k];
   };
-  im.src = TREE_NIGHT_PNG;
+  im.src = src;
   return null;
 }
-/* Which of the two the theme wants, resolved every time rather than cached: the
-   answer changes when the sun goes down and again when the photograph decodes. */
-function treeKind() { return (themeName === 'dusk' && nightCanvas()) ? 'night' : 'painted'; }
 
-/* The lighting to apply on top. The painted tree carries none of its own and
-   takes the theme's; the photograph was taken under a street lamp that is
-   already in its pixels, and multiplying a night ambient into a night
-   photograph a second time leaves a black smudge on the pavement. */
+/* Which set the theme wants, resolved every time rather than cached: the answer
+   changes when the sun goes down and again when each atlas decodes. */
+function treeKind() {
+  const want = themeName === 'day' ? 'day' : 'night';
+  return photoTrees(want) ? want : 'painted';
+}
+
+/* The lighting to apply on top. The painted trees carry none of their own and
+   take the theme's. The photographs were taken under the light they belong to —
+   a sodium street lamp, or a September afternoon — and that light is already in
+   their pixels: running the theme over one a second time leaves a black smudge on
+   the pavement at night and a tree in permanent shade by day. */
 function treeLit(th) {
-  if (treeKind() === 'night') return [.70, .70, .70];
+  const k = treeKind();
+  if (k === 'night') return [.70, .70, .70];
+  if (k === 'day') return [1, 1, 1];
   return [th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55, th.amb[2] + th.lc[2] * .55];
 }
 
@@ -1144,7 +1153,8 @@ function treeLit(th) {
    is the one with no GL to upload it to: soft3d.js draws the same canvas with
    drawImage. */
 function treeCanvas() {
-  return treeKind() === 'night' ? TREE_TEX.night : paintedTree();
+  const k = treeKind();
+  return k === 'painted' ? paintedTree() : TREE_TEX[k];
 }
 /* THE WALL RENDER, uploaded once. js/walltex.js carries a seamless grey tile cut
    from a photograph of a Belgrade block; the wall shader multiplies it over
@@ -1287,7 +1297,14 @@ function pushTree(o, x, z, note) {
   const cols = treeCols();
   const col = Math.min(cols - 1, Math.floor(hash2(x, z + 7.77) * cols));
   const mir = hash2(x + 7.77, z) < 0.5;
-  const uL = (col + (mir ? 1 : 0)) / cols, uR = (col + (mir ? 0 : 1)) / cols;
+  /* HELD OFF THE COLUMN BOUNDARY BY HALF A TEXEL. Sampling is linear, so a u of
+     exactly 0.5 on a two-column atlas blends the last texel of one tree with the
+     first texel of the next — which draws a faint vertical line down the middle
+     of every crown. The atlases are 160 and 192 pixels a column, so two
+     thousandths clears both, and it costs a third of a pixel off each edge. */
+  const e = 0.002;
+  const lo = col / cols + e, hi = (col + 1) / cols - e;
+  const uL = mir ? hi : lo, uR = mir ? lo : hi;
   const quad = (dx, dz) => {
     o.push(x - dx, y, z - dz, uL, 0,
            x + dx, y, z + dz, uR, 0,
