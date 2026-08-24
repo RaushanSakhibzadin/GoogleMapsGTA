@@ -59,6 +59,10 @@ const SEG_MAX = 24;                  // road segments longer than this split to 
    and is three times the code for scenery you can barely see. */
 const WHEEL_R2 = 90 * 90;            // past this a wheel is not worth the triangles
 const WIN_MIN_H = 5.5;               // shorter than this is a shed, and gets no windows
+/* And taller than THIS is a block rather than a shop. Eleven metres is three
+   storeys: an old-town corner with a bakery under it is two and a bit, and a
+   socialist-era slab starts at four. */
+const LOW_H = 11.0;
 const SHADOW_R = 170;
 const SHADOW_SIZE = 2048;
 
@@ -259,6 +263,10 @@ uniform vec3 uGlass, uWinCol;
    it has decoded, and 0 for cars, which have paint rather than render. */
 uniform sampler2D uGrime;
 uniform float uGrimeK;
+/* How short a building has to be to be a shop rather than a block. Zero turns
+   the shopfronts off, which is how a test renders the identical frame without
+   them. */
+uniform float uLowH;
 /* How tall a wall has to be before it gets windows. Sheds and lock-ups do not,
    and a test sets it out of reach to render the identical frame with the facades
    plain — which costs nothing, because the comparison is on the fast path
@@ -334,11 +342,48 @@ void main() {
      each window edge to exactly one pixel, and when it grows past about half a
      cell the pattern dissolves back into plain wall — which is what a distant
      facade looks like anyway. */
+  /* SHOPFRONTS, because most of an old Belgrade street is two storeys and a
+     shop, and the rule below draws that as a blank box with one row of windows
+     floating on it. A low building is not a tall one scaled down: it has an
+     opening at pavement level nearly as wide as its bay, a painted fascia board
+     over the top of it, and then ONE storey of taller windows.
+
+     Half the shops are shuttered, off the same hash the lit windows use, so a
+     parade is not one unit repeated — which is what the photographs of this
+     corner show: a roller shutter, then glass, then a shutter under an awning.
+
+     THE RIBS ON A SHUTTER ARE THE ALIASING TRAP. They are 60 mm apart, which is
+     well under a pixel from across the road, so their amplitude is faded out by
+     fwidth exactly like the window grid — otherwise every shuttered shop in the
+     city crawls as the camera moves. */
+  float shopGlass = 0.0, shopShut = 0.0, fascia = 0.0, rib = 1.0;
+  bool low = uLowH > 0.0 && vW.z > 0.001 && vW.z < uLowH;
+  if (uPaint < 0.5 && abs(nn.y) < 0.5 && low) {
+    float up = vW.y;
+    float bay = vW.x / 3.6;
+    float fb = fract(bay);
+    float wbx = max(fwidth(bay), 1e-4), wby = max(fwidth(up), 1e-4);
+    float aa = clamp(1.0 - wbx * 2.2, 0.0, 1.0);
+    float bx = smoothstep(0.13 - wbx, 0.13 + wbx, fb)
+             * (1.0 - smoothstep(0.87 - wbx, 0.87 + wbx, fb));
+    float by = smoothstep(0.30 - wby, 0.30 + wby, up)
+             * (1.0 - smoothstep(2.85 - wby, 2.85 + wby, up));
+    float open = bx * by * aa;
+    float shut = step(0.5, h21(vec2(floor(bay), vW.z)));
+    shopGlass = open * (1.0 - shut);
+    shopShut = open * shut;
+    rib = 1.0 + 0.16 * sin(up * 104.0) * clamp(1.0 - wby * 30.0, 0.0, 1.0);
+    fascia = (smoothstep(2.95 - wby, 2.95 + wby, up)
+            - smoothstep(3.45 - wby, 3.45 + wby, up)) * aa;
+  }
+
   float win = 0.0, onLit = 0.0;
   if (uPaint < 0.5 && vW.z > uWinMin && abs(nn.y) < 0.5) {
+    /* Above the fascia on a shop, above the pavement on a block. */
+    float sill = low ? 3.7 : 2.6;
     float up = vW.y, top = vW.z - 1.2;
-    if (up > 2.6 && up < top) {
-      vec2 cell = vec2(vW.x / 2.85, (up - 2.6) / 3.15);
+    if (up > sill && up < top) {
+      vec2 cell = vec2(vW.x / 2.85, (up - sill) / 3.15);
       vec2 f = fract(cell);
       vec2 w = max(fwidth(cell), vec2(1e-4));
       float mx = smoothstep(0.25 - w.x, 0.25 + w.x, f.x)
@@ -360,6 +405,33 @@ void main() {
   vec3 lit = base * (uAmb * (1.0 + s) + uLcol * d * sh);
   vec3 paint = base * (0.55 + 0.45 * d * sh);
   vec3 c = mix(lit, paint, uPaint);
+
+  if (fascia > 0.004) {
+    /* FIVE COLOURS A SHOP MIGHT ACTUALLY HAVE PAINTED, not a hash spread over
+       the whole hue circle. The first version built the colour from three
+       fractions of one random number, which is a uniform sample of RGB — and a
+       uniform sample of RGB is mostly colours nobody paints anything: it drew a
+       parade of magenta and acid yellow. Seeded off the bay and the wall height,
+       so the same shop is the same colour every time you drive past it. */
+    float k = h21(vec2(floor(vW.x / 3.6) + 31.0, vW.z));
+    vec3 board = vec3(0.42, 0.11, 0.11);           // oxblood
+    if (k > 0.2) board = vec3(0.13, 0.21, 0.36);   // navy
+    if (k > 0.4) board = vec3(0.17, 0.28, 0.21);   // dark green
+    if (k > 0.6) board = vec3(0.60, 0.56, 0.46);   // cream
+    if (k > 0.8) board = vec3(0.50, 0.39, 0.17);   // ochre
+    c = mix(c, board * (uAmb * 1.25 + uLcol * d * sh * 0.9), fascia);
+  }
+  /* A roller shutter is painted metal: it takes the light the wall takes and
+     gives nothing back, which is what separates it from the glass beside it. */
+  if (shopShut > 0.004)
+    c = mix(c, vec3(0.52, 0.51, 0.48) * rib * (uAmb * 1.15 + uLcol * d * sh * 0.6), shopShut);
+  /* And a shop window is glass with a room behind it, so more of them are lit
+     after dark than the flats above: a closed shop still leaves one on. */
+  if (shopGlass > 0.004) {
+    vec3 gg = uGlass * (uAmb * 1.15 + uLcol * d * sh * 0.5 + uGlassE);
+    float on = step(0.55, h21(vec2(floor(vW.x / 3.6) + 97.0, vW.z)));
+    c = mix(c, mix(gg, uWinCol, on * clamp(uWinK * 2.6, 0.0, 1.0)), shopGlass);
+  }
 
   if (win > 0.004) {
     /* Glass takes very little diffuse light and a lot of whatever is opposite
@@ -2164,6 +2236,7 @@ function render3D() {
   gl.uniform1f(G3.lit.u.uWinK, th.winK);
   gl.uniform1f(G3.lit.u.uGlassE, th.glassE);
   gl.uniform1f(G3.lit.u.uWinMin, G3.noWin ? 1e9 : WIN_MIN_H);
+  gl.uniform1f(G3.lit.u.uLowH, G3.noShop ? 0 : LOW_H);
   gl.uniform1f(G3.lit.u.uPaint, 0);            // masonry: the theme's light makes it
   {
     const gt = grimeTexture();
