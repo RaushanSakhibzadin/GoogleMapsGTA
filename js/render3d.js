@@ -204,8 +204,8 @@ vec4 fogged(vec3 c) {
 `;
 
 const SH_LIT_V = VS_COMMON + `in vec3 aCol;
-in vec2 aWall;
-out vec3 vC; out highp vec3 vW;
+in vec4 aWall;
+out vec3 vC; out highp vec3 vW; out vec2 vGate;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
   gl_Position = p; vN = aNrm; vC = aCol; vD = p.w; vL = uLVP * vec4(aPos, 1.0);
@@ -227,7 +227,12 @@ void main() {
      roof, a car, a pedestrian — passes zeroes and takes the plain path. */
   vec2 t = vec2(-aNrm.z, aNrm.x);
   float tl = length(t);
-  vW = vec3(tl > 0.001 ? dot(aPos.xz, t / tl) : 0.0, aWall);
+  vW = vec3(tl > 0.001 ? dot(aPos.xz, t / tl) : 0.0, aWall.xy);
+  /* AND WHERE THE ARCHWAY IS THROUGH THIS WALL, in the same coordinate — the
+     centre of the opening and its half width, worked out on the CPU where the
+     wall's own line and the road's crossing point are both to hand, and zero on
+     every wall that has no road through it. */
+  vGate = aWall.zw;
 }`;
 /* vW IS DECLARED highp AND HAS TO BE. It carries a world coordinate, and this
    world is thirty-six kilometres across — so that number reaches ±18000, and the
@@ -255,7 +260,7 @@ void main() {
    another, and enough of the shadow term to sit in one rather than glow in it.
    Same program, same buffer, one uniform flipped between two draw calls that
    were already separate. */
-const SH_LIT_F = FS_HEAD + `in vec3 vC; in highp vec3 vW;
+const SH_LIT_F = FS_HEAD + `in vec3 vC; in highp vec3 vW; in vec2 vGate;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
 /* The render: a grey tile cut from a photograph of a Belgrade wall, tiled off the
@@ -289,6 +294,25 @@ float h21(vec2 p) {
 }
 
 void main() {
+  /* THE ARCHWAY, cut out of the wall rather than modelled.
+
+     A drivable centreline through a footprint is a tunnel, a gateway or a block
+     built over the street, and the game has always known about them: those
+     buildings stop colliding, and the top-down view draws them at 45% alpha. The
+     chase view drew a solid box, so you drove through what looked like a wall.
+
+     DISCARD, NOT GEOMETRY. Splitting a wall into two panels and a header at
+     build time is the textbook answer and it is a great deal of code for a hole:
+     the wall already carries a world-anchored coordinate along its own length
+     and a height above the pavement, which is exactly what a rectangle wants.
+     The far wall is cut by the same road, so you see through both — which is
+     what a passage looks like — and the roof is a top face, back-facing from
+     underneath, so it does not hang in the opening.
+
+     Before anything else in this shader, because a discarded fragment should not
+     pay for a shadow lookup or a window grid. */
+  if (vGate.y > 0.0 && vW.y < 4.2 && abs(vW.x - vGate.x) < vGate.y) discard;
+
   vec3 nn = normalize(vN);
   float sh = sunlit();
   float d = max(dot(nn, uLdir), 0.0);
@@ -1545,12 +1569,30 @@ function buildCell(kx, kz) {
          corner — otherwise a block on a slope would start its ground floor
          underground at one end and a metre up in the air at the other. */
       const foot = base + 1, H = top - foot;
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H,
-               bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H,
-               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H);
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H,
-               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H,
-               ax, top, az, nx, 0, nz, wr, wg, wb, H, H);
+      /* IS THE ARCHWAY IN THIS WALL? Two questions, and both are needed. The
+         gate has to project onto this wall's own length — the same dot product
+         the vertex shader uses, so the two agree to the millimetre — and the
+         wall has to run CLOSE TO IT. Without the second test a road crossing a
+         rectangular building would cut all four walls: the two it goes through,
+         and the two running alongside it, whose length the crossing point
+         projects onto perfectly happily from three metres away.
+
+         And nothing under five metres gets one, because a gateway 4.2 m high
+         through a four-metre shed is not an archway, it is a demolished shed. */
+      let gc = 0, gw = 0;
+      if (b.passable && b.gate && b.gate.n && b.h > 5) {
+        const perp = (b.gate.x - ax) * nx + (b.gate.y - az) * nz;
+        if (Math.abs(perp) < 2.5) {
+          gc = b.gate.x * -nz + b.gate.y * nx;
+          gw = b.gate.w;
+        }
+      }
+      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+               bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
+      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw,
+               ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
     }
     // the roof, which is the one part that genuinely needs a triangulator
     const tri = earClip(fp);
@@ -1559,7 +1601,7 @@ function buildCell(kx, kz) {
       const p0 = fp[tri[i]], p1 = fp[tri[i + 1]], p2 = fp[tri[i + 2]];
       const cr = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
       for (const p of cr > 0 ? [p0, p2, p1] : [p0, p1, p2])
-        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0);   // a roof has no facade
+        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0, 0, 0);   // a roof has no facade
     }
     // and its name across the widest wall, if OSM gave it one
     if (b.sign) pushSign(sgn, b, fp, wind, top, base + 1);
@@ -1572,7 +1614,7 @@ function buildCell(kx, kz) {
   return {
     kx, kz, x0, z0, x1, z1, y0: ymin - 2, y1: ymax + 2,
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
-    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]]),
+    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]]),
     sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null,
     tre: tre.length ? GL.mesh(new Float32Array(tre), [[G3.tree.a.aPos, 3], [G3.tree.a.aUV, 2]]) : null
   };
@@ -1650,9 +1692,10 @@ function pushBox(o, p, r, g, b) {
     let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     const l = Math.hypot(nx, ny, nz) || 1;
     nx /= l; ny /= l; nz /= l;
-    // the trailing zeroes are aWall: nothing in this stream is a facade
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, bx, by, bz, nx, ny, nz, r, g, b, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0);
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, dx, dy, dz, nx, ny, nz, r, g, b, 0, 0);
+    // the trailing zeroes are aWall: nothing in this stream is a facade, and
+    // nothing in it has an archway through it either
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, bx, by, bz, nx, ny, nz, r, g, b, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0);
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0, dx, dy, dz, nx, ny, nz, r, g, b, 0, 0, 0, 0);
   }
 }
 
@@ -2074,7 +2117,7 @@ function render3D() {
       b.push(p.x + a * r, y + uy * h, p.y + o2 * r);
     pushBox(dyn, b, q[0] / 255, q[1] / 255, q[2] / 255);
   }
-  const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 2]];
+  const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
   if (dyn.length) G3.cars = GL.stream(G3.cars, new Float32Array(dyn), LITATTR);
 
   /* ---- pass one: the world as the sun sees it ----

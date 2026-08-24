@@ -677,6 +677,7 @@ function addLights(roads) {
    Sampling the centreline against the building hash is precise and only costs
    anything at load time. */
 function markPassable(roads) {
+  const touched = new Set();
   for (const r of roads) {
     if (!r.drive) continue;
     for (let i = 0; i < r.pts.length - 1; i++) {
@@ -690,12 +691,29 @@ function markPassable(roads) {
         if (!arr) continue;
         for (const bi of arr) {
           const bl = W.buildings[bi];
-          if (bl.passable) continue;
           if (x < bl.bb.x0 || x > bl.bb.x1 || y < bl.bb.y0 || y > bl.bb.y1) continue;
-          if (pointInPoly(bl.pts, x, y)) bl.passable = true;
+          if (!pointInPoly(bl.pts, x, y)) continue;
+          bl.passable = true;
+          /* AND WHERE THE ARCHWAY IS, which the chase view needs and the
+             top-down one never did. Knowing a building is passable is enough to
+             turn its collision off; to cut a hole in the right wall you have to
+             know which wall and how wide. Every centreline sample inside the
+             footprint is averaged, so the gate lands in the middle of the span
+             the road actually occupies rather than on whichever edge was
+             sampled first, and the width comes from the road's own. */
+          const g = bl.gate || (bl.gate = { sx: 0, sy: 0, n: 0, w: 0 });
+          g.sx += x; g.sy += y; g.n++;
+          g.w = Math.max(g.w, r.w / 2 + 1.0);
+          touched.add(bl);
         }
       }
     }
+  }
+  /* Averaged at the end rather than on the way, because a road is sampled every
+     six metres and this runs again every time a tile lands. */
+  for (const bl of touched) {
+    bl.gate.x = bl.gate.sx / bl.gate.n;
+    bl.gate.y = bl.gate.sy / bl.gate.n;
   }
 }
 
