@@ -19,7 +19,7 @@ function loop(t) {
   let guard = 0;
   const tU = performance.now();
   let steps = 0;
-  while (acc >= step && guard++ < 5) { update(step); acc -= step; steps++; }
+  while (acc >= step && guard++ < 5) { update(step); acc -= step; steps++; SIMT += step; }
   const tR = performance.now();
   render();
   // rolling averages, so a slow frame can be attributed rather than guessed at
@@ -28,6 +28,15 @@ function loop(t) {
   PERF.steps += (steps - PERF.steps) * .1;
 }
 const PERF = { upd: 0, ren: 0, steps: 0 };
+/* HOW MUCH TIME THE PHYSICS HAS ACTUALLY BEEN GIVEN, which is not how much has
+   passed. The guard above caps the catch-up at five steps a frame — right, and
+   the reason a slow frame cannot spiral — but it means that below 12 fps the
+   world runs slower than the clock on the wall. The chase view in headless
+   Chromium is rasterised by SwiftShader at about 8 fps, so a test that measures
+   "one second" of coasting there gets about two thirds of one, and every figure
+   derived from it comes out short by the same third. Exposed so a test can ask
+   for a simulated second and get one. */
+let SIMT = 0;
 
 /* ------------------------------ 15. menus ------------------------------ */
 function togglePause() {
@@ -414,6 +423,7 @@ window.__nearestPOI = kind => {
                 d: +dist(p.x, p.y, P.car.x, P.car.y).toFixed(1) };
 };
 window.__mini = () => ({ w: mini.width, h: mini.height, dpr: DPR });
+window.__simT = () => SIMT;                 // simulated seconds, monotonic
 window.__openMap = () => { openMap(); return state; };
 window.__closeMap = () => { closeMap(); return state; };
 window.__edge = () => ({ cd: +(P.edgeCd || 0).toFixed(2), hits: P.edgeHits || 0 });

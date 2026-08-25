@@ -105,6 +105,33 @@ out.slope = await p.evaluate(() => {
            grade: +Math.abs(best.grade).toFixed(3), len: +best.L.toFixed(0), name: best.name };
 });
 
+/* ---------- how long a second is ----------
+
+   EVERY MEASUREMENT BELOW USED TO BE TIMED WITH setTimeout, and that is the
+   wrong clock. The loop catches up at most five physics steps per frame, which
+   is right — it is what stops a slow frame spiralling — but it means that below
+   twelve frames a second the world runs slower than the wall. The chase view in
+   headless Chromium is rasterised by SwiftShader at about eight, so a
+   wall-clock second of coasting is about two thirds of a simulated one, and
+   every figure derived from it came out short by that same third.
+
+   It made this test fail on the machine it was written on, at thresholds it
+   passed on the machine it was tuned on, and the numbers all sagged TOGETHER —
+   0.20 against 0.25, 0.18 against 0.228, 0.14 against 0.176, three independent
+   quantities all at four fifths of their bar. That pattern is what gave it
+   away; a flaky test wanders, a slow clock scales.
+
+   So the game exposes the physics clock and this asks for simulated seconds. */
+await p.evaluate(() => {
+  window.__waitSim = async secs => {
+    const t0 = window.__simT(), wall = performance.now();
+    // a wall-clock backstop, so a wedged sim fails the test rather than hanging it
+    while (window.__simT() - t0 < secs && performance.now() - wall < secs * 12000 + 5000)
+      await new Promise(r => setTimeout(r, 8));
+    return +(window.__simT() - t0).toFixed(3);
+  };
+});
+
 /* ---------- 3. a car left on a hill rolls down it ---------- */
 /* The crispest statement of the whole feature: no engine, no input, and the car
    still ends up further down the slope than it started. It cannot pass without
@@ -114,10 +141,10 @@ out.rolls = await p.evaluate(async s => {
   window.__setInput({ steer: 0, gas: 0, brake: 0, hand: 0 });
   const h0 = window.__terrain(P.car.x, P.car.y).h;
   const x0 = P.car.x, y0 = P.car.y;
-  await new Promise(r => setTimeout(r, 3500));
+  const sim = await window.__waitSim(3.5);
   const h1 = window.__terrain(P.car.x, P.car.y).h;
   return { moved: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
-           dropped: +(h0 - h1).toFixed(2) };
+           dropped: +(h0 - h1).toFixed(2), sim };
 }, out.slope);
 /* Metres, not tens of them: a car with no throttle is still IN GEAR, and engine
    braking (0.9/s) is three times the rolling drag, so the terminal creep down a
@@ -174,9 +201,9 @@ const coast = (dir, terrain) => p.evaluate(async a => {
   const x0 = P.car.x, y0 = P.car.y;
   let launched = false;
   const watch = setInterval(() => { if (P.car.air) launched = true; }, 16);
-  await new Promise(r => setTimeout(r, 1000));
+  const sim = await window.__waitSim(1.0);
   clearInterval(watch);
-  return { m: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
+  return { sim, m: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
            ms: +Math.hypot(P.car.vx, P.car.vy).toFixed(2),
            // the height it actually gained or lost over the stretch it covered
            rise: +(window.__terrain(P.car.x, P.car.y).h - window.__terrain(x0, y0).h).toFixed(2),
