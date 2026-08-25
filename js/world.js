@@ -45,6 +45,26 @@ function centroid(pts) {
   return { x: x / pts.length, y: y / pts.length };
 }
 
+/* OPENSTREETMAP MAPS THE FUTURE AND THE PAST AS WELL AS THE PRESENT, and the
+   parser used to accept `building` with any value at all. So a tower that has
+   not been built yet — `building=construction` — came out as a solid slab you
+   could crash into, and `building=no`, which is a real tag whose entire meaning
+   is "this is not a building", came out as one too.
+
+   Reported from Savamala with a photograph of an empty plot and a screenshot of
+   a lit block standing across the road in it. That district is Beograd na vodi,
+   which is where a city's under-construction towers cluster; the captured
+   Belgrade data checked in under tests/fixtures carries 67 of them.
+
+   The lifecycle PREFIX forms — `demolished:building=*`, `was:building=*`,
+   `razed:building=*` — need nothing, because they are a different key and never
+   matched in the first place. It is the value forms that get through. */
+const GONE_OR_UNBUILT = /^(no|none|construction|proposed|planned|demolished|razed|destroyed|abandoned|disused)$/i;
+function standingBuilding(t) {
+  const v = t.building || t['building:part'];
+  return !!v && !GONE_OR_UNBUILT.test(v);
+}
+
 /* Pick a facade + roof colour for one building, preferring what mappers actually
    recorded and falling back through material, then use, then size. */
 function buildingColours(t, area, h, seed) {
@@ -210,7 +230,7 @@ function parseOSM(els) {
       if (pts.length < 3) continue;
       const c = centroid(pts);
       buildings.push(makeMonument(c.x, c.y, pts, MONU_KIND(t), t, el.id));
-    } else if (t.building || t['building:part']) {
+    } else if (standingBuilding(t)) {
       if (pts.length < 4) continue;
       const a = polyArea(pts);
       if (a < 22) continue;                        // skip sheds / noise
