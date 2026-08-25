@@ -3,17 +3,18 @@
  * Between the windows, a facade in this game was flat colour: real footprints at
  * real heights that still read as a heap of boxes, because real render is never
  * flat — it is patched where it has been repaired, stained under every sill and
- * cracked along the line of every floor slab. js/walltex.js now carries a seamless
- * grey tile cut from a photograph of a Belgrade block, and the wall shader
- * multiplies it over whatever colour the theme gave the masonry.
+ * cracked along the line of every floor slab. js/proctex.js grows a seamless grey
+ * tile out of three scales of fractal noise at load, and the wall shader multiplies
+ * it over whatever colour the theme gave the masonry.
  *
  * FOUR WAYS FOR THAT TO BE WRONG WHILE LOOKING PLAUSIBLE:
  *
  *   The tile does not wrap. It repeats every four metres across a fifty-metre
  *   block, so a seam is a hard line drawn twelve times down one wall — and it is
- *   invisible in the source PNG, which is where you would look. So the pixels that
- *   end up adjacent when it tiles are compared against what a step costs anywhere
- *   else in the tile.
+ *   invisible in the tile itself, which is where you would look. The noise lattice
+ *   wraps at the tile period so this should hold by construction, which is a claim
+ *   about the code rather than a measurement of it: the pixels that end up adjacent
+ *   when it tiles are compared against what a step costs anywhere else in the tile.
  *
  *   It is not grey. It is a multiplier, not a picture of a wall: if it carries
  *   Belgrade's ochre then every building in Tokyo gets Belgrade's ochre.
@@ -28,8 +29,7 @@
  *   unit 0 holds the shadow map, and a sampler2D and a sampler2DShadow on one unit
  *   is a draw-time error in WebGL2 whether or not the shader reaches the sample.
  *   That one never shows up as a wrong pixel — it shows up as no pixels — so
- *   glGetError is asked directly, including in the state before the texture has
- *   decoded, which is the state every session starts in.
+ *   glGetError is asked directly, including with nothing bound at all.
  */
 import { chromium } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
@@ -55,73 +55,102 @@ if (!out.switched) {
   process.exit(0);
 }
 
-/* ---- 0. no GL error in the state the session STARTS in ----
+/* ---- 0. no GL error with NOTHING BOUND to uGrime ----
 
-   Before anything has decoded, uGrime still has to name a unit of its own. Asked
-   first, on the frames the game draws while the image is still coming back. */
-out.beforeDecode = await p.evaluate(() => {
+   uGrime has to name a texture unit of its own whether or not anything is in it:
+   a sampler uniform left at its default names unit 0, unit 0 holds the shadow map,
+   and a sampler2D and a sampler2DShadow on one unit is a draw-time error in WebGL2
+   however unreachable the sample is.
+
+   The tile is generated synchronously now, so the game never actually runs a frame
+   without it — which is why this is STAGED rather than waited for. grimeTexture()
+   is made to answer null, which is the same branch a context with no GL takes, and
+   five frames are drawn through it. Without the fix that is INVALID_OPERATION and
+   the whole draw is dropped: no wrong pixel, no pixels. */
+out.withoutTheTexture = await p.evaluate(() => {
   const gl = GL.gl;
   while (gl.getError() !== gl.NO_ERROR) {}
-  const wasReady = GRIME.ready, wasTex = GRIME.tex;
-  GRIME.ready = false; GRIME.tex = null; GRIME.asked = true;   // as if it had not landed
+  const real = window.grimeTexture;
+  window.grimeTexture = () => null;
   for (let i = 0; i < 5; i++) window.__renderOnce();
   const err = gl.getError();
-  GRIME.ready = wasReady; GRIME.tex = wasTex;
+  window.grimeTexture = real;
   return { err, glNoError: gl.NO_ERROR };
 });
-out.cleanWithoutTheTexture = out.beforeDecode.err === out.beforeDecode.glNoError;
+out.cleanWithoutTheTexture = out.withoutTheTexture.err === out.withoutTheTexture.glNoError;
 
 await p.evaluate(() => applyTheme('day'));
-await p.waitForFunction(() => typeof GRIME === 'object' && GRIME.ready, null, { timeout: 15000 })
-       .catch(() => {});
 await p.waitForTimeout(2500);
 
-/* ---- 1. the tile wraps, and it is grey ---- */
-out.tile = await p.evaluate(() => new Promise(res => {
-  const im = new Image();
-  im.onload = () => {
-    const S = im.naturalWidth;
-    const c = document.createElement('canvas');
-    c.width = S; c.height = im.naturalHeight;
-    const g = c.getContext('2d');
-    g.drawImage(im, 0, 0);
-    const d = g.getImageData(0, 0, S, S).data;
-    /* Grey: how far apart the three channels are, at the worst pixel and on
-       average. A colour tile would carry the wall's own ochre. */
-    let spread = 0, worst = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const s = Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
-      spread += s; worst = Math.max(worst, s);
-    }
-    spread /= (d.length / 4);
-    /* Wrap: the pixels that end up next to each other when it tiles, against what
-       a step between neighbours costs anywhere else. */
-    let seam = 0;
-    for (let i = 0; i < S; i++) {
-      seam += Math.abs(d[(i * S) * 4] - d[(i * S + S - 1) * 4]);
-      seam += Math.abs(d[i * 4] - d[((S - 1) * S + i) * 4]);
-    }
-    seam /= 2 * S;
-    let inner = 0, n = 0;
-    for (let y = 0; y < S; y++) for (let x = 0; x < S - 1; x++) {
-      inner += Math.abs(d[(y * S + x) * 4] - d[(y * S + x + 1) * 4]); n++;
-    }
-    inner /= n;
-    let mn = 255, mx = 0, sum = 0;
-    for (let i = 0; i < d.length; i += 4) { mn = Math.min(mn, d[i]); mx = Math.max(mx, d[i]); sum += d[i]; }
-    res({ size: S, spread: +spread.toFixed(2), worst,
-          seam: +seam.toFixed(2), inner: +inner.toFixed(2),
-          min: mn, max: mx, mean: +(sum / (d.length / 4)).toFixed(1) });
-  };
-  im.src = WALL_GRIME_PNG;
-}));
-/* Measured: 128 px, channel spread 0 everywhere because it is written out grey,
-   seam 5.29 against 3.17 for a step anywhere else, luma 87..182 about a mean of
-   127.3 — a multiplier from 0.68 to 1.42 around 1.0. */
+/* ---- 1. the tile wraps, and it is grey ----
+
+   Read straight off the generated canvas. There is no PNG to decode any more, and
+   nothing asynchronous left in the path: procWallTile() either returns the tile or
+   it does not exist. */
+out.tile = await p.evaluate(() => {
+  const c = procWallTile();
+  const S = c.width;
+  const d = c.getContext('2d').getImageData(0, 0, S, S).data;
+  /* Grey: how far apart the three channels are, at the worst pixel and on
+     average. A colour tile would put one city's ochre on every other city. */
+  let spread = 0, worst = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const s = Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
+    spread += s; worst = Math.max(worst, s);
+  }
+  spread /= (d.length / 4);
+  /* Wrap: the pixels that end up next to each other when it tiles, against what
+     a step between neighbours costs anywhere else. */
+  let seam = 0;
+  for (let i = 0; i < S; i++) {
+    seam += Math.abs(d[(i * S) * 4] - d[(i * S + S - 1) * 4]);
+    seam += Math.abs(d[i * 4] - d[((S - 1) * S + i) * 4]);
+  }
+  seam /= 2 * S;
+  let inner = 0, n = 0;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S - 1; x++) {
+    inner += Math.abs(d[(y * S + x) * 4] - d[(y * S + x + 1) * 4]); n++;
+  }
+  inner /= n;
+  let mn = 255, mx = 0, sum = 0;
+  for (let i = 0; i < d.length; i += 4) { mn = Math.min(mn, d[i]); mx = Math.max(mx, d[i]); sum += d[i]; }
+  return { size: S, spread: +spread.toFixed(2), worst,
+           seam: +seam.toFixed(2), inner: +inner.toFixed(2),
+           min: mn, max: mx, mean: +(sum / (d.length / 4)).toFixed(1) };
+});
 out.isGrey = out.tile.worst === 0;
-out.wraps = out.tile.seam < out.tile.inner * 2.5;
-out.isAMultiplier = out.tile.mean > 115 && out.tile.mean < 140 &&
+/* A step ACROSS the seam has to cost no more than a step anywhere else — not
+   merely less than a few times more. The tile wraps by construction, so the two
+   readings are two samples of the same statistic and they come out 5.33 against
+   6.38. The bar was 2.5x, and 2.5x is what a tile that does not wrap at all looks
+   like: with the vertical period wrong the same two numbers were 16.0 and 6.9,
+   and that passed. */
+out.wraps = out.tile.seam < out.tile.inner * 1.35;
+out.isAMultiplier = out.tile.mean > 105 && out.tile.mean < 150 &&
                     out.tile.max - out.tile.min > 40;
+
+/* ---- 1b. and it is FRACTAL, not one smooth blur ----
+
+   A tile that looks right in a thumbnail and carries only its broadest octave is
+   the failure this catches: on a wall it reads as a soft cloud rather than as
+   render. So the mean step between neighbours is compared with the mean step
+   between pixels eight apart. One octave of smooth noise barely differs over one
+   pixel, so the ratio collapses; a sum of octaves keeps detail at every scale and
+   the near step stays a real fraction of the far one. */
+out.scales = await p.evaluate(() => {
+  const c = procWallTile();
+  const S = c.width;
+  const d = c.getContext('2d').getImageData(0, 0, S, S).data;
+  const step = k => {
+    let s = 0, n = 0;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      s += Math.abs(d[(y * S + x) * 4] - d[(y * S + ((x + k) % S)) * 4]); n++;
+    }
+    return +(s / n).toFixed(2);
+  };
+  return { near: step(1), far: step(8) };
+});
+out.hasEveryScale = out.scales.near > out.scales.far * 0.25 && out.scales.near > 2;
 
 /* ---- 2. it reaches the walls, and as render rather than as a tint ----
 
@@ -201,9 +230,9 @@ out.glErr = await p.evaluate(() => {
 out.cleanWithTheTexture = out.glErr === 0;
 
 out.errs = errs.slice(0, 3);
-out.pass = out.isGrey && out.wraps && out.isAMultiplier && out.reachesTheWalls &&
-           out.isRenderNotATint && out.cleanWithoutTheTexture && out.cleanWithTheTexture &&
-           !out.errs.length;
+out.pass = out.isGrey && out.wraps && out.isAMultiplier && out.hasEveryScale &&
+           out.reachesTheWalls && out.isRenderNotATint &&
+           out.cleanWithoutTheTexture && out.cleanWithTheTexture && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

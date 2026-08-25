@@ -1,36 +1,36 @@
-/* THE TREES ARE PHOTOGRAPHS OF REAL ONES, AND ARE LIT ONCE.
+/* THE TREES ARE GROWN FROM FRACTALS, AND ARE LIT ONCE.
  *
- * Everything else in this game is drawn in code. The trees were too — two dozen
- * circles, shaded lighter towards the top — and two dozen circles read as a green
- * lollipop at any distance, because what makes a canopy look like a canopy is the
- * clumping. js/foliage.js now carries a cutout of a real plane tree on a Belgrade
- * street at night, and the dusk theme uses it.
+ * They were two dozen circles shaded lighter towards the top, which reads as a
+ * green lollipop at any distance because what makes a canopy look like a canopy
+ * is the clumping. Then they were photographs, which looked right and cost 187 KB
+ * of base64 and could not vary. Now js/proctex.js grows them at load: a recursive
+ * branching for the structure, two scales of fBm for the leaves, one atlas lit
+ * from below for after dark and one lit from above for daylight.
  *
- * FOUR WAYS THAT CAN LOOK RIGHT IN A SCREENSHOT AND BE WRONG:
+ * FIVE WAYS THAT CAN LOOK RIGHT IN A SCREENSHOT AND BE WRONG:
  *
- *   The photograph is never selected, and the painted tree is still what you see
- *   after dark. So the kind is asked for directly, at both themes.
+ *   Each theme is handed the wrong atlas, or the same one twice. So the kind is
+ *   asked for directly at both themes, and the two atlases are checksummed against
+ *   each other — they are the same size now, so size cannot tell them apart.
  *
- *   Something is selected but it is not a photograph. A flat green square encoded
- *   as a PNG would pass "is it the right size". So the leaf detail is measured —
- *   the mean step between neighbouring pixels inside the canopy — and compared
- *   against the painted tree, which is flat by construction.
+ *   The atlas exists but carries no detail. A flat green cutout would pass "is it
+ *   the right shape". So the leaf detail is measured — the mean step between
+ *   neighbouring pixels inside the canopy — against a flattened copy of the same
+ *   atlas, which has none by construction.
  *
- *   It is selected and never reaches the screen: uploaded to a texture nothing
- *   binds, or drawn under the road. So the same parked street is shot three times
- *   — as shipped, with the painted tree forced back in, and with nothing changed
- *   at all — and the pixels have to differ in the first pair and not in the
- *   second.
+ *   It never reaches the screen: uploaded to a texture nothing binds, or drawn
+ *   under the road. So the same parked street is shot with the real atlas and with
+ *   that flattened copy, same silhouette and same geometry, one shading apart.
  *
- *   AND IT IS LIT TWICE. This is the one worth the test. The photograph was taken
- *   under a street lamp, so the light is already in its pixels; multiplying the
- *   dusk theme's ambient into it a second time — which is exactly what the code
- *   path it inherited does — leaves a black smudge where a lamplit tree should be.
- *   So a fourth frame puts that second multiply back, and the tree pixels have to
- *   come out brighter without it.
+ *   AND IT IS LIT TWICE. This is the one worth the test. Each atlas is generated
+ *   under the light it belongs to, so multiplying the theme's ambient into it a
+ *   second time — which is what the code path it inherited does — leaves a black
+ *   smudge where a lamplit tree should be. A third frame puts that second multiply
+ *   back, and the tree pixels have to come out brighter without it.
  *
- * And the last section pulls js/foliage.js off the wire entirely, because a
- * picture of a tree must never be the reason the game does not start.
+ * And the last section is about generation itself: it has to be FAST enough to sit
+ * on the loading path, and DETERMINISTIC, or two machines draw two different
+ * cities and no frame comparison anywhere in this suite means anything.
  */
 import { chromium } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
@@ -87,11 +87,8 @@ async function open(opts = {}) {
     try { delete window.WebGL2RenderingContext; } catch (e) {}
     try { delete window.WebGLRenderingContext; } catch (e) {}
   });
-  await p.route('**://*/**', r => {
-    const u = r.request().url();
-    if (opts.noFoliage && /js\/(foliage|daytree)\.js/.test(u)) return r.abort();
-    return u.startsWith('file:') ? r.continue() : r.abort();
-  });
+  await p.route('**://*/**', r =>
+    (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
   await p.goto(GAME);
   await p.waitForTimeout(300);
   await p.click('#go');
@@ -99,19 +96,43 @@ async function open(opts = {}) {
   await p.waitForTimeout(600);
   await p.evaluate(src => { window.__settle = eval('(' + src[0] + ')'); window.__park = eval('(' + src[1] + ')'); },
                    [SETTLE.toString(), PARK.toString()]);
-  /* BOTH ATLASES DECODE LAZILY, on the first frame that asks for one, and each
-     theme asks for its own. So a test that switches the theme and reads the answer
-     in the same tick gets the painted stand-in — which is the correct behaviour
-     and is the subject of the last section, but is not what the others measure.
-     Asking once in each theme starts both decodes; then wait for them. */
+  /* THE FLATTENED ATLAS, which is the lever half of this file pulls.
+
+     The old version of this test forced the painted trees back in and compared
+     against those. There are no painted trees any more — generation is synchronous
+     and cannot fail, so the fallback went with the photographs. What replaces it is
+     a copy of the real atlas with the same cutout and one flat colour poured into
+     it: same silhouette, same geometry, same camera, the fractal shading and
+     nothing else removed. That is a tighter A/B than the painted tree ever was,
+     because the painted tree also differed in outline. */
   await p.evaluate(() => {
-    const was = themeName;
-    applyTheme('day'); treeKind();
-    applyTheme('dusk'); treeKind();
-    applyTheme(was);
+    /* The real ones, stashed before anything is swapped — TREE_ATLAS is the cache
+       procTreeAtlas() answers out of, so once a flattened copy is in there asking
+       again gets the copy back. */
+    const REAL = {};
+    const real = kind => (REAL[kind] || (REAL[kind] = procTreeAtlas(kind)));
+    window.__flatten = kind => {
+      const src = real(kind);
+      const cv = document.createElement('canvas');
+      cv.width = src.width; cv.height = src.height;
+      const g = cv.getContext('2d');
+      g.drawImage(src, 0, 0);
+      g.globalCompositeOperation = 'source-in';
+      g.fillStyle = '#4c6a38';
+      g.fillRect(0, 0, cv.width, cv.height);
+      return cv;
+    };
+    /* Swapped in by replacing the cache entry, because that is the one place both
+       renderers read from: the GL path uploads whatever treeCanvas() returns and
+       soft3d.js blits it. Both caches downstream have to be dropped with it, or the
+       swap changes nothing and every comparison below comes back at zero. */
+    window.__useAtlas = (kind, cv) => {
+      TREE_ATLAS[kind] = cv || real(kind);
+      TREE_TEX.tex = {};
+      for (const k in TREE_ART) delete TREE_ART[k];
+    };
+    real('day'); real('night');
   });
-  await p.waitForFunction(() => TREE_TEX.day && TREE_TEX.night, null, { timeout: 15000 })
-         .catch(() => {});
   return { p, errs };
 }
 
@@ -129,17 +150,23 @@ const out = {};
     process.exit(0);
   }
   await p.waitForTimeout(2500);
-  /* Not fatal if it never arrives: the assertions below are what should report a
-     photograph that is missing or never selected, in words, rather than this
-     line throwing a timeout and taking the whole file down with it. */
-  await p.waitForFunction(() => treeKind() === 'night', null, { timeout: 15000 }).catch(() => {});
 
   /* ---- which tree each theme picks ---- */
   out.picks = await p.evaluate(() => {
+    /* A cheap checksum, because the two atlases are the same size now and size
+       cannot tell them apart. Weighted by index so a permutation of the same
+       pixels does not collide. */
+    const sig = cv => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 4)
+        h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7 + d[i + 3] * 11) | 0;
+      return h;
+    };
     const at = t => {
       applyTheme(t);
       const cv = treeCanvas();
-      return { kind: treeKind(), w: cv.width, h: cv.height, cols: treeCols() };
+      return { kind: treeKind(), w: cv.width, h: cv.height, cols: treeCols(), sig: sig(cv) };
     };
     const dusk = at('dusk'), day = at('day');
     applyTheme('dusk');
@@ -147,16 +174,16 @@ const out = {};
   });
   /* BOTH ATLASES HAVE TO HAVE THE SAME NUMBER OF COLUMNS. The column a tree uses
      is baked into its cell's UVs and the theme can change under a cell built an
-     hour ago, so a painted atlas one column wide would put half the day's trees
-     on the seam between two of them. Asserted as a shape — square columns, the
-     same count — rather than by reading treeCols() twice, which would agree with
-     itself whatever it said. */
-  out.photographAfterDark =
+     hour ago, so an atlas one column wide would put half the day's trees on the
+     seam between two of them. Asserted as a shape — square columns, the same count
+     — rather than by reading treeCols() twice, which would agree with itself
+     whatever it said. */
+  out.rightAtlasAfterDark =
     out.picks.dusk.kind === 'night' && out.picks.day.kind === 'day' &&
     out.picks.dusk.cols >= 2 && out.picks.day.cols === out.picks.dusk.cols &&
     out.picks.dusk.w === out.picks.dusk.h * out.picks.dusk.cols &&
     out.picks.day.w === out.picks.day.h * out.picks.day.cols &&
-    out.picks.dusk.h !== out.picks.day.h;      // and they are not the same atlas twice
+    out.picks.dusk.sig !== out.picks.day.sig;  // and they are not one atlas twice
 
   /* ---- and a street uses all of them ----
 
@@ -196,49 +223,58 @@ const out = {};
     S.seen.every(n => n > S.trees * 0.25) &&
     S.mirrored.every((n, i) => n > S.seen[i] * 0.25 && n < S.seen[i] * 0.75);
 
-  /* ---- and it is a photograph, not a green square ----
+  /* ---- and it carries leaf detail, not one flat green ----
 
      Mean absolute step between horizontally neighbouring pixels, counting only
-     pairs where both are opaque so the cutout edge does not dominate. The painted
-     tree is filled circles: inside one there is no step at all, and the only
-     detail is where two overlap. Measured: 0.74 painted, 11.88 photographed. */
+     pairs where both are opaque so the cutout edge does not dominate. The
+     flattened copy is the reference and it is zero by construction: same
+     silhouette, one colour inside it.
+
+     AND THE CANOPY HAS TO BE MOSTLY HOLES AT ITS EDGE. A fractal canopy that has
+     been thresholded is ragged — that is the point of thresholding rather than
+     fading — so the fraction of the atlas that is opaque is bounded on both sides.
+     Too little and the tree is lace; too much and the alpha test has effectively
+     been turned off and every tree is a green rectangle. */
   out.detail = await p.evaluate(() => {
     const grain = cv => {
       const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-      let s = 0, n = 0;
+      let s = 0, n = 0, on = 0;
       for (let y = 0; y < cv.height; y++)
         for (let x = 0; x < cv.width - 1; x++) {
           const i = (y * cv.width + x) * 4;
+          if (d[i + 3] >= 250) on++;
           if (d[i + 3] < 250 || d[i + 7] < 250) continue;
           s += Math.abs(d[i] - d[i + 4]) + Math.abs(d[i + 1] - d[i + 5]) + Math.abs(d[i + 2] - d[i + 6]);
           n += 3;
         }
-      return +(s / Math.max(1, n)).toFixed(2);
+      return { step: +(s / Math.max(1, n)).toFixed(2),
+               fill: +(on / (cv.width * cv.height)).toFixed(3) };
     };
     applyTheme('dusk');
     const night = grain(treeCanvas());
     applyTheme('day');
     const day = grain(treeCanvas());
     applyTheme('dusk');
-    /* paintedTree() directly, because neither theme reaches it any more — and it
-       is the reference: 26 filled circles have no detail inside them at all. */
-    return { night, day, painted: grain(paintedTree()) };
+    return { night, day, flat: grain(window.__flatten('night')) };
   });
-  out.hasLeafDetail = out.detail.night > out.detail.painted * 4 && out.detail.night > 6 &&
-                      out.detail.day > out.detail.painted * 4 && out.detail.day > 6;
+  out.hasLeafDetail = out.detail.flat.step < 0.5 &&
+                      out.detail.night.step > 6 && out.detail.day.step > 6;
+  out.isACutout = [out.detail.night, out.detail.day]
+    .every(g => g.fill > 0.10 && g.fill < 0.55);
 
   /* ---- it reaches the screen, and it is not dimmed twice ----
 
-     THREE FRAMES OF THE SAME PARKED STREET, differing in one thing each.
+     FOUR FRAMES OF THE SAME PARKED STREET, differing in one thing each.
 
        A  as shipped
-       B  the photograph taken away, so the code falls back to the painted tree
-       C  the photograph kept and lit the way the painted one is — the double-dim,
+       B  the fractal shading flattened to one colour, silhouette untouched
+       C  the real atlas, lit the way the old painted trees were — the double-dim,
           which is the bug this guards, staged by putting the old lighting term
           back over the top of treeLit()
+       D  nothing changed at all, which is the control
 
-     A vs B says the photograph reached the screen at all. A vs C says it was lit
-     once: same art, same geometry, same camera, one multiply apart. */
+     A vs B says the generated texture reached the screen at all. A vs C says it
+     was lit once: same art, same geometry, same camera, one multiply apart. */
   out.frame = await p.evaluate(() => {
     applyTheme('dusk');
     const straight = window.__park();
@@ -249,13 +285,12 @@ const out = {};
                             th.amb[2] + th.lc[2] * .55];
     const A = band();
 
-    const keep = TREE_TEX.night, realLit = window.treeLit;
-    TREE_TEX.night = null; TREE_TEX.tex = {};
+    const realLit = window.treeLit;
+    window.__useAtlas('night', window.__flatten('night'));
     settle();
-    const fellBack = treeKind();
     const B = band();
 
-    TREE_TEX.night = keep; TREE_TEX.tex = {};
+    window.__useAtlas('night', null);
     window.treeLit = themeLit;
     settle();
     const C = band();
@@ -280,18 +315,15 @@ const out = {};
       }
       return { n, a: +(lx / Math.max(1, n)).toFixed(1), b: +(ly / Math.max(1, n)).toFixed(1) };
     };
-    return { straight, fellBack, sampled: A.length / 4,
-             vsPainted: cmp(A, B), vsDoubleDim: cmp(A, C), control: cmp(A, D).n };
+    return { straight, sampled: A.length / 4,
+             vsFlat: cmp(A, B), vsDoubleDim: cmp(A, C), control: cmp(A, D).n };
   });
-  /* Measured on the 1043 m straight in Autokomanda, twice, within 5%: 7,022
-     pixels move against the painted tree and 7,327 against the double-dim, the
-     latter at luma 45 where the dimmed one is 10. Four and a half times, near
-     enough to the five the two lighting terms differ by; the fog closes the gap
-     on the far half of the avenue. And with the fix removed the counts are not
-     smaller, they are zero — the control above says these frames are identical
-     to the bit when nothing changes. */
-  out.onScreen = out.frame.vsPainted.n > 2500 && out.frame.fellBack === 'painted' &&
-                 out.frame.control === 0;
+  /* The control is the load-bearing number here: A vs D is the same shot taken
+     again with nothing touched, and it comes back at zero, so every pixel counted
+     in the other two is one the change actually moved. Without that, on a camera
+     that eases towards the car, two "identical" frames disagreed on 175,497 pixels
+     out of 243,000 and every comparison in this file was measuring the camera. */
+  out.onScreen = out.frame.vsFlat.n > 2500 && out.frame.control === 0;
 
   /* ---- and the same question in daylight ----
 
@@ -346,13 +378,7 @@ const out = {};
 /* ================= 2. the software renderer, on a browser with no WebGL ======= */
 {
   const { p, errs } = await open({ noWebGL: true });
-  /* The decode is kicked off by the first tree the renderer asks for, so there is
-     always a frame or two of painted trees before it lands — 30 KB out of a data:
-     URI, but an <img> is asynchronous however local it is. Waited for here rather
-     than papered over, because a fixed timeout would eventually flake and because
-     the fallback those first frames use is the subject of the last section. */
   await p.evaluate(() => { window.__setMode3d(true); applyTheme('dusk'); });
-  await p.waitForFunction(() => treeKind() === 'night', null, { timeout: 15000 }).catch(() => {});
   out.soft = await p.evaluate(() => {
     applyTheme('dusk');
     const straight = window.__park();
@@ -369,14 +395,14 @@ const out = {};
                             th.amb[2] + th.lc[2] * .55];
     const A = band();
 
-    const keep = TREE_TEX.night, realLit = window.treeLit;
-    TREE_TEX.night = null;
+    const realLit = window.treeLit;
+    window.__useAtlas('night', window.__flatten('night'));
     settle();
-    const B = band();                                  // the painted tree
-    TREE_TEX.night = keep;
+    const B = band();                                  // the shading flattened out
+    window.__useAtlas('night', null);
     window.treeLit = themeLit;
     settle();
-    const C = band();                                  // the photograph, dimmed twice
+    const C = band();                                  // the real atlas, dimmed twice
     window.treeLit = realLit;
     settle();
     const D = band();                                  // the control, as above
@@ -394,11 +420,11 @@ const out = {};
       return { n, a: +(lx / Math.max(1, n)).toFixed(1), b: +(ly / Math.max(1, n)).toFixed(1) };
     };
     return { soft: SOFT3D, kind: treeKind(), art: softTreeArt(SKY.dusk).width, straight,
-             vsPainted: cmp(A, B), vsDoubleDim: cmp(A, C), control: cmp(A, D).n };
+             vsFlat: cmp(A, B), vsDoubleDim: cmp(A, C), control: cmp(A, D).n };
   });
   out.softDrawsIt = out.soft.soft === true && out.soft.kind === 'night' &&
-                    out.soft.art === out.picks.dusk.w && out.soft.control === 0 && out.soft.vsPainted.n > 800 &&
-                    out.soft.vsDoubleDim.n > 800 &&
+                    out.soft.art === out.picks.dusk.w && out.soft.control === 0 &&
+                    out.soft.vsFlat.n > 800 && out.soft.vsDoubleDim.n > 800 &&
                     out.soft.vsDoubleDim.a > out.soft.vsDoubleDim.b * 1.4;
 
   /* And the day theme must not be handed the dusk tree out of that same cache. */
@@ -418,43 +444,81 @@ const out = {};
   await p.close();
 }
 
-/* ================= 3. and without either atlas at all ================= */
-/* They are generated files carrying pictures. If one 404s, is blocked, or is
-   simply not in a cache that has the rest of the build, the game has to start and
-   the trees have to be there — painted, as they were. They are deliberately not in
-   index.html's integrity check for the same reason: that check blocks the DRIVE
-   button, which is the right answer for a file whose absence is a crash and the
-   wrong one for a file whose absence is plainer foliage. Both themes are asked,
-   because there is now an atlas behind each of them to be missing. */
+/* ================= 3. generation is cheap, and it is the same every time =======
+
+   These two are the whole reason the photographs could be deleted, and neither is
+   visible in a screenshot.
+
+   CHEAP, because this now sits on the path between tapping DRIVE and the first
+   frame. 216 KB of base64 cost a download; a per-pixel loop over three canvases
+   costs a stall, and a stall on the loading screen is worse than a download. So
+   the caches are dropped and all three textures regenerated from cold, timed.
+
+   THE SAME EVERY TIME, because everything in this suite that compares two frames
+   depends on it, and because a generator seeded off Math.random or off the order
+   things are asked for would draw a different city on every reload and nobody
+   would notice until a screenshot test started flapping. Asserted the hard way:
+   a SECOND PAGE, loaded from scratch in its own JavaScript context, generating its
+   own atlas, compared against the first one pixel for pixel. Regenerating twice in
+   one page would prove far less — the same seeds in the same process is the case
+   that works even when the generator is order-dependent. */
 {
-  const { p, errs } = await open({ noFoliage: true });
-  out.without = await p.evaluate(() => {
-    const on = window.__setMode3d(true);
-    const at = t => {
-      applyTheme(t);
-      const cv = treeCanvas();
-      return { kind: treeKind(), w: cv ? cv.width : null };
-    };
-    applyTheme('dusk');
-    const straight = window.__park();
-    const has = [typeof TREE_NIGHT_PNG, typeof TREE_DAY_PNG];
-    const dusk = at('dusk'), day = at('day');
-    state = 'play';
-    return { on, has, dusk, day, cols: treeCols(), straight,
-             boot: window.__boot ? window.__boot.ok : null };
+  const { p, errs } = await open();
+  out.cost = await p.evaluate(() => {
+    procTexReset();
+    const t0 = performance.now();
+    const night = procTreeAtlas('night'), day = procTreeAtlas('day'), wall = procWallTile();
+    const ms = +(performance.now() - t0).toFixed(1);
+    const px = night.width * night.height + day.width * day.height + wall.width * wall.height;
+    return { ms, px };
   });
-  out.paintedWithoutIt = out.without.has[0] === 'undefined' && out.without.has[1] === 'undefined' &&
-                         out.without.dusk.kind === 'painted' && out.without.day.kind === 'painted' &&
-                         out.without.dusk.w === out.without.cols * 128 &&
-                         out.without.boot === true;
-  out.withoutErrs = errs.filter(e => !/foliage/.test(e)).slice(0, 3);
+  /* A tenth of a second is the bar. Measured well under it, and this runs on
+     SwiftShader in CI, which is slower than any phone at this — it is all
+     Canvas2D and arithmetic, no GPU involved. */
+  out.generatesFast = out.cost.ms < 400;
+
+  out.sig = await p.evaluate(() => {
+    const sig = cv => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 4)
+        h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7 + d[i + 3] * 11) | 0;
+      return h;
+    };
+    procTexReset();
+    return { night: sig(procTreeAtlas('night')), day: sig(procTreeAtlas('day')),
+             wall: sig(procWallTile()) };
+  });
+  out.genErrs = errs.slice(0, 3);
   await p.close();
+
+  const { p: q, errs: qerrs } = await open();
+  out.sig2 = await q.evaluate(() => {
+    const sig = cv => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 4)
+        h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7 + d[i + 3] * 11) | 0;
+      return h;
+    };
+    /* Deliberately in the OPPOSITE ORDER to the page above, and without the reset
+       — this context has already generated both atlases on its own frames. If the
+       noise were drawn from a sequence rather than hashed from its coordinates,
+       this is where it would come apart. */
+    return { wall: sig(procWallTile()), day: sig(procTreeAtlas('day')),
+             night: sig(procTreeAtlas('night')) };
+  });
+  out.deterministic = out.sig.night === out.sig2.night && out.sig.day === out.sig2.day &&
+                      out.sig.wall === out.sig2.wall && out.sig.night !== out.sig.day;
+  out.genErrs = out.genErrs.concat(qerrs.slice(0, 3));
+  await q.close();
 }
 
-out.errs = [].concat(out.glErrs, out.softErrs, out.withoutErrs).filter(Boolean);
-out.pass = out.photographAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
-           out.onScreen && out.litOnce && out.dayLitOnce && out.softDrawsIt && out.cacheKeyedByTheme &&
-           out.dayIsItsOwnTree && out.paintedWithoutIt && !out.errs.length;
+out.errs = [].concat(out.glErrs, out.softErrs, out.genErrs).filter(Boolean);
+out.pass = out.rightAtlasAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
+           out.isACutout && out.onScreen && out.litOnce && out.dayLitOnce && out.softDrawsIt &&
+           out.cacheKeyedByTheme && out.dayIsItsOwnTree &&
+           out.generatesFast && out.deterministic && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);
