@@ -88,6 +88,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const v = versionOf(html);
   const next = stamp(html, v);
   const check = process.argv.includes('--check');
+  /* ONE LINE THE RUNNING PAGE CAN ASK FOR, written whether or not the stamps
+     moved — a rebuild that changes nothing still has to leave the file agreeing
+     with the HTML, and the early return below is taken far more often than not.
+
+     index.html is the one file that cannot be stamped, because its URL is the
+     site. So a browser holding a cached copy goes on serving a whole old build,
+     every script of it internally consistent, with nothing anywhere to notice —
+     three session logs in a row came back from a phone running the previous
+     day's build, hours after a deploy, and the reports were of bugs that had
+     been fixed. A bare hash, fetched no-store, is what lets js/main.js tell. */
+  if (!check) writeFileSync(join(ROOT, 'version.txt'), v + '\n');
   if (next === html) {
     console.log('stamps up to date: v=' + v);
     process.exit(0);

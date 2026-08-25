@@ -423,6 +423,53 @@ window.__nearestPOI = kind => {
                 d: +dist(p.x, p.y, P.car.x, P.car.y).toFixed(1) };
 };
 window.__mini = () => ({ w: mini.width, h: mini.height, dpr: DPR });
+/* ---- the build that will not go away ----
+
+   index.html is the ONE file that cannot carry a version in its URL, because its
+   URL is the site. Everything it loads is stamped with a content hash, so a
+   cached index and a fresh script can never be mixed — but a wholly cached index
+   serves a wholly cached build, every part of it agreeing with every other, and
+   nothing in the page has any way to know.
+
+   THREE SESSION LOGS IN A ROW came back from the same phone running the previous
+   day's build, hours after a deploy, reporting bugs that were already fixed. It
+   is not someone forgetting to reload: iOS restores a suspended tab from the
+   back-forward cache without revalidating anything, so a tab left open for a day
+   is a day-old game, and pulling to refresh is not something anyone thinks to do
+   to a game.
+
+   So the page asks. version.txt is one line written by tools/stamp.mjs beside
+   the stamps it writes into the HTML, fetched no-store with a cache-buster,
+   compared against the hash the running page was built with.
+
+   WHEN IT DIFFERS, WHAT HAPPENS DEPENDS ON WHETHER ANYONE IS DRIVING. On the
+   menu it reloads, which is invisible and is what the player would have done.
+   Mid-game it says so and leaves them alone — reloading out from under someone
+   two minutes into a delivery to give them a better tunnel is not a trade worth
+   making. And it is checked when the tab comes BACK, because that is the moment
+   the stale one has been sitting longest and the moment iOS hands it over
+   without asking the server anything. */
+function checkBuild() {
+  if (!window.BUILD || location.protocol === 'file:') return;
+  const now = Date.now();
+  if (now - checkBuild.last < 30000) return;      // twice a minute at the very most
+  checkBuild.last = now;
+  fetch('version.txt?t=' + now, { cache: 'no-store' })
+    .then(r => (r.ok ? r.text() : null))
+    .then(v => {
+      v = (v || '').trim();
+      if (!/^[0-9a-f]{6,12}$/.test(v) || v === window.BUILD) return;
+      if (state === 'menu' || state === 'dead') location.reload();
+      else if (typeof toast === 'function') toast('A NEWER VERSION IS OUT\nRELOAD WHEN YOU LIKE', 4200);
+    })
+    .catch(() => {});                             // offline is not an update
+}
+checkBuild.last = 0;
+window.addEventListener('pageshow', e => { if (e.persisted) checkBuild(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkBuild(); });
+checkBuild();
+
+window.__checkBuild = () => checkBuild();
 window.__simT = () => SIMT;                 // simulated seconds, monotonic
 window.__openMap = () => { openMap(); return state; };
 window.__closeMap = () => { closeMap(); return state; };
