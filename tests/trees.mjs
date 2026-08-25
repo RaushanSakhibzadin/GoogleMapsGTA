@@ -90,16 +90,19 @@ out.stable = await p.evaluate(() => {
 });
 out.deterministic = out.stable.sameCount && out.stable.n > 0 && out.stable.worst < 0.01;
 
-/* ---- 3. and a street actually has green in it ---- */
-/* Parked on the longest straight in the city, looking down it, counting
-   green-dominant pixels.
+/* ---- 3. and a street actually has trees on it ---- */
 
-   NOT AGAINST ZERO. Foliage is not the only green thing here — the parks are
-   green too, and the same build with the planting deleted outright measured
-   2389 green pixels on one run and 0 on the next, depending on whether a park
-   happened to be in shot. The first version of this asked for more than 500 and
-   passed on the 2389, which is a test that measures the parks. With the trees
-   in, it counts 11460 every time. Six thousand sits clear of both. */
+/* ASKED AS A DIFFERENCE, NOT AS A COLOUR. This used to count green-dominant
+   pixels against a threshold of 6,000, tuned when the trees were painted:
+   `rgb(38..86, 74..164, 30..68)` clears `g > r + 16 && g > b + 16` on almost
+   every pixel of a canopy. Daylight foliage is a PHOTOGRAPH now, and a real
+   sunlit chestnut is a duller, yellower green — 2,053 of its pixels clear that
+   bar where the painted one cleared 11,460. The trees were on screen the whole
+   time and the test was measuring the old art's hue.
+
+   So it renders the same parked frame with the planting and without it, which
+   cannot be fooled by what colour the leaves happen to be. A third frame with
+   nothing changed is the control, and it comes back at zero. */
 out.street = await p.evaluate(() => {
   P.car.vx = P.car.vy = 0; traffic.length = 0; cops.length = 0; peds.length = 0;
   window.__setInput({ steer: 0, gas: 0, brake: 0, hand: 0 });
@@ -113,16 +116,36 @@ out.street = await p.evaluate(() => {
   window.__tp(a.x + (b.x - a.x) * 0.2, a.y + (b.y - a.y) * 0.2, Math.atan2(b.y - a.y, b.x - a.x));
   cam.x = P.car.x; cam.y = P.car.y;
   state = 'pause';
-  for (let i = 0; i < 70; i++) window.__px3(0, 0, 1, 1);
+  /* The camera EASES towards the car, so back-to-back renders are milliseconds
+     of easing and two "identical" frames disagree across most of the screen.
+     Winding the frame clock back gives each render the largest step render3D()
+     accepts, and after two hundred the control below is zero. */
+  const settle = n => { for (let i = 0; i < (n || 80); i++) { last3 = performance.now() - 100; window.__renderOnce(); } };
+  settle(220);
   const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
-  const px = window.__px3(0, Math.floor(h * 0.34), w, Math.floor(h * 0.5));
-  let green = 0;
-  for (let i = 0; i < px.length; i += 4)
-    if (px[i + 1] > px[i] + 16 && px[i + 1] > px[i + 2] + 16) green++;
+  const band = () => window.__px3(0, Math.floor(h * 0.30), w, Math.floor(h * 0.50));
+  const A = band();
+  G3.noTrees = true; settle(); const B = band();
+  G3.noTrees = false; settle(); const C = band();
   state = 'play';
-  return { green, sampled: px.length / 4, straight: Math.round(best.L) };
+
+  let moved = 0, green = 0, control = 0;
+  for (let i = 0; i < A.length; i += 4) {
+    if (Math.abs(A[i] - C[i]) + Math.abs(A[i + 1] - C[i + 1]) + Math.abs(A[i + 2] - C[i + 2]) > 3) control++;
+    const d = Math.abs(A[i] - B[i]) + Math.abs(A[i + 1] - B[i + 1]) + Math.abs(A[i + 2] - B[i + 2]);
+    if (d < 16) continue;
+    moved++;
+    // still foliage rather than grey boxes, but a much softer claim than before
+    if (A[i + 1] > A[i] + 4 && A[i + 1] > A[i + 2] + 4) green++;
+  }
+  return { moved, green, control, sampled: A.length / 4, straight: Math.round(best.L) };
 });
-out.canopyOnScreen = out.street.green > 6000;
+/* Measured on the 1043 m straight in the bundled city: 24,000 pixels of the
+   270,000 sampled are planting, and about two thirds of them are green-dominant
+   even at the softer bar. The count is the assertion; the green is only there to
+   say the thing that appeared is leaves. */
+out.canopyOnScreen = out.street.moved > 6000 && out.street.control === 0 &&
+                     out.street.green > out.street.moved * 0.25;
 
 out.errs = errs.slice(0, 3);
 out.pass = out.enoughTrees && out.allStandable && out.deterministic &&

@@ -2307,7 +2307,7 @@ function render3D() {
      culling off, because a cross of two quads is meant to be seen from both
      sides of each. */
   {
-    const tex = treeTexture();
+    const tex = G3.noTrees ? null : treeTexture();
     if (tex) {
       gl.useProgram(G3.tree.p);
       gl.uniformMatrix4fv(G3.tree.u.uVP, false, G3.VP);
