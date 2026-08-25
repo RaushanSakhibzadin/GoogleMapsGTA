@@ -63,6 +63,10 @@ const WIN_MIN_H = 5.5;               // shorter than this is a shed, and gets no
    storeys: an old-town corner with a bakery under it is two and a bit, and a
    socialist-era slab starts at four. */
 const LOW_H = 11.0;
+/* HOW TALL AN ARCHWAY IS. Used twice and it has to be the same twice: the wall
+   shader discards below it, and the tunnel's own walls and ceiling are built to
+   it. A soffit at 4.2 over a hole cut at 3.8 is a stripe of daylight. */
+const GATE_H = 4.2;
 const SHADOW_R = 170;
 const SHADOW_SIZE = 2048;
 
@@ -311,7 +315,7 @@ void main() {
 
      Before anything else in this shader, because a discarded fragment should not
      pay for a shadow lookup or a window grid. */
-  if (vGate.y > 0.0 && vW.y < 4.2 && abs(vW.x - vGate.x) < vGate.y) discard;
+  if (vGate.y > 0.0 && vW.y < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;
 
   vec3 nn = normalize(vN);
   float sh = sunlit();
@@ -1616,6 +1620,52 @@ function buildCell(kx, kz) {
                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw,
                ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
     }
+    /* THE INSIDE OF THE ARCHWAY.
+
+       Cutting the hole is not the same as building the passage. The discard
+       above opens the near wall and the far one, and between them there was
+       nothing at all — you saw straight through a building as though its walls
+       were paper, with no jambs beside you and no ceiling overhead. Asked for
+       directly: "just change the 3d shape of the building a bit".
+
+       So the road's own line through the footprint gets two side walls and a
+       soffit. pmin and pmax are how far along that line the centreline actually
+       runs inside the building, which is the length of the passage; the ends are
+       pushed out a little past both so the jambs meet the walls they pass
+       through rather than stopping short of them and leaving a slot.
+
+       Facing INWARD, all three, because the only place they are ever seen from
+       is inside. And they carry no aWall and no gate: a tunnel wall has no
+       window grid, and nothing may cut a hole in the hole. */
+    const gt = b.gate;
+    if (b.passable && gt && gt.n && b.h > 5 && (gt.ux || gt.uy)) {
+      const ux = gt.ux, uy = gt.uy;
+      const c = gt.x * ux + gt.y * uy;
+      const ax0 = gt.x + (gt.pmin - c - 1.5) * ux, az0 = gt.y + (gt.pmin - c - 1.5) * uy;
+      const ax1 = gt.x + (gt.pmax - c + 1.5) * ux, az1 = gt.y + (gt.pmax - c + 1.5) * uy;
+      const px = -uy, pz = ux, w = gt.w;
+      const foot = base + 1, ceil = foot + GATE_H;
+      // a shaded interior: the same masonry, minus the daylight it never gets
+      const ir = wr * 0.62, ig = wg * 0.62, ib = wb * 0.62;
+      const quad = (x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2) => {
+        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
+                 x1, y1, z1, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
+                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0);
+        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
+                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
+                 x3, y3, z3, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0);
+      };
+      // the two jambs, each facing the middle of the passage
+      quad(ax0 + px * w, foot, az0 + pz * w, ax1 + px * w, foot, az1 + pz * w,
+           ax1 + px * w, ceil, az1 + pz * w, ax0 + px * w, ceil, az0 + pz * w, -px, 0, -pz);
+      quad(ax1 - px * w, foot, az1 - pz * w, ax0 - px * w, foot, az0 - pz * w,
+           ax0 - px * w, ceil, az0 - pz * w, ax1 - px * w, ceil, az1 - pz * w, px, 0, pz);
+      // and the soffit over it, facing down
+      quad(ax0 - px * w, ceil, az0 - pz * w, ax1 - px * w, ceil, az1 - pz * w,
+           ax1 + px * w, ceil, az1 + pz * w, ax0 + px * w, ceil, az0 + pz * w, 0, -1, 0);
+      note(ceil);
+    }
+
     // the roof, which is the one part that genuinely needs a triangulator
     const tri = earClip(fp);
     const rr = roof[0] / 255, rg = roof[1] / 255, rb = roof[2] / 255;
