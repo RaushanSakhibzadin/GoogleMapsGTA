@@ -57,7 +57,7 @@ function openMap() {
   $('mapWhere').textContent = (NAV.street || W.name || '') +
     (NAV.zone ? ' · ' + NAV.zone : '');
   $('bigmap').classList.remove('hide');
-  mapFit();
+  mapFit(true);                               // keep the zoom, re-centre on the car
   drawBigMap();
 }
 function closeMap() {

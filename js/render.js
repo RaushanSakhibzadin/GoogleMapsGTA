@@ -400,11 +400,24 @@ function drawArrow() {
    every road in the world. */
 const MAPV = { cx: 0, cy: 0, s: 0 };      // centre in metres, scale in px/m
 
-function mapFit() {
+/* THE ZOOM SURVIVES CLOSING THE MAP, and it used not to.
+   openMap() called this every time, so a player who pinched in to read a street
+   name lost it the moment they closed the map and had to pinch in again — every
+   single time. Reported exactly that way.
+
+   THE CENTRE DOES NOT SURVIVE, and that is deliberate rather than an oversight.
+   The car has been driving while the map was shut, so reopening on the old
+   centre would show you where you used to be; the reason you open a map is to
+   find yourself on it. So the scale is kept and the view re-centres.
+
+   `keep` is ignored the first time, when there is no scale to keep — and on a
+   NEW CITY, where buildWorld() clears it, because a place you have never seen
+   should open on the framing that was chosen for a place you have never seen. */
+function mapFit(keep) {
   // Opens on about 5 km across the short axis: far enough to see the next
   // district and the garages in it, close enough that streets are still streets.
   const short = Math.min(VW, VH);
-  MAPV.s = short / 5000;
+  if (!keep || !MAPV.s) MAPV.s = short / 5000;
   MAPV.cx = P.car.x; MAPV.cy = P.car.y;
   mapClamp();
 }

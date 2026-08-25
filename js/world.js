@@ -847,6 +847,7 @@ function buildWorld(data, name, procedural) {
   W.name = name; W.procedural = procedural; W.sweptTo = 0; W.sweeping = false;
   W.tiles = new Map(); W.fixed = new Set();
   W.skelRect = null; WIDE_MAP = false;       // a new city starts with no wide map
+  MAPV.s = 0;                                // and on the map's default framing
   ROADED.clear();                            // and none of its tiles have streets yet
   W.bundled = false;                         // and streams, unless it came from disk
   RESERVED = '';                             // and reserves its own ground again
