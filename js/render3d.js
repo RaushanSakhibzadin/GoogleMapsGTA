@@ -1580,11 +1580,33 @@ function buildCell(kx, kz) {
          And nothing under five metres gets one, because a gateway 4.2 m high
          through a four-metre shed is not an archway, it is a demolished shed. */
       let gc = 0, gw = 0;
-      if (b.passable && b.gate && b.gate.n && b.h > 5) {
-        const perp = (b.gate.x - ax) * nx + (b.gate.y - az) * nz;
-        if (Math.abs(perp) < 2.5) {
-          gc = b.gate.x * -nz + b.gate.y * nx;
-          gw = b.gate.w;
+      if (b.passable && b.gate && b.gate.n && b.h > 5 && (b.gate.ux || b.gate.uy)) {
+        /* WHERE THE ROAD CROSSES THIS WALL, by intersecting the line it takes
+           with the wall's own segment. The previous version asked whether the
+           wall ran close to the crossing's CENTRE, which is the middle of the
+           building and therefore the furthest point from every wall it has: on
+           this real Belgrade block the nearest wall came out 2.6 m away against
+           a 2.5 m test, and no wall in the city was ever cut.
+
+           s is how far along the wall the crossing falls, 0 at one end and 1 at
+           the other, so a wall the road misses is rejected by the same equation
+           that places the hole in the ones it hits. */
+        const g = b.gate;
+        const ux = g.ux, uy = g.uy;
+        const den = ex * uy - ez * ux;                 // 0 when wall and road are parallel
+        if (Math.abs(den) > 1e-6) {
+          const s = ((g.x - ax) * uy - (g.y - az) * ux) / den;
+          if (s >= 0 && s <= 1) {
+            const px = ax + ex * s, pz = az + ez * s;
+            /* And within the stretch the road actually occupies inside the
+               footprint, so an L-shaped block does not get a hole in a wing the
+               road only reaches by being extended to infinity. */
+            const pr = px * ux + pz * uy;
+            if (pr > g.pmin - 4 && pr < g.pmax + 4) {
+              gc = px * -nz + pz * nx;
+              gw = g.w;
+            }
+          }
         }
       }
       lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,

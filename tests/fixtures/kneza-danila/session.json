@@ -1,0 +1,243 @@
+{
+ "source": "in-game LOG button",
+ "build": "f78817f757",
+ "savedAt": "2026-08-25T11:05:20.637Z",
+ "sessionSeconds": 101.57,
+ "capture": {
+  "bytes": 21567739,
+  "cappedAt": 26214400,
+  "repliesDropped": 0,
+  "bytesDropped": 0
+ },
+ "snapshot": {
+  "url": "https://raushansakhibzadin.github.io/GoogleMapsGTA/",
+  "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
+  "screen": "390x699 @3",
+  "state": "play",
+  "city": "Your neighbourhood",
+  "procedural": false,
+  "world": {
+   "roads": 15415,
+   "drive": 15402,
+   "buildings": 4288,
+   "parks": 117,
+   "pois": 308,
+   "grid": "9000x9000",
+   "bounds": {
+    "x0": -60040,
+    "y0": -60040,
+    "x1": 60040,
+    "y1": 60040
+   },
+   "skeleton": 60000,
+   "wideMap": true
+  },
+  "tiles": {
+   "loaded": 1,
+   "roaded": 1,
+   "failed": 1,
+   "evicted": 0,
+   "live": 1
+  },
+  "car": {
+   "x": 14.5,
+   "y": -31.6,
+   "h": -0.53,
+   "kmh": 1,
+   "hp": 66,
+   "onRoad": true,
+   "onTarmac": true,
+   "roadDataHere": true,
+   "ghost": false,
+   "street": "Кнеза Данила",
+   "zone": "Палилула",
+   "cash": 0,
+   "wanted": 0
+  },
+  "perf": {
+   "upd": 0.32,
+   "ren": 0.9,
+   "steps": 1.01
+  },
+  "gl": {
+   "mode3d": true,
+   "attempts": 1,
+   "ready": true,
+   "fail": "",
+   "why": "",
+   "webgl1": false,
+   "renderer": "Apple GPU",
+   "lost": 0
+  },
+  "shops": 970
+ },
+ "replies": [
+  {
+   "kind": "streets",
+   "host": "api.de",
+   "status": 200,
+   "ms": 1224,
+   "bbox": {
+    "s": 44.802035226774656,
+    "w": 20.464768708380603,
+    "n": 44.81831892498345,
+    "e": 20.487560592536624
+   },
+   "chars": 949344,
+   "sha256": "c8c368cf0fe38b406b6e1fcafd599de5c2aae090528fb67f6af76ad35b3fc892",
+   "elements": 1062,
+   "file": "streets1.json.gz",
+   "bytes": 119508
+  },
+  {
+   "kind": "buildings",
+   "host": "api.de",
+   "status": 200,
+   "ms": 1059,
+   "bbox": {
+    "s": 44.802035226774656,
+    "w": 20.464768708380603,
+    "n": 44.81831892498345,
+    "e": 20.487560592536624
+   },
+   "chars": 3697568,
+   "sha256": "0512e2924f4242cf1079315289ff23270131aab5c7083007856cf0781b7cd584",
+   "elements": 4970,
+   "file": "buildings1.json.gz",
+   "bytes": 521482
+  },
+  {
+   "kind": "pois",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 5025,
+   "bbox": {
+    "s": 44.64734009379112,
+    "w": 20.24824580889842,
+    "n": 44.973014057966985,
+    "e": 20.704083492018807
+   },
+   "chars": 370207,
+   "sha256": "4812e9d6344f54d894aa201e19cc1d563c78255a3459015578ab4aa441e92ee3",
+   "elements": 880,
+   "file": "pois1.json.gz",
+   "bytes": 77506
+  },
+  {
+   "kind": "arterials",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 1114,
+   "bbox": {
+    "s": 44.26738713558595,
+    "w": 19.71643517859131,
+    "n": 45.35296701617216,
+    "e": 21.235894122325917
+   },
+   "chars": 272,
+   "sha256": "25da0e195b56771547c301796a963bfdea8df747ebc602b82e68b05e6de6d9c0",
+   "elements": 0,
+   "file": "empty.json"
+  },
+  {
+   "kind": "arterials",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 14311,
+   "bbox": {
+    "s": 44.26738713558595,
+    "w": 19.71643517859131,
+    "n": 45.35296701617216,
+    "e": 21.235894122325917
+   },
+   "chars": 16550074,
+   "sha256": "b74f3d5701291f83a66fdbe13365a8568481ade4f9f87bb767cdac3718c34d40",
+   "elements": 15643,
+   "file": "arterials1.json.gz",
+   "bytes": 2010741
+  },
+  {
+   "kind": "streets",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 233,
+   "bbox": {
+    "s": 44.802035226774656,
+    "w": 20.441976824224586,
+    "n": 44.81831892498345,
+    "e": 20.464768708380603
+   },
+   "chars": 272,
+   "sha256": "25da0e195b56771547c301796a963bfdea8df747ebc602b82e68b05e6de6d9c0",
+   "elements": 0,
+   "file": "empty.json"
+  }
+ ],
+ "errors": [
+  {
+   "at": 8.28,
+   "level": "mirror",
+   "msg": "pois · osm.jp: unreachable (1150ms)"
+  },
+  {
+   "at": 8.96,
+   "level": "mirror",
+   "msg": "arterials · osm.jp: unreachable (1832ms)"
+  },
+  {
+   "at": 10,
+   "level": "mirror",
+   "msg": "pois · api.de: too slow (7273ms)"
+  },
+  {
+   "at": 10,
+   "level": "mirror",
+   "msg": "pois · kumi.systems: too slow (1717ms)"
+  },
+  {
+   "at": 13.57,
+   "level": "mirror",
+   "msg": "arterials · kumi.systems: unreachable (4609ms)"
+  },
+  {
+   "at": 14.48,
+   "level": "mirror",
+   "msg": "arterials · api.de: 429 (11759ms)"
+  },
+  {
+   "at": 14.48,
+   "level": "mirror",
+   "msg": "arterials · osm.ch: returned nothing (1114ms)"
+  },
+  {
+   "at": 19.41,
+   "level": "mirror",
+   "msg": "arterials · private.coffee: too slow (8246ms)"
+  },
+  {
+   "at": 24.05,
+   "level": "mirror",
+   "msg": "streets · osm.ch: returned nothing (233ms)"
+  },
+  {
+   "at": 49.41,
+   "level": "mirror",
+   "msg": "streets · maps.mail.ru: too slow (30001ms)"
+  },
+  {
+   "at": 51.61,
+   "level": "mirror",
+   "msg": "streets · private.coffee: too slow (30000ms)"
+  },
+  {
+   "at": 51.61,
+   "level": "warn",
+   "msg": "chunk -1,0 failed: all mirrors failed"
+  },
+  {
+   "at": 100.67,
+   "level": "rejection",
+   "msg": "Failed to start the audio device"
+  }
+ ]
+}

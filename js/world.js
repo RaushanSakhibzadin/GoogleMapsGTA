@@ -703,6 +703,7 @@ function markPassable(roads) {
     for (let i = 0; i < r.pts.length - 1; i++) {
       const a = r.pts[i], b = r.pts[i + 1];
       const len = dist(a.x, a.y, b.x, b.y) || 1;
+      const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
       const steps = Math.max(1, Math.ceil(len / 6));
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
@@ -721,9 +722,21 @@ function markPassable(roads) {
              footprint is averaged, so the gate lands in the middle of the span
              the road actually occupies rather than on whichever edge was
              sampled first, and the width comes from the road's own. */
-          const g = bl.gate || (bl.gate = { sx: 0, sy: 0, n: 0, w: 0 });
+          const g = bl.gate || (bl.gate = { sx: 0, sy: 0, n: 0, w: 0, ux: 0, uy: 0,
+                                            pmin: Infinity, pmax: -Infinity });
           g.sx += x; g.sy += y; g.n++;
           g.w = Math.max(g.w, r.w / 2 + 1.0);
+          /* AND WHICH WAY IT RUNS. The centre of the crossing is not enough to
+             find the walls: it is the average of the samples inside the
+             footprint, so it sits in the MIDDLE of the building, which is by
+             construction as far from both walls as the passage is deep. Asking
+             which wall is near it finds none — on a 5 m passage every wall is
+             2.6 m away, and on a 15 m block, 7.5. What locates a gateway is the
+             LINE the road takes, and which walls it crosses. */
+          if (!g.ux && !g.uy) { g.ux = ux; g.uy = uy; }
+          const pr = x * g.ux + y * g.uy;
+          if (pr < g.pmin) g.pmin = pr;
+          if (pr > g.pmax) g.pmax = pr;
           touched.add(bl);
         }
       }
