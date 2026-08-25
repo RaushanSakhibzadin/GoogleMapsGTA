@@ -97,10 +97,17 @@ out.slope = await p.evaluate(() => {
     }
   }
   if (!best) return null;
-  // start at the LOW end, pointing up
-  const up = best.grade > 0 ? best.a : best.b;
-  const dn = best.grade > 0 ? best.b : best.a;
+  /* BOTH ENDS, not just one. The uphill coast starts at the bottom and climbs
+     the segment; the downhill coast has to start at the TOP and come down the
+     same one. Starting both at the bottom — which is what this used to hand
+     back — sends the downhill run off the far end of the hill onto ground whose
+     slope nobody measured, and the figure it brings back is about that ground.
+     That is where the sign flips came from: -0.64 on one run in four, against a
+     quantity that is supposed to be +0.4. */
+  const up = best.grade > 0 ? best.a : best.b;      // the low end
+  const dn = best.grade > 0 ? best.b : best.a;      // the high end
   return { x: +up.x.toFixed(0), y: +up.y.toFixed(0),
+           hx: +dn.x.toFixed(0), hy: +dn.y.toFixed(0),
            up: +Math.atan2(dn.y - up.y, dn.x - up.x).toFixed(3),
            grade: +Math.abs(best.grade).toFixed(3), len: +best.L.toFixed(0), name: best.name };
 });
@@ -190,25 +197,44 @@ out.rollsDownhill = out.rolls.moved > 0.25 && out.rolls.dropped > 0.008;
    the 3D run simulated a fraction of the time and arrived FASTER uphill, by 2.7
    m/s in the wrong direction. Toggling the flag alone leaves the frame rate,
    the renderer and everything else identical. */
+/* ONE SIMULATED SECOND, AND NOT TWO. Two doubles the grade's contribution
+   without doubling the noise, which is why it was tried — and it overruns the
+   hill. The downhill run starts where the uphill one does and faces the other
+   way, so it coasts AWAY from the segment that was measured for its slope;
+   at 30 m/s decaying, one second covers about twenty-five metres and stays on
+   the seventy-plus the hunt insisted on, and two covers fifty and does not.
+   When it runs off the end both runs clamp on whatever is past the bottom and
+   the difference reads 0.00 — indistinguishable from a deleted grade force,
+   which is exactly the value it produced on one run in three. */
+const COAST_S = 1.0;               // simulated seconds
 const coast = (dir, terrain) => p.evaluate(async a => {
-  const [s, sign, on] = a;
+  const [s, sign, on, COAST_S] = a;
   TERRAIN = on;                       // the chase view stays up either way
+  /* AND NOTHING ELSE ON THE STREET. The pairing below was built to cancel the
+     traffic out — each flat run immediately followed by its hill run, so both
+     meet the same cars — and it does not, because the two runs travel different
+     distances and meet those cars differently. Measured with the pairing alone,
+     the difference swung from -0.37 to +0.40 between two runs of the same test:
+     not merely noisy, the wrong SIGN. Emptying the street is the fix the pairing
+     was standing in for. */
+  traffic.length = 0; cops.length = 0; peds.length = 0;
   const h = s.up + (sign > 0 ? 0 : Math.PI);
-  window.__tp(s.x, s.y, h);
+  // uphill from the bottom, downhill from the top: the same hill, both ways
+  window.__tp(sign > 0 ? s.x : s.hx, sign > 0 ? s.y : s.hy, h);
   window.__setInput({ steer: 0, gas: 0, brake: 0, hand: 0 });
   // a rolling start, then nothing but drag and — with TERRAIN on — the hill
   P.car.vx = Math.cos(h) * 30; P.car.vy = Math.sin(h) * 30;
   const x0 = P.car.x, y0 = P.car.y;
   let launched = false;
   const watch = setInterval(() => { if (P.car.air) launched = true; }, 16);
-  const sim = await window.__waitSim(1.0);
+  const sim = await window.__waitSim(COAST_S);
   clearInterval(watch);
   return { sim, m: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
            ms: +Math.hypot(P.car.vx, P.car.vy).toFixed(2),
            // the height it actually gained or lost over the stretch it covered
            rise: +(window.__terrain(P.car.x, P.car.y).h - window.__terrain(x0, y0).h).toFixed(2),
            launched };
-}, [out.slope, dir, terrain]);
+}, [out.slope, dir, terrain, COAST_S]);
 /* THREE PAIRS EACH WAY, INTERLEAVED, AND THE MEDIAN OF THE DIFFERENCES.
 
    The quantity being measured is small — a fifth of a metre per second on the
@@ -237,6 +263,13 @@ const pairs = async dir => {
   return { rows, worth: +med.toFixed(2), rise: last.rise, m: last.m,
            launched: rows.some(r => r.launched) };
 };
+/* NOT BY CAPPING THE TRAFFIC. Holding TRAFFIC_SET at one for the duration looks
+   like the obvious next step — the cars respawn between a pair and the pairing
+   is back to cancelling nothing — and it made this markedly worse: one run in
+   four instead of three, and the failures came back with the SAME numbers twice
+   over, which is a deterministic wrong state rather than noise. One car under a
+   cap of one is spawned in the same place every time, and that place is in front
+   of the coast. Emptying the street each run beats rationing it. */
 out.up = await pairs(1);
 out.down = await pairs(-1);
 await p.evaluate(() => { TERRAIN = true; });
@@ -250,18 +283,33 @@ out.upFlat = out.up.rows[0]; out.downFlat = out.down.rows[0];
    in an earlier run of this it sloped the other way entirely, which is what put
    a minus sign in front of a number the test was expecting to be positive. So
    the expected figure is derived from the height the car really gained. */
-const expect = r => +(11 * Math.abs(r.rise) / Math.max(r.m, 1) * 1.0).toFixed(2);
+const expect = r => +(11 * Math.abs(r.rise) / Math.max(r.m, 1) * COAST_S).toFixed(2);
 out.upExpected = expect(out.up);
 out.downExpected = expect(out.down);
 out.climbCost = out.up.worth;        // uphill: terrain costs speed
 out.descentGain = out.down.worth;    // downhill: terrain gives it
-/* Half the predicted figure each way, which leaves room for the second-order
-   drag term — a car going faster sheds more — without leaving room for zero.
-   With the grade force deleted both read exactly 0.00, because TERRAIN is then
-   the only difference between two runs that are otherwise the same run. */
+/* A FRACTION OF THE PREDICTED FIGURE, AND NOT THE SAME FRACTION EACH WAY.
+
+   Drag here is quadratic, so it does not treat the two directions alike. Uphill
+   the grade costs speed and the slower car then sheds less, which protects the
+   difference; downhill the grade gives speed and the faster car immediately
+   sheds more of it, which eats into the difference. The gift is smaller than the
+   cost, every time, and it is not noise: over two simulated seconds this reads
+   0.43 of predicted uphill against 0.31 downhill, repeatably, on run after run.
+
+   Both directions used to be held to 0.4, which downhill has never physically
+   been able to reach. It passed anyway, on and off, because the traffic noise it
+   was swimming in was larger than the shortfall — a test passing for the wrong
+   reason, which is why it also failed for no reason.
+
+   WHAT ACTUALLY BOUNDS THESE. With the grade force deleted — SLOPE_G = 0 — every
+   one of these reads exactly 0.00, because TERRAIN is then the only difference
+   between two runs that are otherwise the same run. So any positive floor tells
+   a working grade force from a missing one; these floors are set to catch a
+   WEAKENED one, at about three quarters of what each direction really delivers. */
 out.fasterDownhill = out.up.rise > 0 && out.down.rise < 0 &&
-                     out.climbCost > out.upExpected * 0.4 &&
-                     out.descentGain > out.downExpected * 0.4;
+                     out.climbCost > out.upExpected * 0.32 &&
+                     out.descentGain > out.downExpected * 0.22;
 // and no coast may have left the ground, or the drag is not the drag assumed
 out.coastStayedDown = !out.up.launched && !out.down.launched;
 
