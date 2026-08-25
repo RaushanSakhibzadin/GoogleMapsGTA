@@ -32,9 +32,6 @@ sitemap.xml     one URL, for Search Console
 data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
 tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
-tools/treeart.mjs   cuts the night trees out of photographs into js/foliage.js
-tools/daytree.mjs   cuts the daylight ones into js/daytree.js
-tools/walltex.mjs   cuts a seamless wall out of a photograph into js/walltex.js
 tests/          the whole test suite, and the two captured sessions it replays
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
@@ -47,9 +44,7 @@ js/io.js        input, audio, canvas
 js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
 js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
-js/foliage.js   the night trees, cut out of photographs — one of three generated assets
-js/daytree.js   the daylight trees, cut the same way — the second
-js/walltex.js   the render on the walls, cut out of a photograph — the third
+js/proctex.js   every texture in the game, grown from fractals at load
 js/render.js    the top-down view
 js/soft3d.js    the chase view again, on a canvas, for a browser with no WebGL
 js/render3d.js  the chase view, and the switch between the two
@@ -423,8 +418,7 @@ metre coordinates to place tiles against.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
 Geocoding by Nominatim, geometry by Overpass — please respect their usage policies.
 
-The foliage and bark in `js/foliage.js` and `js/daytree.js`, and the wall render in
-`js/walltex.js`, are cut from photographs taken on Belgrade streets by Raushan Sakhibzadin and
-used here with permission. Everything else is drawn in code.
+There are no image assets. Every texture — the trees, the render on the walls — is generated
+from fractal noise at load by `js/proctex.js`. Everything is drawn in code.
 
 A parody tribute. Not affiliated with, endorsed by, or connected to Rockstar Games or Google.

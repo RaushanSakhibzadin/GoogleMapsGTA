@@ -1195,97 +1195,53 @@ function insideBuilding(x, y) {
    PREMULTIPLIED BY NOTHING AND FILTERED WITHOUT MIPMAPS. The alpha test wants a
    hard edge; a mipmapped cutout fades its own silhouette away at distance and
    the avenue thins out as you drive down it. */
-const TREE_TEX = { tex: {}, painted: null, night: null, day: null, asked: {} };
+const TREE_TEX = { tex: {} };
 
-/* THE TREES ARE PHOTOGRAPHS. js/foliage.js carries a two-tree atlas cut from
-   photographs of lamplit Belgrade street trees at night; js/daytree.js carries a
-   daylight one, cut from a horse chestnut in full leaf. The painted trees below
-   are what is left if neither file arrived.
-
-   DECODED ONCE, ASYNCHRONOUSLY, AND NOT WAITED FOR. They are data: URIs so there
-   is nothing to fetch and the decode is a few milliseconds, but an <img> is
-   asynchronous however local it is. Until one lands the painted trees stand in,
-   which is why nothing here can block: a frame is due every 16 ms whatever the
-   trees look like. */
-function photoTrees(kind) {
-  if (TREE_TEX[kind]) return TREE_TEX[kind];
-  if (TREE_TEX.asked[kind]) return null;
-  TREE_TEX.asked[kind] = true;
-  const src = kind === 'night' ? (typeof TREE_NIGHT_PNG === 'string' ? TREE_NIGHT_PNG : null)
-                               : (typeof TREE_DAY_PNG === 'string' ? TREE_DAY_PNG : null);
-  if (!src) return null;                       // the file is missing: paint them
-  const im = new Image();
-  im.onload = () => {
-    const cv = document.createElement('canvas');
-    cv.width = im.naturalWidth; cv.height = im.naturalHeight;
-    cv.getContext('2d').drawImage(im, 0, 0);
-    TREE_TEX[kind] = cv;
-    /* Both renderers keep something derived from the old trees — an uploaded GL
-       texture here, a tinted canvas in soft3d.js — and both are now of the wrong
-       ones. Dropped rather than rebuilt: whichever is in use will ask again. */
-    TREE_TEX.tex = {};
-    if (typeof TREE_ART === 'object') for (const k in TREE_ART) delete TREE_ART[k];
-  };
-  im.src = src;
-  return null;
-}
+/* THE TREES ARE ARITHMETIC. js/proctex.js grows them at load out of a recursive
+   branching and two scales of fBm — see the long note at the top of that file for
+   why those two fractals and not others. There used to be three .js files here
+   holding 216 KB of base64 photographs; there is now nothing to decode, nothing
+   to wait for, and no fallback path, because generation is synchronous and cannot
+   half-arrive the way an <img> could. */
 
 /* Which set the theme wants, resolved every time rather than cached: the answer
-   changes when the sun goes down and again when each atlas decodes. */
-function treeKind() {
-  const want = themeName === 'day' ? 'day' : 'night';
-  return photoTrees(want) ? want : 'painted';
-}
+   changes when the sun goes down. */
+function treeKind() { return themeName === 'day' ? 'day' : 'night'; }
 
-/* The lighting to apply on top. The painted trees carry none of their own and
-   take the theme's. The photographs were taken under the light they belong to —
-   a sodium street lamp, or a September afternoon — and that light is already in
-   their pixels: running the theme over one a second time leaves a black smudge on
-   the pavement at night and a tree in permanent shade by day. */
+/* The lighting to apply on top — none, in both cases. Each atlas is generated
+   under the light it belongs to: the night one is lit from below by the street
+   lamp under it, the day one from above. Running the theme over either a second
+   time leaves a black smudge on the pavement at night and a tree in permanent
+   shade by day. `th` is kept because soft3d.js reads the middle component. */
 function treeLit(th) {
-  const k = treeKind();
-  if (k === 'night') return [.70, .70, .70];
-  if (k === 'day') return [1, 1, 1];
-  return [th.amb[0] + th.lc[0] * .55, th.amb[1] + th.lc[1] * .55, th.amb[2] + th.lc[2] * .55];
+  return treeKind() === 'night' ? [.70, .70, .70] : [1, 1, 1];
 }
 
-/* Painted separately from the upload, because the renderer that most needs this
-   is the one with no GL to upload it to: soft3d.js draws the same canvas with
+/* Named separately from the upload, because the renderer that most needs this is
+   the one with no GL to upload it to: soft3d.js draws the same canvas with
    drawImage. */
-function treeCanvas() {
-  const k = treeKind();
-  return k === 'painted' ? paintedTree() : TREE_TEX[k];
-}
-/* THE WALL RENDER, uploaded once. js/walltex.js carries a seamless grey tile cut
-   from a photograph of a Belgrade block; the wall shader multiplies it over
-   whatever colour the theme gave the masonry.
+function treeCanvas() { return procTreeAtlas(treeKind()); }
+
+/* THE WALL RENDER, uploaded once. js/proctex.js generates a seamless grey tile —
+   broad patches, ridged cracks and fine aggregate, all periodic so the tile wraps
+   by construction rather than by cross-fading its own edges. The wall shader
+   multiplies it over whatever colour the theme gave the masonry.
 
    MIPMAPPED AND REPEATING, which is the opposite of what the tree wants and for
    the opposite reason. A cutout has a silhouette to protect and no repetition, so
    mipmapping fades it away at distance; this repeats every four metres, so by the
    time a block is far enough to matter there are several tiles to a pixel and
    what you want is their average. Without mipmaps a distant facade is crawling
-   static.
-
-   Like the trees: decoded asynchronously and never waited for. uGrimeK stays at
-   zero until it lands, which is a plain wall — exactly what shipped before it. */
-const GRIME = { tex: null, img: null, asked: false, ready: false };
+   static. */
+const GRIME = { tex: null };
 function grimeTexture() {
   const gl = GL.gl;
   if (!gl) return null;
   if (GRIME.tex) return GRIME.tex;
-  if (!GRIME.ready) {
-    if (GRIME.asked || typeof WALL_GRIME_PNG !== 'string') return null;
-    GRIME.asked = true;
-    const im = new Image();
-    im.onload = () => { GRIME.img = im; GRIME.ready = true; };
-    im.src = WALL_GRIME_PNG;
-    return null;
-  }
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, GRIME.img);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, procWallTile());
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.generateMipmap(gl.TEXTURE_2D);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
@@ -1299,60 +1255,12 @@ function grimeTexture() {
    building, not about the time of day. */
 const GRIME_K = 0.80;
 
-/* HOW MANY TREES ARE IN THE TEXTURE, and the reason there is one answer rather
-   than one per art style: the column a tree uses is baked into its cell's UVs,
-   and the theme can change under a cell that was built hours ago. So the painted
-   atlas is laid out to match the photographed one, and this is where both read
-   the number from. */
-function treeCols() { return typeof TREE_NIGHT_COLS === 'number' ? TREE_NIGHT_COLS : 2; }
+/* HOW MANY TREES ARE IN THE ATLAS, and the reason it is one number rather than
+   one per kind: the column a tree uses is baked into its cell's UVs, and the
+   theme can change under a cell that was built hours ago. Both atlases are laid
+   out the same way, and this is where both renderers read the count from. */
+function treeCols() { return TREE_COLS_N; }
 
-function paintedTree() {
-  if (TREE_TEX.painted) return TREE_TEX.painted;
-  const S = 128, COLS = treeCols();
-  const cv = document.createElement('canvas');
-  cv.width = S * COLS; cv.height = S;
-  const g = cv.getContext('2d');
-  g.clearRect(0, 0, cv.width, S);
-  for (let c = 0; c < COLS; c++) paintOneTree(g, c * S, S, c);
-  TREE_TEX.painted = cv;
-  return cv;
-}
-function paintOneTree(g, x0, S, col) {
-  // the trunk, which is most of the bottom third and none of the top
-  g.fillStyle = '#4a3a2a';
-  g.fillRect(x0 + S * 0.46, S * 0.52, S * 0.08, S * 0.48);
-  /* A deterministic scatter, so every build paints the same trees — this runs
-     once per session but the texture is compared in a test. Seeded off the
-     column, so the two are different trees rather than one drawn twice.
-
-     XORSHIFT, because the linear congruential generator this used to run
-     correlates consecutive values, and consecutive values here are an angle and
-     then a radius: the photographed crowns built the same way came out as a
-     visible spiral of blobs with a hole through the middle. */
-  let seed = (col * 2654435761 + 1) >>> 0;
-  const rnd = () => {
-    seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0;
-    return seed / 4294967296;
-  };
-  const blobs = [];
-  for (let i = 0; i < 26; i++) {
-    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.6) * 0.30;
-    blobs.push({ x: 0.5 + Math.cos(a) * r, y: 0.34 + Math.sin(a) * r * 0.82,
-                 r: 0.055 + rnd() * 0.075, k: rnd() });
-  }
-  // darkest first, so the lighter foliage reads as the lit top of the canopy
-  blobs.sort((p, q) => p.y - q.y);
-  for (const b of blobs) {
-    const t = 1 - b.y;                       // higher up the canopy is lighter
-    const r = Math.round(38 + b.k * 26 + t * 22);
-    const gg = Math.round(74 + b.k * 44 + t * 46);
-    const bb = Math.round(30 + b.k * 22 + t * 16);
-    g.fillStyle = 'rgb(' + r + ',' + gg + ',' + bb + ')';
-    g.beginPath();
-    g.arc(x0 + b.x * S, b.y * S, b.r * S, 0, Math.PI * 2);
-    g.fill();
-  }
-}
 function treeTexture() {
   const kind = treeKind();
   if (TREE_TEX.tex[kind]) return TREE_TEX.tex[kind];
