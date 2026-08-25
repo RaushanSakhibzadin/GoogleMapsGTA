@@ -141,7 +141,16 @@ function procWallTile() {
       const patch = fbm(u * 3, v * 6, 4, 3, 11, 6);        // broad, wide, shallow
       const crack = ridged(u * 6, v * 18, 3, 6, 29, 18);   // creased and horizontal
       const grit = vNoise(u * 48, v * 48, 48, 71);         // aggregate, isotropic
-      let t = 0.52 + (patch - 0.5) * 0.70 + (grit - 0.5) * 0.22;
+      /* THE AGGREGATE IS QUIET — 0.10, not the 0.22 it started at. It is the
+         finest thing in the tile, close to one texel a cell, so it is the term
+         that survives magnification as per-pixel static on a wall you are parked
+         next to. At 0.22 a step between neighbouring texels cost 6.3 levels
+         against 3.2 for the photograph this replaced, and it showed up in a test
+         about something else entirely: facade.mjs counts the edges the windows
+         are responsible for against the edges on the same pixels without them,
+         and the extra static took that ratio from 3.9 to 2.9 through a bar at
+         3.0. Render has grain in it, but it is not sand. */
+      let t = 0.52 + (patch - 0.5) * 0.70 + (grit - 0.5) * 0.10;
       /* A crack is dark and NARROW — the sixth power is what keeps it to the
          crease rather than shading the whole wall around it. Floored at 0.25
          rather than at 0: this is a multiplier, and a multiplier of zero is a

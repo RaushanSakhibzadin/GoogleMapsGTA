@@ -136,7 +136,13 @@ out.isAMultiplier = out.tile.mean > 105 && out.tile.mean < 150 &&
    render. So the mean step between neighbours is compared with the mean step
    between pixels eight apart. One octave of smooth noise barely differs over one
    pixel, so the ratio collapses; a sum of octaves keeps detail at every scale and
-   the near step stays a real fraction of the far one. */
+   the near step stays a real fraction of the far one.
+
+   THE BARS ARE CALIBRATED AGAINST THE DEGENERATE TILE RATHER THAN GUESSED. Built
+   with the crack and the aggregate removed, so nothing but the broadest fBm is
+   left, the same two readings are 1.36 and 9.24 — a near step of 1.4 at a ratio
+   of 0.15. As shipped they are 3.66 and 12.99, a ratio of 0.28. Both bars sit
+   between the two. */
 out.scales = await p.evaluate(() => {
   const c = procWallTile();
   const S = c.width;
@@ -150,7 +156,7 @@ out.scales = await p.evaluate(() => {
   };
   return { near: step(1), far: step(8) };
 });
-out.hasEveryScale = out.scales.near > out.scales.far * 0.25 && out.scales.near > 2;
+out.hasEveryScale = out.scales.near > out.scales.far * 0.20 && out.scales.near > 2.2;
 
 /* ---- 2. it reaches the walls, and as render rather than as a tint ----
 
