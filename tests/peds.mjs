@@ -60,20 +60,67 @@ const MEASURE = `(x, y, only) => {
   return { d: bd, w: bw };
 }`;
 
-const walkFor = secs => p.evaluate(async s => {
+/* WALK THEM, AND WATCH THE WHOLE WALK.
+
+   This used to wait sixty seconds and then look once. Thirty-four pedestrians at
+   one instant is a sample of thirty-four, and the thing being looked for happens
+   to about one of them at a time, at a corner, for a second or so — so the
+   reading was a coin flip: the same build answered "nobody in the road" twice
+   and "one of them 0.74 m in" the third time, and neither answer was about the
+   code. Sampling every sixth frame across the minute turns a boolean that flaps
+   into a rate that does not: how much of all the pedestrian-time in the city is
+   spent in a carriageway, and how far in it ever got. */
+const walkFor = (secs, src) => p.evaluate(async ([s, source]) => {
+  const measure = eval('(' + source + ')');
+  const seen = { frames: 0, samples: 0, onTarmac: 0, worst: Infinity };
   await new Promise(res => {
     const t0 = window.__simT();
-    const tick = () => (window.__simT() - t0 < s ? requestAnimationFrame(tick) : res());
+    const tick = () => {
+      if (seen.frames++ % 6 === 0) {
+        for (const q of peds) {
+          if (q.dead || !q.road) continue;
+          const own = measure(q.x, q.y, q.road);
+          const off = own.d - own.w / 2;
+          seen.samples++;
+          if (off < -0.5) seen.onTarmac++;
+          if (off < seen.worst) seen.worst = off;
+        }
+      }
+      window.__simT() - t0 < s ? requestAnimationFrame(tick) : res();
+    };
     requestAnimationFrame(tick);
   });
-}, secs);
+  return { samples: seen.samples,
+           onTarmac: seen.onTarmac,
+           rate: seen.samples ? +(seen.onTarmac / seen.samples).toFixed(4) : null,
+           worst: isFinite(seen.worst) ? +seen.worst.toFixed(2) : null };
+}, [secs, src]);
 
 /* ---- 1. where they are, after a minute of walking ---- */
 await p.evaluate(() => {
   window.__setInput({ gas: 0, brake: 1, steer: 0, hand: 0 });
   P.car.vx = P.car.vy = 0;
 });
-await walkFor(60);
+out.overTheMinute = await walkFor(60, MEASURE);
+/* Nobody spends any real part of a minute in the road they are walking beside,
+   and nobody is ever more than a step into one. Both are needed: a rate alone
+   would pass a pedestrian standing in the middle of a boulevard for one frame,
+   and a worst case alone would pass a crowd loitering half a metre in for the
+   whole minute.
+
+   A/B'd BY TAKING pedHold OUT, which is the rule this is here to defend — the
+   correction that pulls anyone who has cut the inside of a bend back onto the
+   pavement. Over the same minute, in the same city:
+
+       with it     20,279 samples   rate 0.0000   worst -0.58 m
+       without it  20,147 samples   rate 0.0072   worst -3.97 m
+
+   And the snapshot below read ZERO ON TARMAC in both, which is the argument for
+   this section existing: the reading that was carrying this claim could not see
+   a regression that put pedestrians four metres into a carriageway. */
+out.staysOutOfTheRoad = out.overTheMinute.samples > 2000 &&
+                        out.overTheMinute.rate < 0.005 &&
+                        out.overTheMinute.worst > -1.0;
 
 out.now = await p.evaluate(src => {
   const measure = eval('(' + src + ')');
@@ -111,7 +158,12 @@ out.now = await p.evaluate(src => {
    where the code says it puts them: half the carriageway plus a metre and a
    half. The median is asserted as well as the minimum, because "nobody is
    negative" would also be satisfied by a crowd standing thirty metres back. */
-out.staysOffTheTarmac = out.now.n > 10 && out.now.onTarmac === 0;
+/* The snapshot allows one, and the minute above does not allow a rate. Insisting
+   on zero here is asking thirty-four samples to answer a question about
+   something that happens to one pedestrian at a time for about a second — which
+   is the coin flip described over walkFor, and the reason this reading is now
+   the weaker of the two rather than the one carrying the claim. */
+out.staysOffTheTarmac = out.now.n > 10 && out.now.onTarmac <= 1;
 out.staysOnThePavement = out.now.medianOff > 1.0 && out.now.medianOff < 2.5;
 out.staysNearAStreet = out.now.strayed === 0;
 
@@ -144,12 +196,24 @@ out.oldWalk = await p.evaluate(src => {
            onTarmac: rows.filter(r => r.off < -0.5).length,
            strayed: rows.filter(r => r.d > 20).length };
 }, MEASURE);
-/* It has to be VERY much worse, or this is measuring the city rather than the
-   rule — a minute of random walking at 1.4 m/s covers eighty-odd metres, and
-   there is no street network anywhere that keeps that on a pavement. */
+/* BOTH WAYS OF ENDING UP IN THE WRONG PLACE, ADDED TOGETHER, because they are
+   the same failure seen from two sides: the old walk either wandered into a
+   carriageway or wandered away from every street, and which one it did in any
+   given run is the shape of the streets it started on rather than anything about
+   the rule. Asked of `strayed` alone the answer ranged from 5 to 16 out of 34
+   across four runs of the SAME build against a threshold of 8.5 — so the test
+   failed or passed on the draw. Added together it was 9, 10, 10 and 18.
+
+   One in seven, against a new walk that has to be strictly better. A minute of
+   random walking at 1.4 m/s covers eighty-odd metres and there is no street
+   network anywhere that keeps that on a pavement, so this is a floor on the
+   difference rather than a measurement of it. */
+const bad = w => (w.onTarmac || 0) + (w.strayed || 0);
+out.oldBad = bad(out.oldWalk);
+out.nowBad = bad(out.now);
 out.betterThanTheOldWalk =
   out.oldWalk.n === out.now.n &&
-  out.oldWalk.strayed > Math.max(3, out.now.strayed + out.now.n * 0.25);
+  out.oldBad >= Math.max(4, out.nowBad + out.now.n * 0.15);
 
 /* ---- 3. they face the way they are going ---- */
 out.facing = await p.evaluate(async () => {
@@ -270,7 +334,8 @@ out.strideIsPerMetre = out.stride.n > 5 &&
                        out.stride.max - out.stride.min < 0.05 * out.stride.max;
 
 out.errs = errs.slice(0, 3);
-out.pass = out.staysOffTheTarmac && out.staysOnThePavement && out.staysNearAStreet &&
+out.pass = out.staysOutOfTheRoad &&
+           out.staysOffTheTarmac && out.staysOnThePavement && out.staysNearAStreet &&
            out.betterThanTheOldWalk &&
            out.facesTheWayTheyWalk && out.isAPerson && out.strideIsPerMetre && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
