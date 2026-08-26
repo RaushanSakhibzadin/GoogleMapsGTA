@@ -41,8 +41,26 @@ const RADIO_HOSTS = [
 const RADIO = {
   list: [], i: -1, on: false,
   status: 'idle',            // idle | finding | none | ready | playing | error
-  err: '', el: null, tried: 0
+  err: '', el: null, at: null
 };
+
+/* WHERE WE ARE, REMEMBERED WITHOUT ASKING ANYONE ANYTHING.
+
+   The dial used to look itself up the moment a city finished loading. It is a
+   third-party server, on a connection that may be metered, for a feature the
+   player has not asked for yet — and when it cannot be reached the browser logs
+   a failed resource load, three times, which is noise in everybody's console
+   for a radio nobody switched on.
+
+   So the city is only recorded here, and the FIRST PRESS tunes. That is how a
+   car radio works, it uses nothing until it is wanted, and the press is a real
+   user gesture — which is the only thing iOS will start audio from anyway. */
+function radioAt(lat, lon, cc) {
+  RADIO.at = { lat, lon, cc: cc || '' };
+  RADIO.list = []; RADIO.i = -1; RADIO.on = false;
+  RADIO.status = 'idle'; RADIO.err = '';
+  radioPaint();
+}
 
 function radioEl() {
   if (RADIO.el) return RADIO.el;
@@ -154,6 +172,14 @@ async function radioFind(lat, lon, cc) {
   return 0;
 }
 
+/* The first press does the looking up. Everything below returns a promise so a
+   caller can wait; nothing in the game does. */
+async function radioWake() {
+  if (RADIO.list.length || RADIO.status === 'finding') return RADIO.list.length;
+  if (!RADIO.at) return 0;
+  return radioFind(RADIO.at.lat, RADIO.at.lon, RADIO.at.cc);
+}
+
 /* Playing is only ever done from a tap — see the note at the top. */
 function radioPlay() {
   if (!RADIO.list.length) return false;
@@ -182,13 +208,17 @@ function radioStop() {
 }
 function radioToggle() {
   if (RADIO.on) { radioStop(); return false; }
+  if (!RADIO.list.length) { radioWake().then(n => { if (n) radioPlay(); }); return true; }
   return radioPlay();
 }
 /* Step the dial. Wraps, because a dial that stops at the end of the band is a
    list, and because with the local stations sorted first the far end is where
    the country's big networks live — worth reaching from either direction. */
 function radioStep(d) {
-  if (!RADIO.list.length) return false;
+  if (!RADIO.list.length) {
+    radioWake().then(n => { if (n) radioPlay(); });
+    return true;
+  }
   RADIO.i = (RADIO.i + (d || 1) + RADIO.list.length) % RADIO.list.length;
   if (RADIO.on) return radioPlay();
   radioPaint();
@@ -199,6 +229,7 @@ function radioStep(d) {
    is read at a glance at 90 km/h. */
 function radioLabel() {
   const s = RADIO.list[RADIO.i];
+  if (RADIO.status === 'idle') return 'RADIO';
   if (RADIO.status === 'finding') return 'TUNING…';
   if (RADIO.status === 'none') return 'NO STATIONS HERE';
   if (!s) return 'RADIO OFF';
@@ -212,6 +243,7 @@ function radioPaint() {
   if (!el) return;
   const n = document.getElementById('radioN');
   if (n) n.textContent = radioLabel();
-  el.classList.toggle('on', RADIO.status !== 'idle');
+  // the strip appears as soon as there is a city to tune in, and says RADIO
+  el.classList.toggle('on', !!RADIO.at);
   el.classList.toggle('live', RADIO.on && RADIO.status === 'playing');
 }

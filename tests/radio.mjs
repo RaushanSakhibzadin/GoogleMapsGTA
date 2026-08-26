@@ -111,11 +111,35 @@ async function open(opts = {}) {
   await p.fill('#q', 'Savski venac, Beograd');
   await p.tap('#go');
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
-  await p.waitForTimeout(1500);
+  await p.waitForTimeout(1200);
+  /* THE FIRST PRESS IS WHAT TUNES IT. Nothing is looked up on the loading path —
+     see the note above radioAt — so a test that waited for stations to appear on
+     their own would wait for ever. This is the tap. */
+  if (!opts.noPress) await p.evaluate(() => window.__radioWake());
   return { browser, p, errs, asked };
 }
 
 const out = {};
+
+/* ---- 0. nothing is asked of anybody until the dial is pressed ----
+
+   It is a third-party server, on a connection that may be metered, for a
+   feature the player has not switched on. It also used to fail three times into
+   everybody's console for a radio nobody wanted, which is how this was found:
+   twenty-three tests in the suite watch for console errors, and every one of
+   them started failing. */
+{
+  const { browser, p, errs, asked } = await open({ noPress: true });
+  out.quiet = { asked: asked.length, radio: await p.evaluate(() => window.__radio()) };
+  out.silentUntilPressed = out.quiet.asked === 0 &&
+                           out.quiet.radio.status === 'idle' &&
+                           out.quiet.radio.label === 'RADIO';
+  // and the strip is on screen, saying RADIO, waiting to be pressed
+  out.stripBeforeTuning = await p.evaluate(() =>
+    getComputedStyle(document.getElementById('radio')).display !== 'none');
+  out.quietErrs = errs.slice(0, 3);
+  await browser.close();
+}
 
 /* ---- 1. a dial, tuned to where you are ---- */
 {
@@ -214,7 +238,11 @@ const out = {};
     // and the controls must not throw when there is nothing to control
     document.getElementById('radioX').click();
     document.getElementById('radioN').click();
-    return { ...r, after: window.__radio().status, label: window.__radio().label };
+    /* Pressing a dead dial TUNES AGAIN rather than doing nothing, which is
+       right: the reason it failed is usually a network that has since come
+       back. So the state after a press is 'finding', not 'none' — read the
+       label before pressing or you are reading the retry. */
+    return { ...r, retries: window.__radio().status };
   });
   out.drivesWithoutIt = await p.evaluate(async () => {
     window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
@@ -229,6 +257,7 @@ const out = {};
   });
   out.saysSoAndCarriesOn = out.dead.status === 'none' && out.dead.n === 0 &&
                            /NO STATIONS/i.test(out.dead.label) &&
+                           out.dead.retries === 'finding' &&
                            out.drivesWithoutIt === true;
   out.deadErrs = errs.slice(0, 3);
   await browser.close();
@@ -246,8 +275,8 @@ const out = {};
   await browser.close();
 }
 
-out.errs = [].concat(out.liveErrs, out.deadErrs, out.emptyErrs).filter(Boolean);
-out.pass = out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
+out.errs = [].concat(out.quietErrs, out.liveErrs, out.deadErrs, out.emptyErrs).filter(Boolean);
+out.pass = out.silentUntilPressed && out.stripBeforeTuning && out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
            out.popularityIsNotLocal && out.keepsTheUnplaced && out.dropsPlainHttp &&
            out.forwardAndBack && out.wraps && out.playsTheStation && out.reachable &&
            out.saysSoAndCarriesOn && out.emptyReadsAsNone && !out.errs.length;

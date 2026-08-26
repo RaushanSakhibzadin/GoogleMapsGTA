@@ -347,12 +347,11 @@ async function startGame(query, lat, lon, label) {
   if (touchUI) $('touch').classList.add('on');
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
-  /* THE DIAL, LOOKED UP BEHIND THE WHEEL. Not awaited and not on the loading
-     path: it is a nice-to-have that talks to a third server, and a player should
-     never wait on the radio to start driving. If it never answers, the strip
-     says there are no stations here and nothing else changes. */
-  if (typeof radioFind === 'function')
-    radioFind(lat, lon, want.cc || '').catch(() => {});
+  /* THE DIAL KNOWS WHERE IT IS, AND ASKS NOBODY UNTIL IT IS PRESSED. No network
+     on the loading path and none behind it: the lookup happens on the first tap,
+     which is how a car radio works and which is a real user gesture — the only
+     thing iOS will start audio from. */
+  if (typeof radioAt === 'function') radioAt(lat, lon, want.cc || '');
   /* The remembered view, applied here rather than on page load. Creating the
      first WebGL context and building a dozen cells of geometry is a real stall,
      and doing it while the menu is on screen makes the menu look broken; doing

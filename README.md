@@ -45,6 +45,7 @@ js/game.js      game state, missions, wanted level, the per-frame update
 js/gl.js        WebGL2 plumbing, matrices, ear clipping
 js/carmesh.js   the car, as a mesh: stations, wheels, glass, lamps
 js/proctex.js   every texture in the game, grown from fractals at load
+js/radio.js     the dial: real stations for the city you are in
 js/render.js    the top-down view
 js/soft3d.js    the chase view again, on a canvas, for a browser with no WebGL
 js/render3d.js  the chase view, and the switch between the two
@@ -75,6 +76,7 @@ pulls in the rest.
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
 | GHOST MODE | the switch on the title screen and the pause card — supporter perk, see the top |
+| **R** / the dial under the radar | next station — ◀ and ▶ step it, the name plays and stops it |
 | **⤓ LOG** | top right, on every screen — saves what the map servers sent and everything that went wrong |
 | **tap the radar** / **M** | pauses and opens the full city map — drag to pan, pinch to zoom |
 
@@ -110,6 +112,12 @@ pulls in the rest.
   of the building that carries them, blue by day and warm at dusk — and **yellow if it is
   somewhere you eat**, asked of `amenity` and `shop` rather than of the name, so a Belgrade
   kafana and a Tokyo kissaten are both found without the game knowing either word.
+- **A radio with the city's own stations on it.** Pulled from the
+  [Radio Browser](https://www.radio-browser.info/) community database — open data, no key, the
+  same idea as OpenStreetMap — filtered to the country you searched and then **sorted by how
+  close each transmitter is to where you are driving**, so a city's own stations come before the
+  national networks. Three buttons under the radar, one thumb apart. If the directory is down or
+  the country has nothing in it, the strip says so and nothing else changes.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.

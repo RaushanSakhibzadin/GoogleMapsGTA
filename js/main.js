@@ -344,6 +344,7 @@ window.__radio = () => ({
 window.__radioStep = d => radioStep(d);
 window.__radioToggle = () => radioToggle();
 window.__radioFind = (lat, lon, cc) => radioFind(lat, lon, cc);
+window.__radioWake = () => radioWake();
 // the interruption Safari hands back as a context that says "running" and is not
 window.__audioStalled = (st, t0, t1) => SFX.stalled(st, t0, t1);
 window.__audioRebuild = () => { SFX.rebuild(); return SFX.state(); };
