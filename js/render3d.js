@@ -68,7 +68,27 @@ const LOW_H = 11.0;
    it. A soffit at 4.2 over a hole cut at 3.8 is a stripe of daylight. */
 const GATE_H = 4.2;
 const SHADOW_R = 170;
-const SHADOW_SIZE = 2048;
+/* AND IT IS SIZED TO THE SCREEN IT SHADOWS, which it was not.
+
+   2048 everywhere, re-rendered every frame, is 4.2 million depth texels a frame.
+   On a phone the visible image is about 1.0 million pixels — so four fifths of
+   every frame's fragment work was going into a shadow map, and only a fifth into
+   the picture. That is the shape of a device that gets warm holding a steady
+   frame rate, which is exactly what was reported.
+
+   The rule is that the shadow must not cost more fragments than the colour
+   buffer it is sampled into. Below two megapixels — every phone, and a windowed
+   desktop — 1024 is the answer, and what it costs is texel size over the 340 m
+   square: 17 cm becomes 33 cm. Thirty-three centimetres is still finer than a
+   kerbstone, and it is being resolved on a six-inch screen through fog that
+   starts at 300 m. Above two megapixels there is a real display to earn it and
+   the map goes back to 2048.
+
+   Chosen once, at init, off the canvas the game came up at. A rotation changes
+   which side is longer and barely moves the product, and rebuilding a depth
+   attachment mid-drive to chase that would cost more than it saves. */
+const SHADOW_MAX = 2048;
+function shadowSizeFor(px) { return px >= 2.0e6 ? SHADOW_MAX : 1024; }
 
 /* Palette slots for the ground pass. Their COLOURS live in a uniform array, not
    in the vertex buffer, so pressing N to swap dusk for daylight changes six
@@ -264,7 +284,32 @@ void main() {
    another, and enough of the shadow term to sit in one rather than glow in it.
    Same program, same buffer, one uniform flipped between two draw calls that
    were already separate. */
-const SH_LIT_F = FS_HEAD + `in vec3 vC; in highp vec3 vW; in vec2 vGate;
+/* TWO VARIANTS, AND THE ONLY DIFFERENCE IS THE ARCHWAY.
+
+   `discard` is not free on a phone. Apple's GPU — like every tile-based deferred
+   renderer — resolves hidden surfaces before it shades them, and a fragment
+   shader that MIGHT throw a fragment away makes that impossible: the depth of a
+   wall is not known until the shader has run, so the hardware gives up on
+   rejecting anything early and shades every fragment of every building behind
+   every other one. It is a property of the shader being COMPILED with a discard
+   in it, not of the discard being reached, so putting it behind `if` bought
+   nothing. A city seen down a long street is several buildings deep, and this
+   turned all of that overdraw back on.
+
+   That is why the phone got warm, and it is a regression I introduced with the
+   archway. I did test it — and measured no difference — but I measured it in
+   headless Chromium, which rasterises with SwiftShader on the CPU, and a
+   software rasteriser has no hidden-surface removal to lose in the first place.
+   The test could not have detected this, and I read the null result as evidence
+   rather than as no evidence.
+
+   So the discard is compiled in only for the cells that actually contain a
+   building with a road through it — 48 of 4,288 in the captured city, which is
+   nearly always no cells at all — and every other cell is drawn by a program
+   with no discard anywhere in it, which is what shipped before archways existed.
+   The two are linked from one source and share fixed attribute slots, so the
+   same vertex arrays feed either. */
+const SH_LIT_F = gate => FS_HEAD + `in vec3 vC; in highp vec3 vW; in vec2 vGate;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
 /* The render: a grey tile cut from a photograph of a Belgrade wall, tiled off the
@@ -314,8 +359,9 @@ void main() {
      underneath, so it does not hang in the opening.
 
      Before anything else in this shader, because a discarded fragment should not
-     pay for a shadow lookup or a window grid. */
-  if (vGate.y > 0.0 && vW.y < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;
+     pay for a shadow lookup or a window grid — and compiled in at all only for
+     the cells that have an archway in them, for the reason set out above. */
+  ${gate ? `if (vGate.y > 0.0 && vW.y < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;` : ''}
 
   vec3 nn = normalize(vN);
   float sh = sunlit();
@@ -764,7 +810,8 @@ function initGL3() {
   if (G3.ready) return true;
   const gl = GL.gl;
   if (!gl) return false;
-  G3.lit = GL.program(SH_LIT_V, SH_LIT_F);
+  G3.lit = GL.program(SH_LIT_V, SH_LIT_F(false));      // no discard: nearly every cell
+  G3.litGate = GL.program(SH_LIT_V, SH_LIT_F(true));   // the few with a road through them
   G3.gnd = GL.program(SH_GND_V, SH_GND_F);
   G3.fx = GL.program(SH_FX_V, SH_FX_F);
   G3.dep = GL.program(SH_DEP_V, SH_DEP_F);
@@ -787,7 +834,7 @@ function initGL3() {
      not allocate — an old driver, a tight memory budget — uSmap.y stays zero and
      every surface reports itself fully lit, which is the picture this had before
      shadows existed rather than a black screen. */
-  G3.sm = GL.shadowMap(SHADOW_SIZE);
+  G3.sm = GL.shadowMap(shadowSizeFor(Math.floor(VW * DPR) * Math.floor(VH * DPR)));
   gl.enable(gl.DEPTH_TEST);
   gl.enable(gl.CULL_FACE);
   gl.cullFace(gl.BACK);
@@ -1351,9 +1398,25 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
 }
 
 /* Everything in one 512 m square, turned into two GPU meshes. */
+/* pos(3) + nrm(3) + col(3) + wall(4) — 13 floats a vertex, and the one place
+   that layout is written down for the cell meshes. */
+const LIT_ATTR = () => [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3],
+                        [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
   const gnd = [], lit = [], sgn = [], tre = [];
+  /* THE WALLS WITH A HOLE IN THEM, kept apart from every other triangle in the
+     cell. They are drawn by the one program that has a discard compiled into it,
+     and the whole point of that program is that as little as possible goes
+     through it — see the note above SH_LIT_F.
+
+     PER WALL, NOT PER CELL, and the difference is everything. Flagging the cell
+     was the first attempt and it moved nothing: a cell is 512 m of city and
+     holds a few hundred buildings, so one archway anywhere in it puts all of
+     them back on the slow path. Measured on the bundled city, all three of the
+     three cells in view were flagged. It is the individual wall panel that has
+     the hole, and there are a handful of those in a city. */
+  const litG = [];
   let ymin = Infinity, ymax = -Infinity;
   const note = y => { if (y < ymin) ymin = y; if (y > ymax) ymax = y; };
 
@@ -1522,12 +1585,14 @@ function buildCell(kx, kz) {
           }
         }
       }
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-               bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
-      lit.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-               bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw,
-               ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
+      // gw is non-zero only where the road genuinely crosses THIS wall
+      const into = gw > 0 ? litG : lit;
+      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+                bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
+      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
+                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw,
+                ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
     }
     /* THE INSIDE OF THE ARCHWAY.
 
@@ -1595,7 +1660,11 @@ function buildCell(kx, kz) {
   return {
     kx, kz, x0, z0, x1, z1, y0: ymin - 2, y1: ymax + 2,
     gnd: GL.mesh(new Float32Array(gnd), [[G3.gnd.a.aPos, 3], [G3.gnd.a.aNrm, 3], [G3.gnd.a.aPal, 1]]),
-    lit: GL.mesh(new Float32Array(lit), [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]]),
+    /* One attribute layout for both, because they are the same vertices drawn by
+       two builds of the same shader — and because the slots are bound to fixed
+       numbers before linking, either program can read either mesh. */
+    litG: litG.length ? GL.mesh(new Float32Array(litG), LIT_ATTR()) : null,
+    lit: GL.mesh(new Float32Array(lit), LIT_ATTR()),
     sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null,
     tre: tre.length ? GL.mesh(new Float32Array(tre), [[G3.tree.a.aPos, 3], [G3.tree.a.aUV, 2]]) : null
   };
@@ -1953,7 +2022,7 @@ function shadowView() {
   M4.ortho(G3.Pl, -SHADOW_R, SHADOW_R, -SHADOW_R, SHADOW_R, 1, D * 2.2);
   M4.mul(G3.LVP, G3.Pl, G3.Vl);
 
-  const S = G3.sm ? G3.sm.size : SHADOW_SIZE;
+  const S = G3.sm ? G3.sm.size : SHADOW_MAX;
   const o = M4.xform(G3.LVP, 0, 0, 0);
   const tx = o[0] * S * .5, ty = o[1] * S * .5;
   G3.LVP[12] += (Math.round(tx) - tx) * 2 / S;
@@ -2253,17 +2322,24 @@ function render3D() {
     G3.tris += cell.gnd.n / 3;
   }
 
-  gl.useProgram(G3.lit.p);
-  setCommon(G3.lit);
-  gl.uniform3fv(G3.lit.u.uGlass, th.glass);
-  gl.uniform3fv(G3.lit.u.uWinCol, th.win);
-  gl.uniform1f(G3.lit.u.uWinK, th.winK);
-  gl.uniform1f(G3.lit.u.uGlassE, th.glassE);
-  gl.uniform1f(G3.lit.u.uWinMin, G3.noWin ? 1e9 : WIN_MIN_H);
-  gl.uniform1f(G3.lit.u.uLowH, G3.noShop ? 0 : LOW_H);
-  gl.uniform1f(G3.lit.u.uPaint, 0);            // masonry: the theme's light makes it
-  {
-    const gt = grimeTexture();
+  /* THE MASONRY, in two passes over one set of buffers.
+
+     The programs differ only in whether the archway discard is compiled into
+     them — see the note above SH_LIT_F — so everything they are told is the
+     same, which is why it is said once here and applied to whichever is asked
+     for. Attribute slots are bound to fixed numbers before linking, so a cell's
+     vertex array feeds either program. */
+  const gt = grimeTexture();
+  const useLit = prog => {
+    gl.useProgram(prog.p);
+    setCommon(prog);
+    gl.uniform3fv(prog.u.uGlass, th.glass);
+    gl.uniform3fv(prog.u.uWinCol, th.win);
+    gl.uniform1f(prog.u.uWinK, th.winK);
+    gl.uniform1f(prog.u.uGlassE, th.glassE);
+    gl.uniform1f(prog.u.uWinMin, G3.noWin ? 1e9 : WIN_MIN_H);
+    gl.uniform1f(prog.u.uLowH, G3.noShop ? 0 : LOW_H);
+    gl.uniform1f(prog.u.uPaint, 0);            // masonry: the theme's light makes it
     /* SET EVEN WHEN THERE IS NOTHING TO BIND. A sampler uniform defaults to unit
        0, and unit 0 holds the shadow map — a sampler2D and a sampler2DShadow
        pointing at the same unit is an INVALID_OPERATION at draw time in WebGL2,
@@ -2272,15 +2348,31 @@ function render3D() {
        that nothing samples because uGrimeK is zero. */
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D, gt);
-    gl.uniform1i(G3.lit.u.uGrime, 3);
-    gl.uniform1f(G3.lit.u.uGrimeK, gt && !G3.noGrime ? GRIME_K : 0);
+    gl.uniform1i(prog.u.uGrime, 3);
+    gl.uniform1f(prog.u.uGrimeK, gt && !G3.noGrime ? GRIME_K : 0);
+  };
+  const drawLit = key => {
+    let tris = 0;
+    for (const cell of draw) if (cell[key]) {
+      gl.bindVertexArray(cell[key].vao);
+      gl.drawArrays(gl.TRIANGLES, 0, cell[key].n);
+      G3.tris += cell[key].n / 3;
+      tris += cell[key].n / 3;
+      // G3.drawn counts CELLS in view, so only the pass every cell has is tallied
+      if (key === 'lit') G3.drawn++;
+    }
+    return tris;
+  };
+  /* The pierced walls first and everything else second, so the program left
+     bound at the end is the plain one — which is the one the cars want below,
+     and the one every `useProgram(G3.lit.p)` further down restores to. */
+  G3.gateTris = 0;
+  if (draw.some(c => c.litG)) {
+    useLit(G3.litGate);
+    G3.gateTris = Math.round(drawLit('litG'));
   }
-  for (const cell of draw) if (cell.lit) {
-    gl.bindVertexArray(cell.lit.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, cell.lit.n);
-    G3.tris += cell.lit.n / 3;
-    G3.drawn++;
-  }
+  useLit(G3.lit);
+  drawLit('lit');
   /* ---- the planting ----
 
      Alpha-tested, so it writes depth and needs no sorting: a tree occludes what
@@ -2360,6 +2452,11 @@ function render3D() {
   }
 
   if (dyn.length && G3.cars.n) {
+    /* NAMED RATHER THAN INHERITED. There are two lit programs now and uniforms
+       belong to a program, so setting uPaint on G3.lit while G3.litGate happened
+       to be bound would leave the cars drawn masonry-dark by whichever one the
+       last block left current. */
+    gl.useProgram(G3.lit.p);
     gl.uniform1f(G3.lit.u.uPaint, 1);          // paint: keeps its colour after dark
     gl.bindVertexArray(G3.cars.vao);
     gl.drawArrays(gl.TRIANGLES, 0, G3.cars.n);

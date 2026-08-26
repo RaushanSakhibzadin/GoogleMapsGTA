@@ -256,6 +256,10 @@ window.__gl3 = () => ({ ok: !!GL.gl, fail: GL.fail, ready: G3.ready,
                         // the sun: is there a shadow map, and is anything casting into it
                         shadow: !!G3.sm, shadowSize: G3.sm ? G3.sm.size : 0,
                         shadowTris: Math.round(G3.shadowTris), shadowR: SHADOW_R,
+                        // triangles drawn by the archway program — the one with a
+                        // discard compiled into it. Against `tris`, this is how
+                        // much of the city still pays for early-Z being off.
+                        gateTris: G3.gateTris | 0,
                         lights: (W.lights || []).length, lit: !!PAL.lights });
 // where the camera actually is, so a test can check it is behind the car and
 // above the hill rather than inside it
