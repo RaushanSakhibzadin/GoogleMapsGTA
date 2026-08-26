@@ -59,7 +59,16 @@ const BUILDINGS = { elements: [
   { type: 'way', id: 7004, tags: { building: 'apartments', height: '15' },
     geometry: ring(160, 220, -40, -80) },
   { type: 'way', id: 7005, tags: { building: 'apartments', height: '15' },
-    geometry: ring(230, 290, -40, -80) }
+    geometry: ring(230, 290, -40, -80) },
+  /* Two ways for a place to be somewhere you eat, and both have to reach the
+     ink. 7006 is tagged on the BUILDING — a restaurant that owns its own
+     premises — and 7007 is a nameless block with a cafe inside it, which is how
+     most of a real high street is mapped. */
+  { type: 'way', id: 7006, tags: { building: 'commercial', height: '9',
+                                   amenity: 'restaurant', name: 'KOD BATE' },
+    geometry: ring(300, 360, -40, -80) },
+  { type: 'way', id: 7007, tags: { building: 'apartments', height: '14' },
+    geometry: ring(370, 430, -40, -80) }
 ] };
 /* The garage is one of the three things the game has gameplay for, so it comes
    down with the landmark sweep and becomes a POI. The supermarket is not, and
@@ -74,7 +83,8 @@ const POIS = { elements: [
 const SHOPS = [
   { type: 'node', id: 5002, ...toLL(180, -60), tags: { shop: 'supermarket', name: 'IDEA' } },
   // no name: must not put a blank sign on anything
-  { type: 'node', id: 5003, ...toLL(250, -60), tags: { shop: 'bakery' } }
+  { type: 'node', id: 5003, ...toLL(250, -60), tags: { shop: 'bakery' } },
+  { type: 'node', id: 5004, ...toLL(400, -60), tags: { amenity: 'cafe', name: 'KAFANA' } }
 ];
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -119,18 +129,33 @@ await p.waitForTimeout(500);
 /* Read first, because it is a fact about the world rather than about a frame,
    and because it is also this test's proof that the fixture arrived intact. */
 out.named = await p.evaluate(() =>
-  W.buildings.filter(b => !b.mono).map(b => ({ id: b.id, sign: b.sign || '' })));
+  W.buildings.filter(b => !b.mono).map(b => ({ id: b.id, sign: b.sign || '', food: !!b.food })));
 out.ownName = out.named.some(b => b.id === 7001 && b.sign === 'GRAND CASINO ADMIRAL');
 out.cyrillic = out.named.some(b => b.id === 7002 && b.sign === 'Панда');
 out.shopLendsItsName = out.named.some(b => b.id === 7003 && b.sign === 'AUTO CENTAR');
 out.shopfrontNamesIt = out.named.some(b => b.id === 7004 && b.sign === 'IDEA');
 // a shop with no name must leave the wall alone rather than sign it with ''
 out.namelessStaysBlank = out.named.some(b => b.id === 7005 && b.sign === '');
+/* ---- and somewhere you eat is known to be one ----
+   Asked of the TAGS rather than of the name, so it works in any language: the
+   Belgrade kafana and a Tokyo kissaten are both amenity=cafe and nothing in the
+   game has to know either word. Both routes in — tagged on the building, and
+   lent by a shopfront node inside it — and the ordinary shops must NOT be
+   flagged, or every sign in the city goes yellow and the distinction is gone. */
+out.eateries = out.named.filter(b => b.food).map(b => b.id).sort();
+out.knowsWhereYouEat =
+  out.named.some(b => b.id === 7006 && b.sign === 'KOD BATE' && b.food) &&
+  out.named.some(b => b.id === 7007 && b.sign === 'KAFANA' && b.food) &&
+  !out.named.some(b => (b.id === 7001 || b.id === 7004) && b.food);
 /* AND THE SUPERMARKET IS NOT A LANDMARK. It exists to letter a wall; a beacon
    over every corner shop would make the radar useless and the skyline worse. */
 out.shopsAreNotPois = await p.evaluate(() =>
-  W.pois.filter(q => /IDEA|bakery/i.test(q.name || '')).length === 0 &&
-  W.pois.length === 1 && W.shops.length === 1);
+  W.pois.filter(q => /IDEA|KAFANA|bakery/i.test(q.name || '')).length === 0 &&
+  // the garage, and nothing else, is a landmark
+  W.pois.length === 1 &&
+  // the two NAMED shopfronts — the supermarket and the cafe. The nameless
+  // bakery is not one: a blank sign is worse than no sign.
+  W.shops.length === 2);
 
 /* ---- 1. the names put pixels on the walls ---- */
 /* Both frames from one paused evaluate, and the only thing that changes between
@@ -189,6 +214,69 @@ out.signsAreDrawn = shot.lit > 400;
 out.blueByDay = !!shot.ink && shot.glyphs > 100 &&
                 shot.ink[2] > shot.ink[0] * 1.5 && shot.ink[2] > shot.ink[1] * 1.2;
 
+/* ---- 1c. and a restaurant's name is yellow ----
+
+   A SECOND CAMERA, because the one above is parked in front of the ordinary
+   blocks and the two eateries are two hundred metres along the street from
+   them. Same A/B — the frame with the names and the frame without — and the
+   glyph pixels picked out by COLOUR DISTANCE, the same ink-agnostic rule section
+   1 uses. Picking them by a rise in luma was the first attempt and it quietly
+   favoured one answer: yellow is a bright ink and blue is a dark one, so a fixed
+   luma rise found 297 yellow pixels and only 36 blue ones, and the blue reading
+   fell under its own count bar. A rule that finds more of the colour it was
+   tuned for is not a rule, it is the conclusion.
+
+   Asserted as a relationship between channels rather than against numbers: the
+   wall behind, the sun on it and the fog all move the absolute values, and none
+   of them can turn blue letters yellow. */
+out.foodShot = await p.evaluate(() => {
+  P.car.vx = P.car.vy = 0; traffic.length = 0; cops.length = 0; peds.length = 0;
+  const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+  const settle = n => { for (let i = 0; i < n; i++) window.__px3(0, 0, 1, 1); };
+  const read = () => {
+    window.__tp(365, 40, -Math.PI / 2);
+    settle(60);
+    const A = window.__px3(0, 0, w, h);
+    const keep = W.buildings.map(b => b.sign);
+    for (const b of W.buildings) b.sign = '';
+    dropAllCells();
+    settle(60);
+    const B = window.__px3(0, 0, w, h);
+    W.buildings.forEach((b, i) => { b.sign = keep[i]; });
+    dropAllCells();
+    settle(60);
+    let r = 0, g = 0, bl = 0, n = 0;
+    for (let i = 0; i < A.length; i += 4) {
+      const dr = A[i] - B[i], dg = A[i + 1] - B[i + 1], db = A[i + 2] - B[i + 2];
+      if (Math.hypot(dr, dg, db) < 55) continue;
+      r += A[i]; g += A[i + 1]; bl += A[i + 2]; n++;
+    }
+    return { n, ink: n ? [r / n, g / n, bl / n].map(v => Math.round(v)) : null };
+  };
+  state = 'pause';
+  const food = read();
+  /* AND THE SAME CAMERA WITH THE FLAG TAKEN AWAY, which is the A/B that makes
+     this mean anything: without it a yellow reading could be the afternoon sun
+     on a cream wall rather than the ink. Same buildings, same names, same
+     frame — one boolean apart. */
+  const keepFood = W.buildings.map(b => b.food);
+  for (const b of W.buildings) b.food = false;
+  dropAllCells();
+  const plain = read();
+  W.buildings.forEach((b, i) => { b.food = keepFood[i]; });
+  dropAllCells();
+  settle(60);
+  state = 'play';
+  return { food, plain };
+});
+out.foodIsYellow =
+  out.foodShot.food.n > 100 && out.foodShot.plain.n > 100 &&
+  // yellow: red and green well clear of blue
+  out.foodShot.food.ink[0] > out.foodShot.food.ink[2] * 1.4 &&
+  out.foodShot.food.ink[1] > out.foodShot.food.ink[2] * 1.3 &&
+  // and the very same signs without the flag are the ordinary blue
+  out.foodShot.plain.ink[2] > out.foodShot.plain.ink[0] * 1.4;
+
 /* ---- 2. and they stay on the building ---- */
 /* Geometry, not pixels: signQuad is the same function the cell builder uses, so
    asking it directly is asking exactly what was drawn — and it can be asked
@@ -241,7 +329,7 @@ out.longNamesGetWider = out.shape.short > 0 && out.shape.long > out.shape.short 
 out.errs = errs.slice(0, 3);
 out.pass = out.ownName && out.cyrillic && out.shopLendsItsName &&
            out.shopfrontNamesIt && out.namelessStaysBlank && out.shopsAreNotPois &&
-           out.signsAreDrawn && out.blueByDay && out.staysOnTheWall && out.longNamesGetWider &&
+           out.signsAreDrawn && out.blueByDay && out.knowsWhereYouEat && out.foodIsYellow && out.staysOnTheWall && out.longNamesGetWider &&
            !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

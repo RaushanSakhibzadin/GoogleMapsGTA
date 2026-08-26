@@ -211,7 +211,7 @@ const GL = {
      difference between one vertex buffer per mesh and one per pass. */
   program(vsSrc, fsSrc) {
     const gl = this.gl;
-    const SLOT = { aPos: 0, aNrm: 1, aCol: 2, aPal: 3, aUV: 4, aWall: 5 };
+    const SLOT = { aPos: 0, aNrm: 1, aCol: 2, aPal: 3, aUV: 4, aWall: 5, aKind: 6 };
     const sh = (type, src) => {
       const s = gl.createShader(type);
       gl.shaderSource(s, src); gl.compileShader(s);

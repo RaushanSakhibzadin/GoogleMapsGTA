@@ -112,6 +112,20 @@ function buildingColours(t, area, h, seed) {
 
 // police reuses the blue the cop blips already use, so the radar reads consistently
 const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e' };
+/* SOMEWHERE YOU EAT, which gets its name in yellow rather than blue.
+
+   The set is the OSM amenity values for places that serve food and drink, plus
+   the two shop values that mean the same thing on a high street. `fast_food`
+   covers the kebab shop, `bar` and `pub` the ones that mostly sell drink, and
+   `ice_cream` is its own amenity rather than a kind of cafe.
+
+   ASKED OF THE TAGS RATHER THAN OF THE NAME, so it works in any city and in any
+   language: a Belgrade `kafana` and a Tokyo `喫茶店` are both amenity=cafe, and
+   nothing here has to know either word. */
+const FOOD_AMENITY = /^(restaurant|cafe|fast_food|bar|pub|biergarten|food_court|ice_cream)$/;
+const IS_FOOD = t => FOOD_AMENITY.test(t.amenity || '') ||
+                     /^(bakery|deli|coffee|pastry|confectionery)$/.test(t.shop || '');
+
 const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'hospital' ? 'hospital'
                     : t.shop === 'car_repair' ? 'repair' : null;
@@ -195,7 +209,8 @@ function parseOSM(els) {
       if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
       // a named shopfront: not a point of interest, just a name for a wall
       else if (t.name && (t.shop || t.amenity))
-        shops.push({ x: projX(el.lon), y: projY(el.lat), name: t.name.slice(0, 34) });
+        shops.push({ x: projX(el.lon), y: projY(el.lat), name: t.name.slice(0, 34),
+                     food: IS_FOOD(t) });
       const mk = MONU_KIND(t);
       if (mk) {
         const mx = projX(el.lon), my = projY(el.lat);
@@ -250,6 +265,8 @@ function parseOSM(els) {
       buildings.push({ id: el.id, pts, h, bb: bbox(pts), cx: c.x, cy: c.y,
                        // what it is called, for the sign across its widest wall
                        sign: (t.name || '').slice(0, 34),
+                       // and whether that sign is a restaurant's, which is yellow
+                       food: IS_FOOD(t),
                        mWall: col.mWall, mRoof: col.mRoof, wall: '#333', roof: '#666',
                        neon: (signable && Math.random() < .22) ? pick(PAL.neon) : null });
     } else if (t.leisure || t.landuse) {
@@ -786,7 +803,9 @@ function markPOIBuildings() {
          is the right way round for a street sign: what you read on a facade is
          the business, not the freeholder. A name the building already has wins,
          because that is the more specific fact. */
-      if (!b.sign && p.name) { b.sign = p.name.slice(0, 34); signChanged(b); }
+      if (!b.sign && p.name) {
+        b.sign = p.name.slice(0, 34); b.food = !!p.food; signChanged(b);
+      }
     }
   }
   /* AND THE SHOPFRONTS, which is where most of a street's names actually live.
@@ -801,7 +820,9 @@ function markPOIBuildings() {
       const b = W.buildings[bi];
       if (b.sign) continue;
       if (q.x < b.bb.x0 || q.x > b.bb.x1 || q.y < b.bb.y0 || q.y > b.bb.y1) continue;
-      if (pointInPoly(b.pts, q.x, q.y)) { b.sign = q.name; signChanged(b); break; }
+      if (pointInPoly(b.pts, q.x, q.y)) {
+        b.sign = q.name; b.food = !!q.food; signChanged(b); break;
+      }
     }
   }
 }

@@ -589,15 +589,18 @@ void main() {
    from in front at night and painted white by day, and either way it should not
    go black when it happens to face away from the sun. */
 const SH_SIGN_V = `#version 300 es
-in vec3 aPos; in vec2 aUV;
+in vec3 aPos; in vec2 aUV; in float aKind;
 uniform mat4 uVP;
-out vec2 vU; out float vD;
-void main() { vec4 p = uVP * vec4(aPos, 1.0); gl_Position = p; vU = aUV; vD = p.w; }`;
+out vec2 vU; out float vD; out float vK;
+void main() {
+  vec4 p = uVP * vec4(aPos, 1.0);
+  gl_Position = p; vU = aUV; vD = p.w; vK = aKind;
+}`;
 const SH_SIGN_F = `#version 300 es
 precision mediump float;
-in vec2 vU; in float vD;
+in vec2 vU; in float vD; in float vK;
 uniform sampler2D uTex;
-uniform vec3 uFog, uInk;
+uniform vec3 uFog, uInk, uInkFood;
 uniform vec2 uFogR;
 out vec4 outC;
 void main() {
@@ -607,8 +610,16 @@ void main() {
   /* The glyphs are white and their rim is black; multiplying by the ink colour
      tints the letters without touching the rim — black stays black whatever it
      is multiplied by — which is what lets the ink be a mid blue in daylight and
-     still read against a pale stucco wall. */
-  outC = vec4(mix(t.rgb * uInk, uFog, f), t.a * (1.0 - f));
+     still read against a pale stucco wall.
+
+     WHICH ink is a per-vertex flag rather than a second draw call, and rather
+     than a colour baked into the mesh. Baking it would be simpler and wrong: a
+     cell's geometry is built once and cached for as long as you are near it,
+     and pressing N to swap dusk for daylight has to change every sign in the
+     city on the same frame. A flag chooses between two uniforms instead, so the
+     theme moves both and the mesh never has to be rebuilt. */
+  vec3 ink = mix(uInk, uInkFood, vK);
+  outC = vec4(mix(t.rgb * ink, uFog, f), t.a * (1.0 - f));
 }`;
 
 /* A TREE: two quads crossed at right angles, with one cutout texture on both.
@@ -1185,12 +1196,13 @@ function pushSign(out, b, fp, wind, top, foot) {
   const q = signQuad(b, fp, wind, top, foot);
   if (!q) return;
   const { L, R, y0, y1, s } = q;
-  out.push(L.x, y0, L.z, s.u0, s.v1,
-           R.x, y0, R.z, s.u1, s.v1,
-           R.x, y1, R.z, s.u1, s.v0);
-  out.push(L.x, y0, L.z, s.u0, s.v1,
-           R.x, y1, R.z, s.u1, s.v0,
-           L.x, y1, L.z, s.u0, s.v0);
+  const k = b.food ? 1 : 0;             // somewhere you eat: the other ink
+  out.push(L.x, y0, L.z, s.u0, s.v1, k,
+           R.x, y0, R.z, s.u1, s.v1, k,
+           R.x, y1, R.z, s.u1, s.v0, k);
+  out.push(L.x, y0, L.z, s.u0, s.v1, k,
+           R.x, y1, R.z, s.u1, s.v0, k,
+           L.x, y1, L.z, s.u0, s.v0, k);
 }
 
 /* STREET TREES.
@@ -1665,7 +1677,9 @@ function buildCell(kx, kz) {
        numbers before linking, either program can read either mesh. */
     litG: litG.length ? GL.mesh(new Float32Array(litG), LIT_ATTR()) : null,
     lit: GL.mesh(new Float32Array(lit), LIT_ATTR()),
-    sgn: sgn.length ? GL.mesh(new Float32Array(sgn), [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2]]) : null,
+    sgn: sgn.length ? GL.mesh(new Float32Array(sgn),
+                              [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2],
+                               [G3.sign.a.aKind, 1]]) : null,
     tre: tre.length ? GL.mesh(new Float32Array(tre), [[G3.tree.a.aPos, 3], [G3.tree.a.aUV, 2]]) : null
   };
 }
@@ -2435,6 +2449,18 @@ function render3D() {
        dark belongs to the same night as everything under it. */
     gl.uniform3fv(G3.sign.u.uInk,
                   themeName === 'day' ? [.24, .53, .90] : [1, .93, .80]);
+    /* AND A RESTAURANT IS YELLOW. Not a second draw call and not a second
+       texture — the same atlas, one flag a vertex, two uniforms.
+
+       Warmer and brighter than the blue rather than merely a different hue,
+       because the job is to be findable from the end of a street when you are
+       hungry: yellow on masonry is what an awning and a lit fascia both look
+       like, and it is the one colour the blue can never be confused with at a
+       distance or through fog. After dark it barely changes — a warm sign under
+       a sodium lamp is the same sign — which is right: it is the daylight blue
+       that these have to stand out from. */
+    gl.uniform3fv(G3.sign.u.uInkFood,
+                  themeName === 'day' ? [1, .78, .17] : [1, .86, .42]);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
     gl.uniform1i(G3.sign.u.uTex, 1);
