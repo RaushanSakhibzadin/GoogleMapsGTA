@@ -62,6 +62,39 @@ function radioAt(lat, lon, cc) {
   radioPaint();
 }
 
+/* A DIFFERENT STATION EVERY TIME, chosen from the local ones.
+
+   Random over the whole list would defeat the ranking: the dial is sorted by
+   how close each transmitter is, so the far end of it is the national networks
+   two hundred kilometres away. So the draw is from the NEAR HALF — at least
+   four so a short list still has somewhere to go, and never more than half —
+   which keeps "random" and "local" both true.
+
+   AND IT NEVER PICKS THE ONE ALREADY PLAYING, because a shuffle that sometimes
+   does nothing reads as a broken button. With two stations that means it
+   alternates, which is the only honest thing two stations can do. */
+function radioRandom() {
+  const n = RADIO.list.length;
+  if (n < 2) return n === 1 ? (RADIO.i = 0, true) : false;
+  const pool = Math.max(4, Math.min(n, Math.ceil(n / 2)));
+  let k = RADIO.i;
+  for (let tries = 0; tries < 12 && k === RADIO.i; tries++)
+    k = Math.floor(Math.random() * pool) % n;
+  RADIO.i = k === RADIO.i ? (RADIO.i + 1) % n : k;
+  return true;
+}
+
+/* Rolled at every fresh start and at every shunt — see the callers. If the dial
+   has not been tuned yet there is nothing to shuffle and nothing to do: the
+   first press picks at random anyway. */
+function radioShuffle(play) {
+  if (!RADIO.list.length) return false;
+  if (!radioRandom()) return false;
+  if (play && RADIO.on) return radioPlay();
+  radioPaint();
+  return true;
+}
+
 /* THE DIAL'S OWN LEVEL, KEPT APART FROM THE GAME'S.
 
    They are different things — an engine note you want under a conversation and
@@ -137,7 +170,7 @@ function radioRank(list, lat, lon) {
     .map(s => {
       const glat = parseFloat(s.geo_lat), glon = parseFloat(s.geo_long);
       const placed = isFinite(glat) && isFinite(glon) && (glat || glon);
-      return { name: (s.name || '').trim().slice(0, 28) || 'UNNAMED',
+      return { name: (s.name || '').trim().slice(0, 34) || 'UNNAMED',
                url: s.url, tags: s.tags || '',
                km: placed ? radioDist(lat, lon, glat, glon) / 1000 : null,
                pop: +s.clickcount || 0 };
@@ -184,6 +217,8 @@ async function radioFind(lat, lon, cc) {
       const list = radioRank(JSON.parse(raw), lat, lon);
       if (!list.length) continue;
       RADIO.list = list; RADIO.i = 0;
+      // and the first station of a session is a draw, not always the nearest
+      radioRandom();
       RADIO.status = 'ready';
       radioPaint();
       return list.length;
@@ -252,8 +287,17 @@ function radioStep(d) {
   return true;
 }
 
-/* What the dial says. One line, because it lives in a strip under the radar and
-   is read at a glance at 90 km/h. */
+/* What the dial says. One line, because it is read at a glance at 90 km/h.
+
+   AND NOTHING IS APPENDED WHEN IT IS SIMPLY OFF. It used to read "Studio B · OFF",
+   which is a fifth of the bar spent on something the button's own colour already
+   says — it goes gold and glows while a station is playing and is plain the rest
+   of the time. Real station names run to thirty characters ("Radio Televizija
+   Vojvodine 021" is a Novi Sad station, not an invention), and those six extra
+   characters were the difference between the whole name and an ellipsis.
+
+   The two states that are NOT obvious from a colour still say so: a stream that
+   died, and one still opening. */
 function radioLabel() {
   const s = RADIO.list[RADIO.i];
   if (RADIO.status === 'idle') return 'RADIO';
@@ -262,15 +306,41 @@ function radioLabel() {
   if (!s) return 'RADIO OFF';
   if (RADIO.status === 'error') return s.name + ' · DEAD AIR';
   if (RADIO.status === 'loading') return s.name + ' …';
-  if (!RADIO.on) return s.name + ' · OFF';
   return s.name;
 }
+
+/* THE LAST RESORT, for a name too long even for two lines.
+
+   Almost nothing reaches this: the stylesheet wraps the name across two lines
+   and the ranker truncates at 34 characters, which fits. It is here for the
+   short-screen case — in landscape the bar is 44 points tall and holds two lines
+   of 12.5 point with very little to spare — and for the fonts this does not know
+   about, since the box is sized in points and the type is whatever the phone
+   decided to use.
+
+   Stepped rather than solved, because the thing that overflows here is HEIGHT,
+   and height goes down in whole lines: there is no ratio to divide by, only the
+   size at which the third line stops existing. Floored at 11 points, below which
+   a clipped name is the better failure — you can at least tell it is clipped. */
+function radioFit(n) {
+  const base = parseFloat(getComputedStyle(n).getPropertyValue('--nameFs')) || 14;
+  n.style.fontSize = base + 'px';
+  const over = () => n.scrollHeight > n.clientHeight + 1 ||
+                     n.scrollWidth > n.clientWidth + 1;
+  for (let px = base - 0.5; px >= 11 && over(); px -= 0.5)
+    n.style.fontSize = px + 'px';
+}
+
 function radioPaint() {
   const el = typeof $ === 'function' ? $('radio') : document.getElementById('radio');
   if (!el) return;
   const n = document.getElementById('radioN');
-  if (n) n.textContent = radioLabel();
-  // the strip appears as soon as there is a city to tune in, and says RADIO
-  el.classList.toggle('on', !!RADIO.at);
+  if (n) { n.textContent = radioLabel(); radioFit(n); }
+  /* THE CLASS GOES ON <html>, not on the bar. The bar reserves a strip at the
+     bottom of the screen and everything else has to lift by that much — which is
+     done with a custom property declared on :root, and a property set further
+     down the tree cannot reach it. So the root carries the switch and the bar
+     shows itself from there. */
+  document.documentElement.classList.toggle('radio-on', !!RADIO.at);
   el.classList.toggle('live', RADIO.on && RADIO.status === 'playing');
 }

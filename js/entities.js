@@ -742,14 +742,68 @@ function checkWreck(c, dt) {
    takes the shove. Between two AI cars the masses are equal and this is exactly
    the old behaviour. */
 const massOf = c => c.kind === 'player' ? 3 : c.kind === 'cop' ? 1.35 : 1;
+/* WHERE TWO CARS ACTUALLY TOUCH.
+
+   This was a circle: contact when the centres came within (la + lb) * 0.34,
+   about 3.06 m for two ordinary cars. A car in this game is 4.5 m long and 2 m
+   wide, and a single radius cannot describe that shape — it is wrong in both
+   directions at once, and it was reported as the sideways one:
+
+     SIDE BY SIDE two cars touch when their centres are 2.0 m apart, so a 3.06 m
+     circle fires with a clear metre of daylight between them. That is "cars do
+     not hit each other visually but the hit happens".
+
+     NOSE TO TAIL they touch at 4.5 m, so the same circle does not fire until
+     they have driven a metre and a half into each other.
+
+   Shrinking the radius, which is what was asked for, fixes the first and makes
+   the second worse. So the test is the shape instead: two oriented rectangles,
+   by the separating axis theorem — four axes, the two cars' own — which is
+   exact for boxes and about forty arithmetic operations. It also hands back a
+   BETTER NORMAL than the centre-to-centre one the circle used: a car clipped
+   down its flank is now pushed sideways rather than diagonally away from the
+   other car's middle. */
+function obbHit(a, b) {
+  const ca = Math.cos(a.h), sa = Math.sin(a.h);
+  const cb = Math.cos(b.h), sb = Math.sin(b.h);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const al = a.l * .5, aw = a.w * .5, bl = b.l * .5, bw = b.w * .5;
+  let over = Infinity, nx = 0, ny = 0;
+  /* Only four axes, not eight: a rectangle's two edge normals are its own
+     forward and its own right, and the second pair is the same two vectors
+     negated, which project identically. */
+  const axes = [ca, sa, -sa, ca, cb, sb, -sb, cb];
+  for (let i = 0; i < 8; i += 2) {
+    const ux = axes[i], uy = axes[i + 1];
+    // how far each box reaches along this axis
+    const ra = Math.abs(ca * ux + sa * uy) * al + Math.abs(-sa * ux + ca * uy) * aw;
+    const rb = Math.abs(cb * ux + sb * uy) * bl + Math.abs(-sb * ux + cb * uy) * bw;
+    const sep = dx * ux + dy * uy;
+    const o = ra + rb - Math.abs(sep);
+    if (o <= 0) return null;             // a gap on this axis: no contact at all
+    if (o < over) {
+      over = o;
+      // pointing from a towards b, so the push separates them
+      const sgn = sep < 0 ? -1 : 1;
+      nx = ux * sgn; ny = uy * sgn;
+    }
+  }
+  return { nx, ny, over };
+}
+
 function carsCollide(a, b) {
-  const rr = (a.l + b.l) * .34;
-  const d = dist(a.x, a.y, b.x, b.y);
-  if (d > rr || d < .001) return 0;
-  const nx = (b.x - a.x) / d, ny = (b.y - a.y) / d;
+  /* A cheap reject first. Nothing can touch beyond the sum of the two
+     half-diagonals, and most pairs the grid hands over are nowhere near. */
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const d2 = dx * dx + dy * dy;
+  const reach = (Math.hypot(a.l, a.w) + Math.hypot(b.l, b.w)) * .5;
+  if (d2 > reach * reach || d2 < 1e-6) return 0;
+  const hit = obbHit(a, b);
+  if (!hit) return 0;
+  const nx = hit.nx, ny = hit.ny;
   const ia = 1 / massOf(a), ib = 1 / massOf(b), inv = ia + ib;
   // the lighter car is moved further out of the overlap
-  const over = rr - d;
+  const over = hit.over;
   a.x -= nx * over * (ia / inv); a.y -= ny * over * (ia / inv);
   b.x += nx * over * (ib / inv); b.y += ny * over * (ib / inv);
   const rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;

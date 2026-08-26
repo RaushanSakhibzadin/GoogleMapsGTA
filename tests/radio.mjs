@@ -4,7 +4,7 @@
  * and run the same way: open data, no key, no account. Type Belgrade and the
  * dial has Belgrade stations on it.
  *
- * FIVE THINGS THAT CAN BE WRONG WHILE A SCREENSHOT LOOKS RIGHT:
+ * SEVEN THINGS THAT CAN BE WRONG WHILE A SCREENSHOT LOOKS RIGHT:
  *
  *   The stations are not local. A country filter alone gives you the whole
  *   country in whatever order the database felt like, so the list is sorted by
@@ -26,6 +26,16 @@
  *   And it never gets asked at all, because the country code never arrived —
  *   which is a change to the geocoder, two files away from anything called
  *   radio.
+ *
+ *   THE SHUFFLE IS NOT LOCAL. The dial re-tunes at random every time the game
+ *   starts and every time you shunt another car, and "at random" over the whole
+ *   list would undo the ranking above — the far end of it is national networks
+ *   two hundred kilometres away. Asserted by drawing four hundred times from a
+ *   twenty-four station dial and checking the far half never comes up.
+ *
+ *   THE SHUFFLE FIRES ON THE POLICE TOO, which was explicitly not wanted. That
+ *   is one `if` in a different file, and the only way to see it is to stage the
+ *   two kinds of contact separately and compare.
  */
 import { chromium, devices } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
@@ -59,6 +69,19 @@ const STATIONS = [
   { name: 'Studio B', url: 'https://b.example/stream', clickcount: 30,
     geo_lat: String(LAT0 + 0.03), geo_long: String(LON0 - 0.02) }
 ];
+
+/* A LONGER DIAL, FOR THE SHUFFLE, and it has to be long for the reading to mean
+   anything: the draw is from the near half with a floor of four, so on the five
+   station reply above "the near half" and "anywhere at all" are the same set and
+   a locality test on it would pass whatever the code did.
+   Twenty-four stations laid out due north at 0.02° apart, so the ranked order is
+   the numbered order and "index 12 or higher" means "one of the far twelve". */
+const MANY = Array.from({ length: 24 }, (_, k) => ({
+  name: 'Station ' + String(k).padStart(2, '0'),
+  url: 'https://s' + k + '.example/stream',
+  clickcount: 24 - k,                       // popularity runs the OTHER way
+  geo_lat: String(LAT0 + (k + 1) * 0.02), geo_long: String(LON0)
+}));
 
 async function open(opts = {}) {
   const browser = await chromium.launch({ executablePath: CHROME });
@@ -101,6 +124,7 @@ async function open(opts = {}) {
     asked.push(r.request().url());
     if (opts.down) return r.abort();
     if (opts.empty) return r.fulfill(json([]));
+    if (opts.many) return r.fulfill(json(MANY));
     return r.fulfill(json(STATIONS));
   });
   // the streams themselves: never actually fetched over the wire in a test
@@ -164,29 +188,39 @@ const out = {};
   out.dropsPlainHttp = !names.includes('Insecure FM') &&
                        out.found.list.length === STATIONS.length - 1;
 
-  /* ---- 2. and the buttons move it ---- */
+  /* ---- 2. and the buttons move it ----
+
+     RELATIVE TO WHERE THE DIAL LANDED, not to station zero. A fresh session
+     draws its first station at random — see section 8 — so the old form of this,
+     which asserted the first press lands on index 1, was asserting the absence
+     of that feature. */
   out.stepped = await p.evaluate(() => {
-    const a = window.__radio();
+    const n = window.__radio().n, a = window.__radio().i;
     document.getElementById('radioX').click();
-    const b = window.__radio();
+    const b = window.__radio().i;
     document.getElementById('radioX').click();
-    const c = window.__radio();
+    const c = window.__radio().i;
     document.getElementById('radioP').click();
-    const d = window.__radio();
-    return { a: a.i, b: b.i, c: c.i, d: d.i, name: b.name };
+    const d = window.__radio().i;
+    return { n, a, b, c, d };
   });
-  out.forwardAndBack = out.stepped.b === 1 && out.stepped.c === 2 && out.stepped.d === 1;
+  {
+    const s = out.stepped, n = s.n;
+    out.forwardAndBack = n > 2 && s.b === (s.a + 1) % n &&
+                         s.c === (s.a + 2) % n && s.d === (s.a + 1) % n;
+  }
 
   /* ---- 3. the dial wraps ---- */
   out.wrap = await p.evaluate(() => {
-    const n = window.__radio().n;
+    const n = window.__radio().n, from = window.__radio().i;
     for (let k = 0; k < n; k++) window.__radioStep(1);
-    const round = window.__radio().i;
+    const round = window.__radio().i;       // all the way round, back where it was
     window.__radioStep(-1);
     const back = window.__radio().i;
-    return { n, round, back };
+    return { n, from, round, back };
   });
-  out.wraps = out.wrap.round === 1 && out.wrap.back === 0;
+  out.wraps = out.wrap.round === out.wrap.from &&
+              out.wrap.back === (out.wrap.from + out.wrap.n - 1) % out.wrap.n;
 
   /* ---- 4. pressing the name starts it, and the src is the station's ----
      Not "did a sound come out" — a headless browser has no speaker and the
@@ -212,11 +246,14 @@ const out = {};
     const r = id => {
       const q = document.getElementById(id).getBoundingClientRect();
       return { w: Math.round(q.width), h: Math.round(q.height),
-               top: Math.round(q.top), right: Math.round(q.right) };
+               top: Math.round(q.top), bottom: Math.round(q.bottom),
+               left: Math.round(q.left), right: Math.round(q.right) };
     };
     return { shown: getComputedStyle(el).display !== 'none',
-             prev: r('radioP'), name: r('radioN'), next: r('radioX'),
-             vw: innerWidth, vh: innerHeight };
+             bar: r('radio'), prev: r('radioP'), name: r('radioN'), next: r('radioX'),
+             padA: r('tA'), padH: r('tH'), armor: r('hpWrap'),
+             vw: innerWidth, vh: innerHeight,
+             scrollW: document.documentElement.scrollWidth };
   });
   const big = q => q.w >= 28 && q.h >= 28;          // a thumb, at speed
   const inside = q => q.top >= 0 && q.right <= out.strip.vw;
@@ -224,7 +261,178 @@ const out = {};
                   big(out.strip.next) && inside(out.strip.prev) &&
                   inside(out.strip.next) && inside(out.strip.name);
 
+  /* ---- 6. A BAR ACROSS THE BOTTOM, UNDER THE CONTROLS ----
+
+     It was a strip tucked under the radar in the top-left column, where the name
+     had about eighty pixels of a 390 pixel screen and every station longer than
+     "Studio B" was an ellipsis. Three things have to hold at once, and only the
+     first is visible in a screenshot:
+
+       the bar spans the screen and sits on the bottom edge;
+       the name gets most of that width — which is the whole point of moving it;
+       and NOTHING IT NOW SITS UNDER GOT COVERED. A fixed bar at the bottom of a
+       game whose accelerator is also at the bottom is a bar you press instead of
+       the accelerator, so the pads and the bottom HUD have to have lifted by the
+       bar's own height. That is what --radioBar does and this is what says it
+       worked. */
+  const S = out.strip;
+  out.spansTheBottom = Math.abs(S.bar.bottom - S.vh) <= 2 && S.bar.left === 0 &&
+                       Math.abs(S.bar.w - S.vw) <= 1 && S.scrollW <= S.vw;
+  out.nameGetsTheWidth = S.name.w >= S.vw * 0.5;
+  out.nothingIsCovered = S.padA.bottom <= S.bar.top && S.padH.bottom <= S.bar.top &&
+                         S.armor.bottom <= S.bar.top;
+
+  /* ---- 7. and a real station name is not clipped ----
+
+     The reported fault in as many words: "make it bigger so full text of radio
+     channel can be seen". #radioN ellipsises, so a name that does not fit shows
+     a scrollWidth wider than its box — and on a 390 point phone the box is 245
+     of them, which at the design size is about twenty-four characters. Plenty of
+     real stations are longer: 'Radio Televizija Vojvodine 021' is thirty, and is
+     a real Novi Sad station rather than a worst case invented for a test.
+
+     TWO WAYS THIS PASSES WITHOUT BEING FIXED, so both are read: shrinking the
+     type until anything fits is not a readable dial, so the size that came out
+     is asserted as well; and a short name must be left at the full size rather
+     than being shrunk along with it. */
+  out.longName = await p.evaluate(() => {
+    const n = document.getElementById('radioN');
+    const was = RADIO.list[RADIO.i].name;
+    const read = name => {
+      RADIO.list[RADIO.i].name = name;
+      radioPaint();
+      return { text: n.textContent,
+               scroll: n.scrollWidth, client: n.clientWidth,
+               tall: n.scrollHeight, box: n.clientHeight,
+               px: +parseFloat(getComputedStyle(n).fontSize).toFixed(1) };
+    };
+    const long = read('Radio Televizija Vojvodine 021');
+    const short = read('Studio B');
+    RADIO.list[RADIO.i].name = was;
+    radioPaint();
+    return { long, short };
+  });
+  out.showsTheWholeName =
+    out.longName.long.text === 'Radio Televizija Vojvodine 021' &&
+    // nothing spills out of the box in either direction: it wrapped, it fits
+    out.longName.long.scroll <= out.longName.long.client + 1 &&
+    out.longName.long.tall <= out.longName.long.box + 1 &&
+    // and it is still full-sized type rather than something that merely fits
+    out.longName.long.px >= 14 &&
+    out.longName.short.px >= 14;
+
   out.liveErrs = errs.slice(0, 3);
+  await browser.close();
+}
+
+/* ================= THE SHUFFLE =================
+   Twenty-four stations, numbered by distance, so an index is a distance. */
+{
+  const { browser, p, errs } = await open({ many: true });
+  await p.waitForFunction(() => window.__radio().status !== 'finding', null, { timeout: 20000 })
+         .catch(() => {});
+
+  /* ---- 8. random, and still local ----
+
+     Four hundred draws. Three separate things have to be true of them and each
+     one is a different bug:
+       more than a handful of distinct stations, or it is not random;
+       never one from the far half, or it is not local;
+       and never the one already playing, because a shuffle that sometimes does
+       nothing reads as a button that sometimes does not work. */
+  out.draw = await p.evaluate(() => {
+    const n = RADIO.list.length;
+    const seen = [];
+    let prev = RADIO.i, repeats = 0;
+    for (let k = 0; k < 400; k++) {
+      radioRandom();
+      if (RADIO.i === prev) repeats++;
+      seen.push(RADIO.i);
+      prev = RADIO.i;
+    }
+    const uniq = [...new Set(seen)].sort((a, b) => a - b);
+    return { n, uniq, far: uniq.filter(i => i >= n / 2), repeats,
+             names: [RADIO.list[uniq[0]].name, RADIO.list[uniq[uniq.length - 1]].name] };
+  });
+  out.randomButLocal = out.draw.n === 24 && out.draw.uniq.length >= 8 &&
+                       out.draw.far.length === 0 && out.draw.repeats === 0;
+
+  /* ---- 9. every start is a fresh draw ----
+     "Change the channel randomly every time the game starts." Tuning twelve
+     times must not land on the same station twelve times — and in particular
+     must not always be the nearest one, which is what a dial that does not
+     shuffle at all would do. */
+  out.starts = await p.evaluate(async () => {
+    const s = [];
+    for (let k = 0; k < 12; k++) {
+      await radioFind(RADIO.at.lat, RADIO.at.lon, RADIO.at.cc);
+      s.push(RADIO.i);
+    }
+    return { s, uniq: [...new Set(s)].length, nearest: s.filter(i => i === 0).length };
+  });
+  out.everyStartIsADraw = out.starts.uniq >= 4 && out.starts.nearest === 0;
+
+  /* ---- 10. A SHUNT KNOCKS IT OFF STATION — AND THE POLICE DO NOT ----
+
+     STAGED, the way tests/survive.mjs stages the police cooldown, because a real
+     collision measures the traffic AI and not the rule: cars steer away, and
+     whether one happens to hit you inside a two second window is a coin toss
+     that would make this test flap.
+
+     carsCollide is a plain global function declaration, so it can be replaced by
+     one that reports a hard contact for exactly one kind of car and nothing for
+     any other pair — which leaves the loop the contact came from as the only
+     difference between the two readings. Both run with the rate limits held
+     open, so the police reading is the hostile one: continuous contact, sixty
+     frames a second, and the dial still must not move. */
+  const shunt = kind => p.evaluate(async k => {
+    const real = window.carsCollide;
+    window.__ghost(false);
+    window.__heal();
+    window.__addWanted(k === 'cop' ? 3 : -9);
+    // let the wanted level stock cruisers, or the traffic stock itself
+    for (let f = 0; f < 180; f++) {
+      if (k === 'cop' ? cops.length > 0 : traffic.length > 0) break;
+      await new Promise(r => requestAnimationFrame(r));
+    }
+    const had = { traffic: traffic.length, cops: cops.length };
+    /* Only the player's own contacts, so the AI cars are not set ramming each
+       other in the background — that is a different code path and it would
+       wreck the whole city inside the reading. */
+    window.carsCollide = (a, b) =>
+      (a === P.car && !!(b && b.kind === 'cop') === (k === 'cop')) ? 9 : 0;
+    const before = RADIO.i;
+    let jumps = 0, prev = RADIO.i;
+    window.__dmgReset();                     // this reading only
+    const t0 = window.__simT();
+    await new Promise(res => {
+      const tick = () => {
+        if (RADIO.i !== prev) { jumps++; prev = RADIO.i; }
+        P.hitCd = 0; P.copCd = 0;              // no rate limit hiding the answer
+        window.__heal();                       // so it cannot die inside the reading
+        window.__simT() - t0 < 2 ? requestAnimationFrame(tick) : res();
+      };
+      requestAnimationFrame(tick);
+    });
+    window.carsCollide = real;
+    window.__addWanted(-9);
+    window.__heal();
+    return { had, before, after: RADIO.i, jumps, took: window.__dmg() };
+  }, kind);
+
+  out.civilianShunt = await shunt('traffic');
+  out.policeShunt = await shunt('cop');
+  /* The contact has to have actually happened in both, or a dial that never
+     moved would look like the wanted behaviour in the police reading. The damage
+     tally is the witness: the traffic reading took traffic damage and the police
+     reading took police damage. */
+  out.bothWereReallyHit = out.civilianShunt.took.traffic > 0 &&
+                          out.policeShunt.took.cop > out.policeShunt.took.traffic;
+  out.aShuntRetunes = out.civilianShunt.had.traffic > 0 && out.civilianShunt.jumps > 0;
+  out.thePoliceDoNot = out.policeShunt.had.cops > 0 && out.policeShunt.jumps === 0 &&
+                       out.policeShunt.after === out.policeShunt.before;
+
+  out.shuffleErrs = errs.slice(0, 3);
   await browser.close();
 }
 
@@ -275,10 +483,15 @@ const out = {};
   await browser.close();
 }
 
-out.errs = [].concat(out.quietErrs, out.liveErrs, out.deadErrs, out.emptyErrs).filter(Boolean);
+out.errs = [].concat(out.quietErrs, out.liveErrs, out.shuffleErrs, out.deadErrs, out.emptyErrs)
+             .filter(Boolean);
 out.pass = out.silentUntilPressed && out.stripBeforeTuning && out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
            out.popularityIsNotLocal && out.keepsTheUnplaced && out.dropsPlainHttp &&
            out.forwardAndBack && out.wraps && out.playsTheStation && out.reachable &&
+           out.spansTheBottom && out.nameGetsTheWidth && out.nothingIsCovered &&
+           out.showsTheWholeName &&
+           out.randomButLocal && out.everyStartIsADraw && out.bothWereReallyHit &&
+           out.aShuntRetunes && out.thePoliceDoNot &&
            out.saysSoAndCarriesOn && out.emptyReadsAsNone && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 process.exit(out.pass ? 0 : 1);

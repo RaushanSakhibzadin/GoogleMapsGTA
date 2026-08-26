@@ -1,4 +1,5 @@
 /* VICE MAPS — all of the styling. Loaded by index.html; no build step. */
+:root.radio-on{--radioBar:calc(var(--radioH) + env(safe-area-inset-bottom))}
 :root{
   --pink:#ff4fd8; --cyan:#33e6ff; --gold:#ffe36a; --violet:#8a5cff;
   --bg:#120a1e;
@@ -19,7 +20,15 @@
      and everything along the bottom of the HUD is positioned from them. */
   --edgeL:max(24px,calc(env(safe-area-inset-left) + 8px));
   --edgeR:max(24px,calc(env(safe-area-inset-right) + 8px));
-  --edgeB:max(26px,calc(env(safe-area-inset-bottom) + 6px));
+  /* HOW MUCH ROOM THE DIAL TAKES OUT OF THE BOTTOM OF THE SCREEN — zero until
+     there is a city to tune, and then the bar's height. It is folded into
+     --edgeB, so every pad and every label already positioned from that edge
+     lifts by itself rather than needing a rule of its own. The class goes on
+     <html> rather than <body> for exactly that reason: --edgeB is declared here,
+     on :root, and a variable set further down the tree cannot reach it. */
+  --radioBar:0px;
+  --radioH:56px;
+  --edgeB:calc(max(26px,calc(env(safe-area-inset-bottom) + 6px)) + var(--radioBar));
 }
 *{box-sizing:border-box;margin:0;padding:0}
 /* THE VISIBLE HEIGHT, NOT THE LAYOUT HEIGHT.
@@ -264,7 +273,7 @@ body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255
   text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
 #timer{color:var(--pink)}
 
-#hpWrap{position:absolute;left:14px;bottom:14px;width:min(105px,21vw)}
+#hpWrap{position:absolute;left:14px;bottom:calc(14px + var(--radioBar));width:min(105px,21vw)}
 #hpLbl{font-family:var(--ui);font-weight:700;font-size:10.5px;letter-spacing:.22em;
   color:rgba(255,255,255,.65);margin-bottom:5px}
 #hpBar{height:13px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.55);
@@ -283,37 +292,63 @@ body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255
 #street.on{opacity:1;transform:none}
 
 /* ---------- the radio ----------
-   Hidden until there is something to say, so a player with no network never
-   sees a dead control. pointer-events:auto because #hud does not have them —
-   the touch pads do the same thing for the same reason. */
-#radio{display:none;margin-top:6px;align-items:stretch;gap:4px;pointer-events:auto;
-  max-width:100%}
-#radio.on{display:flex}
-#radio button{font-family:var(--ui);font-weight:800;font-size:11px;letter-spacing:.1em;
-  text-transform:uppercase;color:rgba(255,255,255,.9);
-  background:rgba(10,6,20,.62);border:1px solid rgba(255,255,255,.22);
-  border-radius:8px;padding:5px 7px;line-height:1.1;
-  /* a thumb needs somewhere to land at 90 km/h */
-  min-width:30px;min-height:30px;backdrop-filter:blur(2px);
+   A bar across the bottom of the screen, under the driving controls. Hidden
+   until there is a city to tune, so a player who never gets that far never sees
+   a dead control — and z-index below the pause card and the map, which are
+   things you open ON TOP of the game. */
+#radio{position:fixed;left:0;right:0;bottom:0;z-index:36;
+  display:none;align-items:stretch;gap:8px;pointer-events:auto;
+  padding:6px 10px calc(6px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(10,6,20,0),rgba(10,6,20,.72) 45%)}
+:root.radio-on #radio{display:flex}
+#radio button{font-family:var(--ui);font-weight:800;font-size:13px;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(255,255,255,.92);
+  background:rgba(14,8,26,.72);border:1px solid rgba(255,255,255,.26);
+  border-radius:11px;padding:0 10px;line-height:1;
+  /* a thumb, at ninety kilometres an hour */
+  min-width:54px;height:44px;backdrop-filter:blur(3px);
   -webkit-tap-highlight-color:transparent}
-/* the name takes whatever is left and does not push the strip past the radar */
-#radioN{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;text-align:center}
-#radio.live #radioN{color:var(--gold);border-color:rgba(255,227,106,.55);
-  box-shadow:0 0 12px rgba(255,227,106,.25) inset}
-#radio button:active{background:rgba(255,79,216,.45)}
-body.theme-day #radio button{background:rgba(255,255,255,.72);color:#20143a;
-  border-color:rgba(0,0,0,.18)}
-body.theme-day #radio.live #radioN{color:#8a5a00;border-color:rgba(180,120,0,.5)}
+/* The name takes the whole middle, which is the point of moving it down here.
+
+   AND IT WRAPS TO TWO LINES. On one line, 'Radio Televizija Vojvodine 021' — a
+   real Novi Sad station, thirty characters — needs about 340 points and the
+   middle of a 390 point phone gives it 245, so it either becomes an ellipsis or
+   shrinks to nine-point type. Neither is a thing you read at 90 km/h. The bar is
+   already 56 points tall for a 44 point thumb target, and two lines of 14 point
+   fit inside that with room to spare.
+
+   flex rather than the block default, because a wrapped block does not centre
+   vertically and this box is twice the height of its text.
+
+   --nameFs is the size it WANTS; radioFit in js/radio.js reads it back and steps
+   down from there for the rare name that still does not fit, so this is the one
+   place the size is written. */
+#radioN{--nameFs:14px;flex:1 1 auto;min-width:0;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  white-space:normal;overflow-wrap:anywhere;text-align:center;
+  line-height:1.14;padding:0 8px;font-size:var(--nameFs);letter-spacing:.04em}
+#radio.live #radioN{color:var(--gold);border-color:rgba(255,227,106,.6);
+  box-shadow:0 0 16px rgba(255,227,106,.22) inset}
+#radio button:active{background:rgba(255,79,216,.5)}
+body.theme-day #radio{background:linear-gradient(180deg,rgba(240,238,232,0),rgba(240,238,232,.75) 45%)}
+body.theme-day #radio button{background:rgba(255,255,255,.8);color:#20143a;
+  border-color:rgba(0,0,0,.2)}
+body.theme-day #radio.live #radioN{color:#8a5a00;border-color:rgba(180,120,0,.55)}
+/* Short screens in landscape have no vertical room to give away. */
+@media (max-height:460px){
+  :root{--radioH:44px}
+  #radio button{height:36px;min-width:46px;font-size:12px}
+  #radioN{--nameFs:12.5px}
+}
 /* quiet note while the next district streams in */
-#chunk{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+#chunk{position:absolute;left:50%;bottom:calc(14px + var(--radioBar));transform:translateX(-50%);
   font-family:var(--ui);font-weight:600;font-size:11.5px;letter-spacing:.18em;
   text-transform:uppercase;color:rgba(255,255,255,.62);opacity:0;transition:opacity .4s;
   text-shadow:0 2px 8px rgba(0,0,0,.9);white-space:nowrap}
 #chunk.on{opacity:1}
 body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,255,.9)}
 /* district name: persistent, flashes on entry (Vice City zone style) */
-#zone{position:absolute;right:14px;bottom:calc(12px + clamp(46px,10vw,74px));
+#zone{position:absolute;right:14px;bottom:calc(12px + var(--radioBar) + clamp(46px,10vw,74px));
   max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
   color:var(--gold);opacity:0;transition:opacity .5s}
 #zone.on{opacity:.95}
@@ -323,7 +358,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
   35%{opacity:1;transform:none}
   100%{opacity:.95}
 }
-#speed{position:absolute;right:14px;bottom:12px;text-align:right}
+#speed{position:absolute;right:14px;bottom:calc(12px + var(--radioBar));text-align:right}
 #spdN{font-family:var(--hud);font-size:clamp(38px,8.5vw,62px);line-height:.9;color:#fff;
   text-shadow:2px 3px 0 rgba(0,0,0,.75),0 0 24px rgba(51,230,255,.6)}
 #spdU{font-family:var(--ui);font-weight:700;font-size:11px;letter-spacing:.3em;color:var(--cyan)}

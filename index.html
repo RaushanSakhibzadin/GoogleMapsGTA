@@ -30,7 +30,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=aca339f566">
+<link rel="stylesheet" href="style.css?v=49e2582c43">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -38,7 +38,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='aca339f566';</script>
+<script>window.BUILD='49e2582c43';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -131,14 +131,6 @@
     <div id="obj" class="hudTxt"><small>Objective</small><span id="objT">Free roam</span> <span id="timer"></span></div>
     <canvas id="mini"></canvas>
     <div id="street"></div>
-    <!-- The dial. Under the radar because that is where your eye already is,
-         and three targets rather than one: back, on/off, forward — a station you
-         do not like has to be one thumb away at speed. -->
-    <div id="radio">
-      <button id="radioP" aria-label="Previous station">◀</button>
-      <button id="radioN" aria-label="Station — tap to play or stop">RADIO</button>
-      <button id="radioX" aria-label="Next station">▶</button>
-    </div>
   </div>
   <div id="cash" class="hudTxt">$0</div>
   <div id="stars"></div>
@@ -147,6 +139,21 @@
   <div id="zone" class="hudTxt"></div>
   <div id="speed"><div id="spdN">0</div><div id="spdU">KM/H</div></div>
   <div id="toast" class="hudTxt"></div>
+</div>
+
+<!-- ===================== the dial =====================
+     A bar across the bottom, below the driving controls, and OUTSIDE #hud —
+     #hud is pointer-events:none and this is three buttons. It was a strip
+     tucked under the radar, where the name had about eighty pixels and most
+     stations were an ellipsis. Full width it has room for the whole name, and
+     the buttons are big enough to hit without looking.
+
+     Everything else anchored to the bottom lifts by --radioBar to make room;
+     see the stylesheet. -->
+<div id="radio">
+  <button id="radioP" aria-label="Previous station">◀</button>
+  <button id="radioN" aria-label="Station — tap to play or stop">RADIO</button>
+  <button id="radioX" aria-label="Next station">▶</button>
 </div>
 
 <!-- ===================== touch ===================== -->
@@ -292,21 +299,21 @@ addEventListener('error', function (e) {
   if (el && el.tagName === 'SCRIPT' && el.src) window.__lost.push(el.src);
 }, true);
 </script>
-<script src="js/util.js?v=aca339f566"></script>
-<script src="js/log.js?v=aca339f566"></script>
-<script src="js/geo.js?v=aca339f566"></script>
-<script src="js/world.js?v=aca339f566"></script>
+<script src="js/util.js?v=49e2582c43"></script>
+<script src="js/log.js?v=49e2582c43"></script>
+<script src="js/geo.js?v=49e2582c43"></script>
+<script src="js/world.js?v=49e2582c43"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=aca339f566"></script>
-<script src="js/body3d.js?v=aca339f566"></script>
-<script src="js/entities.js?v=aca339f566"></script>
-<script src="js/io.js?v=aca339f566"></script>
-<script src="js/game.js?v=aca339f566"></script>
+<script src="js/terrain.js?v=49e2582c43"></script>
+<script src="js/body3d.js?v=49e2582c43"></script>
+<script src="js/entities.js?v=49e2582c43"></script>
+<script src="js/io.js?v=49e2582c43"></script>
+<script src="js/game.js?v=49e2582c43"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=aca339f566"></script>
+<script src="js/gl.js?v=49e2582c43"></script>
 <!-- Every texture in the game, grown out of arithmetic at load: the trees after
      dark, the same trees in daylight, and the render on the walls. Must come
      before render3d.js, which is the only thing that asks it for anything.
@@ -316,13 +323,13 @@ addEventListener('error', function (e) {
      missing picture of a tree was survivable and render3d.js painted its own.
      This one is not: it is the only source of those textures now, so it is
      checked like the rest. -->
-<script src="js/radio.js?v=aca339f566"></script>
-<script src="js/proctex.js?v=aca339f566"></script>
-<script src="js/carmesh.js?v=aca339f566"></script>
-<script src="js/render.js?v=aca339f566"></script>
-<script src="js/soft3d.js?v=aca339f566"></script>
-<script src="js/render3d.js?v=aca339f566"></script>
-<script src="js/main.js?v=aca339f566"></script>
+<script src="js/radio.js?v=49e2582c43"></script>
+<script src="js/proctex.js?v=49e2582c43"></script>
+<script src="js/carmesh.js?v=49e2582c43"></script>
+<script src="js/render.js?v=49e2582c43"></script>
+<script src="js/soft3d.js?v=49e2582c43"></script>
+<script src="js/render3d.js?v=49e2582c43"></script>
+<script src="js/main.js?v=49e2582c43"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one

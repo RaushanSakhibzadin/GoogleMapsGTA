@@ -352,6 +352,9 @@ async function startGame(query, lat, lon, label) {
      which is how a car radio works and which is a real user gesture — the only
      thing iOS will start audio from. */
   if (typeof radioAt === 'function') radioAt(lat, lon, want.cc || '');
+  /* A fresh start gets a fresh station. radioAt has just cleared the list, so
+     there is nothing to shuffle yet — the draw happens inside radioFind when
+     the first press tunes it, which is the same thing one press later. */
   /* The remembered view, applied here rather than on page load. Creating the
      first WebGL context and building a dozen cells of geometry is a real stall,
      and doing it while the menu is on screen makes the menu look broken; doing
@@ -937,6 +940,16 @@ function update(dt) {
       if (rel > 13) addWanted(.34);
       damageCar(t, rel);
       t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
+      /* AND THE RADIO JUMPS. A shunt knocks the dial off its station, which is
+         a thing that used to happen in cars and is the one moment in this game
+         where a jolt has nothing else attached to it.
+
+         CIVILIANS ONLY, and deliberately not the police — being rammed by a
+         cruiser during a chase is already the loudest thing on screen, and
+         re-tuning on every one of those turns the radio into a fault. It rides
+         the same rate limit as the damage, so leaning on a car is one jump
+         rather than sixty a second. */
+      if (typeof radioShuffle === 'function') radioShuffle(true);
     }
   }
   P.hitCd -= dt;
