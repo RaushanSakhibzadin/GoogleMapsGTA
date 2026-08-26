@@ -229,7 +229,7 @@ vec4 fogged(vec3 c) {
 
 const SH_LIT_V = VS_COMMON + `in vec3 aCol;
 in vec4 aWall;
-out vec3 vC; out highp vec3 vW; out vec2 vGate;
+out vec3 vC; out highp vec3 vW; out highp vec2 vGate;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
   gl_Position = p; vN = aNrm; vC = aCol; vD = p.w; vL = uLVP * vec4(aPos, 1.0);
@@ -268,7 +268,25 @@ void main() {
    between two values as you drive. Desktop drivers almost all promote mediump to
    full float, which is exactly why this cost nothing to get wrong here and would
    have shipped broken to every phone: iOS runs mediump as genuine half
-   precision. In highp the same coordinate resolves to about a millimetre. */
+   precision. In highp the same coordinate resolves to about a millimetre.
+
+   AND SO IS vGate, WHICH I MISSED WHEN I ADDED IT. It carries the archway's
+   centre in the very same coordinate as vW.x — the same basis, the same origin,
+   the same range — and the shader's test is `abs(vW.x - vGate.x) < vGate.y`
+   against a half width of about 1.75 m. Comparing a millimetre-accurate value
+   with one quantised to metres does not put the hole in the wrong place by a
+   little; past about two kilometres from the search centre the quantisation step
+   exceeds the whole opening, so the hole lands off the road or does not appear
+   at all.
+
+   It was reported as "holes seen only from one side of the building, on Safari",
+   which is exactly the shape of it: the two walls the road crosses have gate
+   coordinates of opposite sign, so they round independently — one can survive
+   while the other does not. And it was Safari because it could only ever have
+   been Safari. Every desktop driver, and the SwiftShader this project's tests
+   run on, promotes mediump to full float, so the whole class of fault is
+   invisible here. That is why the second half of tests/archway.mjs quantises the
+   coordinate deliberately rather than waiting to observe it. */
 
 /* uPaint is the difference between a building and a car.
 
@@ -309,7 +327,7 @@ void main() {
    with no discard anywhere in it, which is what shipped before archways existed.
    The two are linked from one source and share fixed attribute slots, so the
    same vertex arrays feed either. */
-const SH_LIT_F = gate => FS_HEAD + `in vec3 vC; in highp vec3 vW; in vec2 vGate;
+const SH_LIT_F = gate => FS_HEAD + `in vec3 vC; in highp vec3 vW; in highp vec2 vGate;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
 /* The render: a grey tile cut from a photograph of a Belgrade wall, tiled off the

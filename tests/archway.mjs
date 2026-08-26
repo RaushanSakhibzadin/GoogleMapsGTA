@@ -166,9 +166,131 @@ out.atGroundLevel = out.shot.cy !== null && out.shot.cy < 0.55;
    the far side, which is brighter than the shaded wall it replaced. */
 out.seesThrough = out.shot.lumaThrough > out.shot.lumaWall * 1.15;
 
+
+/* ---------------------------------------------------------------------------
+   AND THE OPENING SURVIVES BEING DRIVEN TO.
+
+   Reported as "holes in buildings seen only from one side of the building, on
+   Safari". It was a precision fault, and it could only ever have been Safari:
+   vGate carries the archway's centre in a WORLD coordinate — the same basis and
+   the same range as vW.x, which is declared highp with a comment saying why —
+   and vGate was left at the fragment shader's default mediump. The test in the
+   shader is `abs(vW.x - vGate.x) < vGate.y` against a half width of about
+   1.75 m, so comparing a millimetre-accurate value with one quantised to metres
+   does not nudge the hole, it loses it. The two walls a road crosses have gate
+   coordinates of opposite sign and round independently, which is why one side
+   could keep its opening while the other did not.
+
+   THIS CANNOT BE OBSERVED HERE, AND THAT IS THE POINT. Every desktop driver and
+   the SwiftShader these tests rasterise on promote mediump to full float, so the
+   fault is invisible on this machine no matter how the game is driven — the same
+   trap that made me dismiss the `discard` overdraw problem after measuring no
+   difference in headless Chromium and calling it evidence.
+
+   Two halves, and both are needed:
+     the SOURCE says highp, which is the fix and the thing that can regress;
+     the ARITHMETIC says the highp is load-bearing rather than decorative.
+   ------------------------------------------------------------------------ */
+out.declared = await p.evaluate(() => {
+  const v = typeof SH_LIT_V === 'string' ? SH_LIT_V : '';
+  const f = typeof SH_LIT_F === 'function' ? SH_LIT_F(true) : '';
+  return { vs: /out\s+highp\s+vec2\s+vGate/.test(v),
+           fs: /in\s+highp\s+vec2\s+vGate/.test(f),
+           // and vW, which is the same class of value and was already right
+           vw: /out\s+highp\s+vec3\s+vW/.test(v) && /in\s+highp\s+vec3\s+vW/.test(f) };
+});
+out.gateIsHighp = out.declared.vs && out.declared.fs && out.declared.vw;
+
+/* ---- THE ARITHMETIC, OVER THE REAL GATES IN THIS CITY ----
+
+   NOT A PIXEL TEST, AND THAT IS A FINDING RATHER THAN A SHORTCUT. I wrote one
+   first: patch the shader to round vGate through packHalf2x16 — genuine half
+   precision on any driver, including the SwiftShader these tests rasterise on —
+   swap it in for one frame, and compare. It came back at zero pixels, twice,
+   and the reason is instructive. The building this camera is parked in front of
+   has a gate coordinate of about 30, where the fp16 grid at driving distance is
+   16 wide: the opening shifts 1.8 m inside its own 7 m width and nothing leaves
+   the wall. One camera in front of one building cannot see this fault. Tuning
+   that test until it agreed would have been fitting the instrument to the
+   answer.
+
+   So the measurement is the whole capture instead: every wall a road actually
+   crosses, its gate coordinate taken through the same intersection the cell
+   builder uses, rounded to the grid a half-precision varying lands on at the
+   magnitudes a 36 km world reaches, and compared against the opening's own half
+   width. No GPU is involved and none is needed — the fault is arithmetic.
+
+   It also explains the report exactly. The two walls a road crosses sit on
+   opposite sides of the building, so their gate coordinates have opposite signs
+   — 743821435's are +30.19 and −21.22 — and they land on different points of
+   the grid. At 16 km they round by 1.81 m and 2.78 m respectively. One side's
+   opening can survive a rounding that destroys the other's, which is "holes seen
+   only from one side of the building". */
+out.arith = await p.evaluate(() => {
+  // the value a half-precision varying would hold: 11 significant bits
+  const f16 = x => {
+    const s = Math.sign(x), a = Math.abs(x);
+    if (a === 0) return 0;
+    const step = Math.pow(2, Math.floor(Math.log2(a)) - 10);
+    return s * Math.round(a / step) * step;
+  };
+  const rows = [];
+  for (const b of W.buildings) {
+    if (!(b.passable && b.gate && b.gate.n && b.h > 5)) continue;
+    const g = b.gate, fp = b.pts;
+    const mine = [];
+    for (let i = 0; i < fp.length - 1; i++) {
+      const ax = fp[i].x, az = fp[i].y;
+      const ex = fp[i + 1].x - ax, ez = fp[i + 1].y - az;
+      const L = Math.hypot(ex, ez) || 1;
+      const nx = ez / L, nz = -ex / L;
+      const den = ex * g.uy - ez * g.ux;
+      if (Math.abs(den) < 1e-6) continue;
+      const t = ((g.x - ax) * g.uy - (g.y - az) * g.ux) / den;
+      if (t < 0 || t > 1) continue;
+      const px = ax + ex * t, pz = az + ez * t;
+      const pr = px * g.ux + pz * g.uy;
+      if (!(pr > g.pmin - 4 && pr < g.pmax + 4)) continue;
+      mine.push(px * -nz + pz * nx);
+    }
+    if (mine.length) rows.push({ id: b.id, w: g.w, gc: mine });
+  }
+  /* Driving distances. The world is 36 km across, so a gate coordinate reaches
+     ±18000; these are the magnitudes on the way there. */
+  const out2 = { walls: 0, lost: 0, apart: 0, worst: 0, examples: [] };
+  for (const r of rows) {
+    for (const k of [2048, 8192, 16384]) {
+      const errs = r.gc.map(v => Math.abs((f16(v + k) - k) - v));
+      out2.walls += errs.length;
+      for (const e of errs) {
+        if (e > r.w) out2.lost++;
+        if (e > out2.worst) out2.worst = +e.toFixed(2);
+      }
+      // the two sides of one building, rounding by different amounts
+      if (errs.length > 1 && Math.abs(errs[0] - errs[1]) > 0.5) {
+        out2.apart++;
+        if (out2.examples.length < 3)
+          out2.examples.push({ id: r.id, km: k / 1000, w: r.w,
+                               gc: r.gc.map(v => +v.toFixed(2)),
+                               err: errs.map(v => +v.toFixed(2)) });
+      }
+    }
+  }
+  return out2;
+});
+/* Openings wider than the rounding survive; openings narrower than it do not.
+   Both have to appear, or the fixture is not exercising the range — and the
+   sides of a building have to disagree, because that disagreement is the bug as
+   it was reported. */
+out.halfPrecisionLosesHoles = out.arith.walls > 40 && out.arith.lost > 0 &&
+                              out.arith.worst > 3;
+out.andTheTwoSidesDisagree = out.arith.apart > 0;
+
 out.errs = errs.slice(0, 3);
 out.pass = out.foundTheReportedGate && out.cutsAHole && out.atGroundLevel &&
-           out.seesThrough && !out.errs.length;
+           out.seesThrough && out.gateIsHighp &&
+           out.halfPrecisionLosesHoles && out.andTheTwoSidesDisagree &&
+           !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);
