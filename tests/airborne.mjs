@@ -227,11 +227,42 @@ const coast = (dir, terrain) => p.evaluate(async a => {
   P.car.vx = Math.cos(h) * 30; P.car.vy = Math.sin(h) * 30;
   const x0 = P.car.x, y0 = P.car.y;
   let launched = false;
-  const watch = setInterval(() => { if (P.car.air) launched = true; }, 16);
+  /* THE SPEED AT EXACTLY ONE SIMULATED SECOND, INTERPOLATED — and this is the
+     whole of why the section below used to flap.
+
+     __waitSim returns when the clock has PASSED the mark, and the loop advances
+     the physics in frame-sized chunks: five steps of 1/60 at a time, which at
+     the eight frames a second SwiftShader manages is 83 ms of simulation per
+     wake-up. So one run coasts for 1.000 s and the next for 1.083, and their
+     speeds are then compared as though they were the same measurement. Eight
+     per cent more decay on a coast that has coasted from 30 m/s down to eight is
+     of the same size as the grade effect this is trying to resolve — which is
+     how a flat run and its hill run came back at 8.00 and 8.48 with the hill
+     apparently FASTER uphill, and how a difference expected to be 0.6 read
+     anywhere from -0.48 to +0.40 on one unchanged build.
+
+     So the track is sampled as it decays and read off at the mark. The samples
+     bracket it by construction, because the wait only returns once past it. */
+  const t0sim = window.__simT();
+  const track = [{ t: 0, v: Math.hypot(P.car.vx, P.car.vy) }];
+  const watch = setInterval(() => {
+    if (P.car.air) launched = true;
+    track.push({ t: window.__simT() - t0sim, v: Math.hypot(P.car.vx, P.car.vy) });
+  }, 8);
   const sim = await window.__waitSim(COAST_S);
   clearInterval(watch);
+  const at = T => {
+    for (let i = 1; i < track.length; i++) {
+      if (track[i].t < T) continue;
+      const a2 = track[i - 1], b2 = track[i];
+      const span = b2.t - a2.t;
+      return span > 1e-6 ? a2.v + (b2.v - a2.v) * ((T - a2.t) / span) : b2.v;
+    }
+    return track.length ? track[track.length - 1].v : 0;
+  };
   return { sim, m: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1),
-           ms: +Math.hypot(P.car.vx, P.car.vy).toFixed(2),
+           ms: +at(COAST_S).toFixed(2),
+           raw: +Math.hypot(P.car.vx, P.car.vy).toFixed(2),   // what it used to read
            // the height it actually gained or lost over the stretch it covered
            rise: +(window.__terrain(P.car.x, P.car.y).h - window.__terrain(x0, y0).h).toFixed(2),
            launched };
