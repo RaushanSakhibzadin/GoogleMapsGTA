@@ -940,16 +940,13 @@ function update(dt) {
       if (rel > 13) addWanted(.34);
       damageCar(t, rel);
       t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
-      /* AND THE RADIO JUMPS. A shunt knocks the dial off its station, which is
-         a thing that used to happen in cars and is the one moment in this game
-         where a jolt has nothing else attached to it.
-
-         CIVILIANS ONLY, and deliberately not the police — being rammed by a
-         cruiser during a chase is already the loudest thing on screen, and
-         re-tuning on every one of those turns the radio into a fault. It rides
-         the same rate limit as the damage, so leaning on a car is one jump
-         rather than sixty a second. */
-      if (typeof radioShuffle === 'function') radioShuffle(true);
+      /* AND THE RADIO IS LEFT ALONE. A shunt used to knock the dial off its
+         station. It reads as the game taking the station away from you at the
+         exact moment you are busy, and a crash already has the horn, the bang,
+         the shake and the damage on it — see the collision block in
+         tests/radio.mjs, which now asserts that neither traffic nor police move
+         the dial. The draw at the start of a city stays: that is a new city, and
+         nothing is playing yet to interrupt. */
     }
   }
   P.hitCd -= dt;

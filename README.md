@@ -119,11 +119,12 @@ pulls in the rest.
   close each transmitter is to where you are driving**, so a city's own stations come before the
   national networks. A bar along the bottom of the screen, below the driving controls, with the
   name across the middle of it — wrapped to two lines rather than shrunk, because plenty of real
-  stations run to thirty characters and a phone is 390 points wide. It **re-tunes itself at
-  random** when a city loads and again every time you shunt another car, drawing from the near
-  half of the dial so a shuffle stays local; the police are deliberately exempt, since being
-  rammed by a cruiser mid-chase is already the loudest thing on screen. If the directory is down
-  or the country has nothing in it, the bar says so and nothing else changes.
+  stations run to thirty characters and a phone is 390 points wide. It **picks a station at
+  random** each time a city is tuned, drawing from the near half of the dial so the draw stays
+  local. Crashing does not touch it — that was tried, the way knocking a real car radio used to
+  work, and losing the song on top of the bang and the damage reads as the game taking it off
+  you. If the directory is down or the country has nothing in it, the bar says so and nothing
+  else changes.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.

@@ -62,7 +62,7 @@ function radioAt(lat, lon, cc) {
   radioPaint();
 }
 
-/* A DIFFERENT STATION EVERY TIME, chosen from the local ones.
+/* A DIFFERENT STATION EVERY TIME A CITY IS TUNED, chosen from the local ones.
 
    Random over the whole list would defeat the ranking: the dial is sorted by
    how close each transmitter is, so the far end of it is the national networks
@@ -70,9 +70,16 @@ function radioAt(lat, lon, cc) {
    four so a short list still has somewhere to go, and never more than half —
    which keeps "random" and "local" both true.
 
-   AND IT NEVER PICKS THE ONE ALREADY PLAYING, because a shuffle that sometimes
+   AND IT NEVER PICKS THE ONE ALREADY PLAYING, because a draw that sometimes
    does nothing reads as a broken button. With two stations that means it
-   alternates, which is the only honest thing two stations can do. */
+   alternates, which is the only honest thing two stations can do.
+
+   ONE CALLER: radioFind, at the end of tuning a city. It was also rolled on
+   every shunt, so a crash knocked the dial off its station the way a real car
+   radio used to — which sounds better than it plays. Being hit already has the
+   bang, the shake, the sparks and the damage on it, and losing the song you had
+   on top of all that reads as the game taking it away from you at the one moment
+   you are busiest. */
 function radioRandom() {
   const n = RADIO.list.length;
   if (n < 2) return n === 1 ? (RADIO.i = 0, true) : false;
@@ -81,17 +88,6 @@ function radioRandom() {
   for (let tries = 0; tries < 12 && k === RADIO.i; tries++)
     k = Math.floor(Math.random() * pool) % n;
   RADIO.i = k === RADIO.i ? (RADIO.i + 1) % n : k;
-  return true;
-}
-
-/* Rolled at every fresh start and at every shunt — see the callers. If the dial
-   has not been tuned yet there is nothing to shuffle and nothing to do: the
-   first press picks at random anyway. */
-function radioShuffle(play) {
-  if (!RADIO.list.length) return false;
-  if (!radioRandom()) return false;
-  if (play && RADIO.on) return radioPlay();
-  radioPaint();
   return true;
 }
 

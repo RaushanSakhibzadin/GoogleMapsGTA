@@ -33,9 +33,11 @@
  *   two hundred kilometres away. Asserted by drawing four hundred times from a
  *   twenty-four station dial and checking the far half never comes up.
  *
- *   THE SHUFFLE FIRES ON THE POLICE TOO, which was explicitly not wanted. That
- *   is one `if` in a different file, and the only way to see it is to stage the
- *   two kinds of contact separately and compare.
+ *   AND IT RE-TUNES WHEN YOU ARE HIT, which was asked for and then asked to be
+ *   taken away again — a crash already has the bang, the shake and the damage on
+ *   it, and losing the song too reads as the game taking it off you. That is one
+ *   call site in a different file, and the only way to see it is to stage a
+ *   collision and watch the dial across it.
  */
 import { chromium, devices } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
@@ -372,7 +374,14 @@ const out = {};
   });
   out.everyStartIsADraw = out.starts.uniq >= 4 && out.starts.nearest === 0;
 
-  /* ---- 10. A SHUNT KNOCKS IT OFF STATION — AND THE POLICE DO NOT ----
+  /* ---- 10. BEING HIT DOES NOT TOUCH THE DIAL ----
+
+     A crash used to re-tune it, the way knocking a real car radio used to. It
+     sounds better than it plays: a shunt already has the bang, the shake, the
+     sparks and the damage on it, and losing the song as well reads as the game
+     taking it off you at the one moment you are busiest. Reported in as many
+     words — "pls do not change the radio when hit" — so both kinds of contact
+     are now held to the same rule.
 
      STAGED, the way tests/survive.mjs stages the police cooldown, because a real
      collision measures the traffic AI and not the rule: cars steer away, and
@@ -381,10 +390,11 @@ const out = {};
 
      carsCollide is a plain global function declaration, so it can be replaced by
      one that reports a hard contact for exactly one kind of car and nothing for
-     any other pair — which leaves the loop the contact came from as the only
-     difference between the two readings. Both run with the rate limits held
-     open, so the police reading is the hostile one: continuous contact, sixty
-     frames a second, and the dial still must not move. */
+     any other pair — which puts the contact in a known loop. Both readings run
+     with the rate limits held open, which is what makes them hostile: two
+     seconds of continuous contact at sixty frames a second is something like a
+     hundred and twenty chances to re-tune, so a single surviving call site shows
+     up as a jump count in the dozens rather than as a rare flake. */
   const shunt = kind => p.evaluate(async k => {
     const real = window.carsCollide;
     window.__ghost(false);
@@ -422,15 +432,20 @@ const out = {};
 
   out.civilianShunt = await shunt('traffic');
   out.policeShunt = await shunt('cop');
-  /* The contact has to have actually happened in both, or a dial that never
-     moved would look like the wanted behaviour in the police reading. The damage
-     tally is the witness: the traffic reading took traffic damage and the police
-     reading took police damage. */
-  out.bothWereReallyHit = out.civilianShunt.took.traffic > 0 &&
-                          out.policeShunt.took.cop > out.policeShunt.took.traffic;
-  out.aShuntRetunes = out.civilianShunt.had.traffic > 0 && out.civilianShunt.jumps > 0;
-  out.thePoliceDoNot = out.policeShunt.had.cops > 0 && out.policeShunt.jumps === 0 &&
-                       out.policeShunt.after === out.policeShunt.before;
+  /* THE CONTACT HAS TO HAVE ACTUALLY HAPPENED, and this is the assertion the
+     whole section rests on now that both answers are "nothing moved" — without
+     it, a staging mistake that produced no collision at all would read exactly
+     like the behaviour being asked for, and this test would pass on a build that
+     re-tuned on every crash. The damage tally is the witness: the traffic
+     reading took traffic damage and no police damage, and the police reading the
+     other way round. */
+  out.bothWereReallyHit =
+    out.civilianShunt.had.traffic > 0 && out.policeShunt.had.cops > 0 &&
+    out.civilianShunt.took.traffic > 0 && out.civilianShunt.took.cop === 0 &&
+    out.policeShunt.took.cop > 0 && out.policeShunt.took.traffic === 0;
+  const still = s => s.jumps === 0 && s.after === s.before;
+  out.aShuntLeavesItAlone = still(out.civilianShunt);
+  out.andSoDoThePolice = still(out.policeShunt);
 
   out.shuffleErrs = errs.slice(0, 3);
   await browser.close();
@@ -491,7 +506,7 @@ out.pass = out.silentUntilPressed && out.stripBeforeTuning && out.asksForThisCou
            out.spansTheBottom && out.nameGetsTheWidth && out.nothingIsCovered &&
            out.showsTheWholeName &&
            out.randomButLocal && out.everyStartIsADraw && out.bothWereReallyHit &&
-           out.aShuntRetunes && out.thePoliceDoNot &&
+           out.aShuntLeavesItAlone && out.andSoDoThePolice &&
            out.saysSoAndCarriesOn && out.emptyReadsAsNone && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 process.exit(out.pass ? 0 : 1);
