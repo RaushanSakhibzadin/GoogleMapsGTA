@@ -328,6 +328,35 @@ body.theme-day #mapHint{color:rgba(0,0,0,.45)}
 #pause .card{background:rgba(12,6,22,.86);border:1px solid rgba(51,230,255,.35);
   border-radius:16px;padding:30px 34px;display:flex;flex-direction:column;gap:10px;align-items:center}
 
+/* ---------- the WebGL card ---------- */
+/* SCROLLS RATHER THAN OVERFLOWS. .screen is a fixed, centred flexbox, so a card
+   taller than the viewport does not push the page down — it hangs off both ends
+   and takes its buttons with it. Bounded and scrollable means the worst case is
+   a swipe rather than a card you cannot dismiss. */
+/* THE STEPS SCROLL; THE BUTTONS DO NOT. Making the whole card scrollable was the
+   first fix and it only moved the problem: on a 320-wide phone the content is
+   754 px inside a card capped at 544, so GOT IT sat below the fold of the card
+   instead of below the fold of the screen. A column with one flexible middle
+   pins the title above and the buttons below and gives the overflow to the part
+   that can afford it. min-height:0 is what allows a flex child to be shorter
+   than its content at all. */
+#glhelp .card{background:rgba(12,6,22,.92);border:1px solid rgba(255,227,106,.4);
+  border-radius:16px;padding:20px 20px;display:flex;flex-direction:column;gap:10px;
+  align-items:center;max-width:min(460px,88vw);text-align:left;
+  max-height:calc(var(--vh,100dvh) - 24px);overflow:hidden}
+#glhelp #glSteps{flex:1 1 auto;min-height:0;overflow-y:auto;align-self:stretch;
+  -webkit-overflow-scrolling:touch}
+#glhelp p{font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.82);margin:0}
+#glhelp b{color:#ffe36a}
+/* A numbered list rather than a paragraph, because it is a sequence somebody has
+   to follow on a phone with the game closed — and ol's own counter keeps the
+   numbering right if a step is ever added. */
+#glhelp ol{margin:2px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+#glhelp li{font-size:13px;line-height:1.55;color:rgba(255,255,255,.86)}
+#glhelp .path{color:#33e6ff;font-weight:600}
+#glhelp .aside{font-size:12px;color:rgba(255,255,255,.55);line-height:1.5;margin-top:2px}
+#glhelp button{margin-top:2px}
+
 /* ---------- touch ---------- */
 #touch{position:fixed;inset:0;height:var(--vh,100dvh);z-index:35;display:none;pointer-events:none}
 #touch.on{display:block}

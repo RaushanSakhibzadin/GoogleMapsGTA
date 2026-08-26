@@ -126,6 +126,74 @@ $('mapClose').onclick = closeMap;
   }, { passive: false });
 })();
 
+/* ---- the WebGL card ----
+
+   WHAT THIS IS FOR, AND WHAT IT IS NOT. The game is not broken without WebGL:
+   the chase view falls back to a software renderer that draws the same street on
+   the 2D canvas. What the player gets is a slower, plainer picture and no
+   explanation for it, and the explanation is something they can act on — so this
+   says what has happened and how to undo it, once, and can be dismissed for good.
+
+   ON AN IPHONE THE CAUSE IS ALMOST ALWAYS LOCKDOWN MODE. That is not a guess:
+   this arrived three times from the same phone with a log attached, and the log
+   said probe "no", webgl1 false, and no error message at all — the constructors
+   are simply not there, which is what Lockdown Mode does to WebGL on every site.
+   So it is the first step rather than a footnote.
+
+   Every browser on iOS is WebKit — Chrome, Firefox and Edge included — so the
+   Safari settings govern all of them, which is why the steps say Safari whatever
+   you are reading this in. */
+const iOSish = () => /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (/Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints || 0) > 1);
+/* ASKED OF A THROWAWAY CANVAS. GL.fail is only set once something has tried to
+   start the 3D view, and this has to answer before anyone has pressed anything. */
+function hasWebGL2() {
+  if (typeof WebGL2RenderingContext === 'undefined') return false;
+  try {
+    return !!document.createElement('canvas').getContext('webgl2');
+  } catch (e) { return false; }
+}
+function glHelpSteps() {
+  const ios = iOSish();
+  const li = h => '<li>' + h + '</li>';
+  /* KEPT SHORT ENOUGH TO FIT A PHONE. The first version ran to 693 px of card on
+     a 664 px iPhone screen and 891 px on a 320-wide one, which puts GOT IT below
+     the fold — a card explaining a problem that you cannot dismiss. The steps
+     are the same steps; there are just fewer words between them. */
+  if (!ios) {
+    return '<ol>' +
+      li('Turn on <b>hardware acceleration</b> in your browser’s settings.') +
+      li('Update the graphics driver, then restart the browser.') +
+      '</ol>';
+  }
+  return '<ol>' +
+    li('<span class="path">Settings → Privacy &amp; Security → Lockdown Mode</span> — ' +
+       'turn it off if it is on. It blocks WebGL on every site, and it is the ' +
+       'usual reason for this.') +
+    li('<span class="path">Settings → Safari → Advanced → Feature Flags</span> ' +
+       '(<span class="path">Experimental Features</span> on older iOS).') +
+    li('Find <b>WebGL</b> in the list and switch it on.') +
+    li('Close the browser from the app switcher, then open it again.') +
+    '</ol><p class="aside">Chrome, Firefox and Edge on iPhone all use Safari’s ' +
+    'engine, so this covers them too. WebGPU in the same list is a different ' +
+    'feature and does not affect this.</p>';
+}
+function showGLHelp(force) {
+  if (!force) {
+    if (hasWebGL2()) return false;
+    if (store.get('vm_glhelp', '') === 'off') return false;
+  }
+  $('glSteps').innerHTML = glHelpSteps();
+  $('glhelp').classList.remove('hide');
+  return true;
+}
+function hideGLHelp(never) {
+  $('glhelp').classList.add('hide');
+  if (never) store.set('vm_glhelp', 'off');
+}
+$('glOk').onclick = () => hideGLHelp(false);
+$('glNever').onclick = () => hideGLHelp(true);
+
 $('logBtn').onclick = () => saveLog();
 /* THE VIEW SWITCH. Both renderers are in the build and this picks one — see the
    note at the top of render3d.js. The choice is remembered, but it is NOT
@@ -157,6 +225,15 @@ window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.
   wanted: +P.wanted.toFixed(2), cops: cops.length, traffic: traffic.length, peds: peds.length,
   cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
 window.__addWanted = n => addWanted(n);
+// the WebGL card: whether it is up, what it says, and the ability to force it
+window.__glHelp = () => ({
+  shown: !$('glhelp').classList.contains('hide'),
+  ios: iOSish(), webgl2: hasWebGL2(),
+  text: $('glSteps').textContent,
+  muted: store.get('vm_glhelp', '') === 'off'
+});
+window.__showGLHelp = force => showGLHelp(force);
+window.__hideGLHelp = never => hideGLHelp(never);
 /* WHAT HAS BEEN TAKING YOUR HEALTH, by source, since the page loaded. Reading a
    balance argument off the running game rather than off the source. */
 window.__dmg = () => ({ ...DMG });
@@ -510,3 +587,9 @@ window.__passableAt = (x, y) => {
 };
 
 resize();
+/* AND THE CARD, IF THIS BROWSER HAS NO WEBGL AT ALL.
+
+   On the menu rather than after DRIVE, because the whole point is that it is
+   fixable before you play — and one frame late rather than inline, so a card is
+   never the first thing painted on a page that is still laying itself out. */
+setTimeout(() => { try { showGLHelp(false); } catch (e) {} }, 0);
