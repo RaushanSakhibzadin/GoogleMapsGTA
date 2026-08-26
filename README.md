@@ -77,6 +77,7 @@ pulls in the rest.
 | touch | on-screen pads appear automatically on phones and tablets |
 | GHOST MODE | the switch on the title screen and the pause card — supporter perk, see the top |
 | **R** / the dial under the radar | next station — ◀ and ▶ step it, the name plays and stops it |
+| **♪** | top right — two levels, the game's and the radio's, set while you drive |
 | **⤓ LOG** | top right, on every screen — saves what the map servers sent and everything that went wrong |
 | **tap the radar** / **M** | pauses and opens the full city map — drag to pan, pinch to zoom |
 

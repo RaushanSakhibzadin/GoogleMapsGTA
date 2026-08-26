@@ -30,7 +30,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=143fc0467f">
+<link rel="stylesheet" href="style.css?v=aca339f566">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -38,7 +38,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='143fc0467f';</script>
+<script>window.BUILD='aca339f566';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -97,7 +97,31 @@
      load that failed, and by then the HUD has never appeared. -->
 <div id="topBtns">
   <button id="modeBtn" title="Switch to the chase view"><span id="modeN">3D</span></button>
+  <!-- ITS OWN BUTTON RATHER THAN A LINE IN THE PAUSE CARD, because the pause
+       card is reachable only with Esc and there is no Esc on a phone. Anything
+       parked in there is, on the platform this game is mostly played on,
+       unreachable. -->
+  <button id="mixBtn" title="Volume" aria-expanded="false">♪</button>
   <button id="logBtn" title="Save the session log">⤓ LOG</button>
+</div>
+
+<!-- ===================== the mixer =====================
+     Two levels, because they are two different things: an engine note you want
+     under a conversation and a song you want over it. It does NOT pause the
+     game — you cannot set an engine's level against silence, and the whole
+     point of moving the slider is hearing what it does. -->
+<div id="mix" class="hide" role="dialog" aria-label="Volume">
+  <label class="mixRow">
+    <span>GAME</span>
+    <input id="mixSfx" type="range" min="0" max="100" step="1" aria-label="Sound effects volume">
+    <b id="mixSfxN">80</b>
+  </label>
+  <label class="mixRow">
+    <span>RADIO</span>
+    <input id="mixRadio" type="range" min="0" max="100" step="1" aria-label="Radio volume">
+    <b id="mixRadioN">55</b>
+  </label>
+  <button id="mixDone" class="ghost">DONE</button>
 </div>
 
 <!-- ===================== HUD ===================== -->
@@ -268,21 +292,21 @@ addEventListener('error', function (e) {
   if (el && el.tagName === 'SCRIPT' && el.src) window.__lost.push(el.src);
 }, true);
 </script>
-<script src="js/util.js?v=143fc0467f"></script>
-<script src="js/log.js?v=143fc0467f"></script>
-<script src="js/geo.js?v=143fc0467f"></script>
-<script src="js/world.js?v=143fc0467f"></script>
+<script src="js/util.js?v=aca339f566"></script>
+<script src="js/log.js?v=aca339f566"></script>
+<script src="js/geo.js?v=aca339f566"></script>
+<script src="js/world.js?v=aca339f566"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=143fc0467f"></script>
-<script src="js/body3d.js?v=143fc0467f"></script>
-<script src="js/entities.js?v=143fc0467f"></script>
-<script src="js/io.js?v=143fc0467f"></script>
-<script src="js/game.js?v=143fc0467f"></script>
+<script src="js/terrain.js?v=aca339f566"></script>
+<script src="js/body3d.js?v=aca339f566"></script>
+<script src="js/entities.js?v=aca339f566"></script>
+<script src="js/io.js?v=aca339f566"></script>
+<script src="js/game.js?v=aca339f566"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=143fc0467f"></script>
+<script src="js/gl.js?v=aca339f566"></script>
 <!-- Every texture in the game, grown out of arithmetic at load: the trees after
      dark, the same trees in daylight, and the render on the walls. Must come
      before render3d.js, which is the only thing that asks it for anything.
@@ -292,13 +316,13 @@ addEventListener('error', function (e) {
      missing picture of a tree was survivable and render3d.js painted its own.
      This one is not: it is the only source of those textures now, so it is
      checked like the rest. -->
-<script src="js/radio.js?v=143fc0467f"></script>
-<script src="js/proctex.js?v=143fc0467f"></script>
-<script src="js/carmesh.js?v=143fc0467f"></script>
-<script src="js/render.js?v=143fc0467f"></script>
-<script src="js/soft3d.js?v=143fc0467f"></script>
-<script src="js/render3d.js?v=143fc0467f"></script>
-<script src="js/main.js?v=143fc0467f"></script>
+<script src="js/radio.js?v=aca339f566"></script>
+<script src="js/proctex.js?v=aca339f566"></script>
+<script src="js/carmesh.js?v=aca339f566"></script>
+<script src="js/render.js?v=aca339f566"></script>
+<script src="js/soft3d.js?v=aca339f566"></script>
+<script src="js/render3d.js?v=aca339f566"></script>
+<script src="js/main.js?v=aca339f566"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one

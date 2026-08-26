@@ -193,12 +193,45 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
    other last time. The container is what moves on a phone; the buttons only ever
    know how to look like buttons. */
 #topBtns{position:fixed;top:12px;right:14px;z-index:70;display:flex;gap:7px;align-items:flex-start}
-#logBtn,#modeBtn{
+#logBtn,#modeBtn,#mixBtn{
   font-family:var(--hud);font-size:13px;letter-spacing:.12em;color:rgba(255,255,255,.82);
   padding:6px 11px;border-radius:9px;cursor:pointer;
   background:rgba(20,10,32,.5);border:1px solid rgba(255,255,255,.3);box-shadow:none;
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none}
-#logBtn:active,#modeBtn:active{transform:translateY(1px)}
+#logBtn:active,#modeBtn:active,#mixBtn:active{transform:translateY(1px)}
+#mixBtn{font-size:15px;line-height:1;padding:6px 10px}
+#mixBtn[aria-expanded="true"]{background:rgba(255,79,216,.5);border-color:var(--pink)}
+
+/* ---------- the mixer ----------
+   Anchored under the buttons that opened it rather than centred, so the game is
+   still visible behind it while you set a level by ear. */
+#mix{position:fixed;top:52px;right:14px;z-index:71;width:min(280px,84vw);
+  display:flex;flex-direction:column;gap:11px;
+  background:rgba(12,6,22,.92);border:1px solid rgba(51,230,255,.35);
+  border-radius:14px;padding:14px 15px;backdrop-filter:blur(3px)}
+#mix.hide{display:none}
+.mixRow{display:flex;align-items:center;gap:10px}
+.mixRow>span{font-family:var(--ui);font-weight:800;font-size:10.5px;letter-spacing:.14em;
+  color:rgba(255,255,255,.7);width:46px;flex:0 0 auto}
+.mixRow>b{font-family:var(--hud);font-size:13px;color:var(--cyan);width:30px;
+  text-align:right;flex:0 0 auto}
+/* A track tall enough to hit with a thumb. The default range control on iOS is
+   about four pixels of target; this is the whole row. */
+.mixRow input[type=range]{flex:1 1 auto;min-width:0;height:26px;
+  -webkit-appearance:none;appearance:none;background:transparent}
+.mixRow input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:3px;
+  background:linear-gradient(90deg,var(--pink),var(--cyan))}
+.mixRow input[type=range]::-moz-range-track{height:5px;border-radius:3px;
+  background:linear-gradient(90deg,var(--pink),var(--cyan))}
+.mixRow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:20px;height:20px;border-radius:50%;background:#fff;margin-top:-7.5px;
+  box-shadow:0 0 8px rgba(255,79,216,.7)}
+.mixRow input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;
+  border-radius:50%;background:#fff;box-shadow:0 0 8px rgba(255,79,216,.7)}
+#mixDone{align-self:stretch}
+body.theme-day #mix{background:rgba(255,255,255,.94);border-color:rgba(0,0,0,.2)}
+body.theme-day .mixRow>span{color:#3a2a55}
+body.theme-day .mixRow>b{color:#07596b}
 /* The view you are NOT in is the one on the button, because a button says what
    it does. In the chase view it also lights up, so there is never a doubt about
    which one you are looking at on a screenshot. */

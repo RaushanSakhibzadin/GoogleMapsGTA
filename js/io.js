@@ -153,6 +153,37 @@ function readInput() {
 const SFX = (() => {
   let ac = null, eng = null, engGain = null, engFilt = null, started = false;
   let sirenOsc = null, sirenGain = null, sirenT = 0;
+  /* ONE BUS THAT EVERYTHING GOES THROUGH.
+
+     Every sound used to connect straight to ac.destination — the engine, the
+     siren, and a fresh gain node for every blip, crash and tyre squeal — so
+     there was no single place to turn any of it down. A master gain in front of
+     the destination costs one node for the whole session and makes the level a
+     property of the graph rather than something twelve call sites have to
+     remember.
+
+     The stored level is read LAZILY rather than at load, because `store` lives
+     in js/game.js and that file is evaluated after this one: touching it up here
+     is a dead-zone error before the game has drawn a frame. */
+  let master = null, vol = null;
+  const VOL_KEY = 'vm_vol_sfx';
+  function volume() {
+    if (vol == null) {
+      const raw = (typeof store !== 'undefined') ? store.get(VOL_KEY, null) : null;
+      const n = raw == null ? NaN : parseFloat(raw);
+      vol = isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.8;
+    }
+    return vol;
+  }
+  function setVolume(v) {
+    vol = Math.max(0, Math.min(1, +v || 0));
+    if (typeof store !== 'undefined') store.set(VOL_KEY, vol.toFixed(3));
+    // ramped, not set: a step change in a gain is an audible click
+    if (master && ac) master.gain.setTargetAtTime(vol, ac.currentTime, .02);
+    return vol;
+  }
+  // where every source connects: the bus if there is one, the speaker if not
+  const out = () => master || (ac && ac.destination);
 
   let gen = 0, watching = 0;
 
@@ -208,7 +239,7 @@ const SFX = (() => {
   function rebuild() {
     const dead = ac;
     ac = null; eng = null; engGain = null; engFilt = null;
-    sirenOsc = null; sirenGain = null; started = false;
+    sirenOsc = null; sirenGain = null; master = null; started = false;
     gen++;
     try { if (dead) dead.close(); } catch (e) {}
     start();
@@ -219,6 +250,9 @@ const SFX = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ac = new AC(); started = true;
+    master = ac.createGain();
+    master.gain.value = volume();
+    master.connect(ac.destination);
     /* Rebuild on the way back out of an interruption as well as on the timer:
        Safari fires this when the session is taken and again when it is handed
        back, which is earlier than any visibility event arrives. */
@@ -228,12 +262,12 @@ const SFX = (() => {
     eng = ac.createOscillator(); eng.type = 'sawtooth'; eng.frequency.value = 55;
     engFilt = ac.createBiquadFilter(); engFilt.type = 'lowpass'; engFilt.frequency.value = 700;
     engGain = ac.createGain(); engGain.gain.value = 0;
-    eng.connect(engFilt); engFilt.connect(engGain); engGain.connect(ac.destination);
+    eng.connect(engFilt); engFilt.connect(engGain); engGain.connect(out());
     eng.start();
 
     sirenOsc = ac.createOscillator(); sirenOsc.type = 'square'; sirenOsc.frequency.value = 700;
     sirenGain = ac.createGain(); sirenGain.gain.value = 0;
-    sirenOsc.connect(sirenGain); sirenGain.connect(ac.destination);
+    sirenOsc.connect(sirenGain); sirenGain.connect(out());
     sirenOsc.start();
   }
   function engine(rpm, load) {
@@ -253,7 +287,7 @@ const SFX = (() => {
     o.type = type || 'square'; o.frequency.value = f;
     g.gain.setValueAtTime(vol || .09, ac.currentTime);
     g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + dur);
-    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur);
+    o.connect(g); g.connect(out()); o.start(); o.stop(ac.currentTime + dur);
   }
   function noise(dur, vol) {
     if (!ac) return;
@@ -263,7 +297,7 @@ const SFX = (() => {
     const src = ac.createBufferSource(); src.buffer = buf;
     const g = ac.createGain(); g.gain.value = vol || .3;
     const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
-    src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
+    src.connect(f); f.connect(g); g.connect(out()); src.start();
   }
   /* Tyre squeal: the same noise burst, but band-passed up where rubber lives and
      swept downward, which is what a scrubbing tyre sounds like as it slows. */
@@ -280,14 +314,15 @@ const SFX = (() => {
     f.frequency.setValueAtTime(1750, ac.currentTime);
     f.frequency.exponentialRampToValueAtTime(760, ac.currentTime + dur);
     const g = ac.createGain(); g.gain.value = .1;
-    src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
+    src.connect(f); f.connect(g); g.connect(out()); src.start();
   }
   return {
-    start, resume, engine, siren, rebuild, stalled,
+    start, resume, engine, siren, rebuild, stalled, volume, setVolume,
     // test hook: the OS suspending us is the failure mode, so it has to be reachable
     suspend: () => ac ? ac.suspend() : Promise.resolve(),
     state: () => ({ started, gen, state: ac ? ac.state : 'none',
-                    now: ac ? ac.currentTime : 0 }),
+                    now: ac ? ac.currentTime : 0, vol: volume(),
+                    bus: master ? +master.gain.value.toFixed(3) : null }),
     // v already carries the distance falloff from earshot(); under a whisper
     // there is nothing worth waking the audio graph up for
     crash: v => { if (v < .5) return; noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },

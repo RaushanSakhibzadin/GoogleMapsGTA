@@ -62,13 +62,40 @@ function radioAt(lat, lon, cc) {
   radioPaint();
 }
 
+/* THE DIAL'S OWN LEVEL, KEPT APART FROM THE GAME'S.
+
+   They are different things — an engine note you want under a conversation and
+   a song you want over it — and one slider for both is the thing people
+   complain about in every game that ships one. It is also a different mechanism:
+   the sound effects run through a WebAudio bus and the radio is an <audio>
+   element, which has a volume of its own and never touches that graph.
+
+   Read lazily for the same reason the sound effects read theirs: `store` is
+   defined in js/game.js, which is evaluated after this file. */
+const RADIO_VOL_KEY = 'vm_vol_radio';
+let radioVol = null;
+function radioVolume(v) {
+  if (v != null) {
+    radioVol = Math.max(0, Math.min(1, +v || 0));
+    if (typeof store !== 'undefined') store.set(RADIO_VOL_KEY, radioVol.toFixed(3));
+    if (RADIO.el) RADIO.el.volume = radioVol;
+    return radioVol;
+  }
+  if (radioVol == null) {
+    const raw = (typeof store !== 'undefined') ? store.get(RADIO_VOL_KEY, null) : null;
+    const n = raw == null ? NaN : parseFloat(raw);
+    radioVol = isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.55;
+  }
+  return radioVol;
+}
+
 function radioEl() {
   if (RADIO.el) return RADIO.el;
   const a = document.createElement('audio');
   a.id = 'radioA';
   a.preload = 'none';
   a.crossOrigin = 'anonymous';
-  a.volume = 0.55;
+  a.volume = radioVolume();
   /* A stream that dies mid-song is the normal case, not an exception: these are
      volunteer transmitters and half of them drop a connection an hour. Saying so
      on the dial and leaving the player to press for the next one is better than

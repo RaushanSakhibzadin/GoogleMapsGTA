@@ -211,6 +211,39 @@ for (const ev of ['visibilitychange', 'pageshow'])
     if (a && a.paused) { const q = a.play(); if (q && q.catch) q.catch(() => {}); }
   });
 
+/* ---- the mixer ----
+
+   Every move is a user gesture, so SFX.start() is safe to call from here — and
+   on a phone it is often the FIRST gesture the player makes, which is the one
+   that gets the audio context going at all.
+
+   The game slider plays a short blip at the new level on release. You cannot set
+   a level against silence, and the engine is not always running when somebody
+   opens this. */
+function mixPaint() {
+  const sv = Math.round(SFX.volume() * 100), rv = Math.round(radioVolume() * 100);
+  $('mixSfx').value = sv; $('mixSfxN').textContent = sv;
+  $('mixRadio').value = rv; $('mixRadioN').textContent = rv;
+}
+function mixOpen(on) {
+  const open = on == null ? $('mix').classList.contains('hide') : !!on;
+  if (open) mixPaint();
+  $('mix').classList.toggle('hide', !open);
+  $('mixBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  return open;
+}
+$('mixBtn').onclick = () => { SFX.start(); mixOpen(); };
+$('mixDone').onclick = () => mixOpen(false);
+$('mixSfx').oninput = e => {
+  SFX.start();
+  $('mixSfxN').textContent = Math.round(SFX.setVolume(e.target.value / 100) * 100);
+};
+// on release rather than on every pixel of the drag, or it is a machine gun
+$('mixSfx').onchange = () => { SFX.start(); SFX.blipZone(); };
+$('mixRadio').oninput = e => {
+  $('mixRadioN').textContent = Math.round(radioVolume(e.target.value / 100) * 100);
+};
+
 $('logBtn').onclick = () => saveLog();
 /* THE VIEW SWITCH. Both renderers are in the build and this picks one — see the
    note at the top of render3d.js. The choice is remembered, but it is NOT
@@ -345,6 +378,20 @@ window.__radioStep = d => radioStep(d);
 window.__radioToggle = () => radioToggle();
 window.__radioFind = (lat, lon, cc) => radioFind(lat, lon, cc);
 window.__radioWake = () => radioWake();
+/* the two levels, and the panel that sets them */
+window.__mix = () => ({
+  open: !$('mix').classList.contains('hide'),
+  sfx: SFX.volume(), radio: radioVolume(),
+  bus: SFX.state().bus, el: RADIO.el ? RADIO.el.volume : null,
+  shownSfx: +$('mixSfx').value, shownRadio: +$('mixRadio').value
+});
+window.__mixOpen = on => mixOpen(on);
+window.__mixSet = (which, v) => {
+  const el = $(which === 'radio' ? 'mixRadio' : 'mixSfx');
+  el.value = Math.round(v * 100);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return window.__mix();
+};
 // the interruption Safari hands back as a context that says "running" and is not
 window.__audioStalled = (st, t0, t1) => SFX.stalled(st, t0, t1);
 window.__audioRebuild = () => { SFX.rebuild(); return SFX.state(); };
