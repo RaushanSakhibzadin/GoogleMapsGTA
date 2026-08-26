@@ -558,7 +558,7 @@ function explode(x, y) {
   for (const o of cops) hurtByBlast(o, x, y, R);
   const pd = dist(P.car.x, P.car.y, x, y);
   if (pd < R && !P.dead) {
-    P.car.hp -= (1 - pd / R) * 45;
+    hurtPlayer((1 - pd / R) * BLAST_MAX, 'blast');
     if (P.car.hp <= 0) { P.car.hp = 0; wasted(); }
   }
 }

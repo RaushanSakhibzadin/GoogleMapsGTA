@@ -157,6 +157,10 @@ window.__p = () => ({ x: +P.car.x.toFixed(1), y: +P.car.y.toFixed(1), h: +P.car.
   wanted: +P.wanted.toFixed(2), cops: cops.length, traffic: traffic.length, peds: peds.length,
   cash: P.cash, mission: MISSION.state, dead: P.dead, colour: P.car.color });
 window.__addWanted = n => addWanted(n);
+/* WHAT HAS BEEN TAKING YOUR HEALTH, by source, since the page loaded. Reading a
+   balance argument off the running game rather than off the source. */
+window.__dmg = () => ({ ...DMG });
+window.__dmgReset = () => { for (const k in DMG) DMG[k] = 0; };
 window.__hurt = () => { P.car.hp = 0; };
 window.__heal = () => { P.car.hp = 100; return P.car.hp; };
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;

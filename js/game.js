@@ -533,6 +533,79 @@ function updateRetries() {
     .finally(() => { RETRY.busy = false; });
 }
 
+/* WHAT EACH THING CAN TAKE OFF YOU IN ONE HIT, out of a hundred.
+
+   These were four numbers buried in four expressions in two files, and together
+   they said something nobody had ever read in one place: a wall could take 45,
+   so three scrapes killed you; a blast could take 45; and a police car had no
+   limit on how often it could take 14. Written down together they are arguable,
+   which is the point of writing them down together.
+
+   The wall is the one that was really wrong. Clipping a corner at speed is the
+   most common thing that happens to a player who is driving hard, it is very
+   often not their fault — the mask is 512 m cells of real OSM footprints — and
+   at 45 it was close to a third of your life for a graze. It is a serious hit
+   now rather than a fatal one. */
+/* HOW HARD YOU HAVE TO HIT A WALL BEFORE IT COUNTS AS HITTING IT — and this has
+   to stay above UNSTICK, which is the whole reason it is written next to it.
+
+   It was 4, and UNSTICK is 4.5. A car that ends up overlapping a footprint gets
+   shoved out at 4.5 m/s so that it does not settle back in, and that shove
+   registered as a crash: 4.5 is over 4, so the game charged you for the push it
+   gave you to get free. Wedged against a building, the loop is shove, crash,
+   settle, shove, once every 0.45 s for as long as you sit there. Measured on a
+   PARKED car at the bundled city's own spawn point — throttle off, brake on,
+   traffic and police removed from the world — 67 points of damage in nineteen
+   seconds, and dead. Nobody who parked badly could work out what was killing
+   them, because nothing was: it was the escape hatch.
+
+   Six is above the shove and still well below any speed you would call a
+   collision. */
+const UNSTICK = 4.5;       // the impulse that frees a car stuck inside a footprint
+const BLD_MIN = 6;         // and the speed below which touching a wall is free
+const BLD_MAX = 26;        // clipping a building at speed
+const TRAFFIC_MAX = 18;    // t-boning a civilian
+const COP_MAX = 12;        // a cruiser ramming you, now once every 0.6 s
+const BLAST_MAX = 38;      // standing in an explosion
+
+/* AND THE ARMOR COMES BACK, SLOWLY, WHEN NOTHING HAS HIT YOU.
+
+   Measured over ninety seconds of driving hard at a delivery with two stars up:
+   486 points of damage from clipping buildings, 39 from traffic, 12 from police,
+   4 deaths, mean health 22 out of 100. Buildings are ninety per cent of
+   everything that happens to you, and the reason is structural rather than a
+   number being too big — damage was MONOTONIC. Nothing in the game gave health
+   back except a repair shop you have to pay for, so a long session could only
+   ever end one way however well you drove. That is the real answer to "I die too
+   often": not that any one hit was lethal, but that a hundred points of health
+   had to last for ever.
+
+   The window is what makes this a reward rather than a free pass. Seven seconds
+   without a scratch is a long time in a chase and no time at all on an open
+   road, so it pays for driving cleanly and pays nothing for driving into things.
+
+   AND IT STOPS AT 65. A repair shop still exists, still costs money, and is
+   still the only way back to a hundred — this is a limp home, not a heal. */
+const REGEN_AFTER = 7;     // seconds since the last hit before it starts
+const REGEN_RATE = 3.5;    // points a second after that
+const REGEN_CAP = 65;      // and no further
+
+/* EVERY POINT OF DAMAGE THE PLAYER TAKES GOES THROUGH HERE.
+
+   It was four scattered `P.car.hp -=` lines with four different caps and three
+   different cooldown rules — one of which was no cooldown at all — and there was
+   no way to answer "what is killing me?" except by reading all four and
+   guessing. The tally is a few bytes and it turned a balance argument into a
+   measurement. */
+const DMG = { bld: 0, traffic: 0, cop: 0, blast: 0, deaths: 0 };
+function hurtPlayer(n, why) {
+  if (!(n > 0) || P.dead) return 0;
+  DMG[why] = (DMG[why] || 0) + n;
+  P.car.hp -= n;
+  P.calm = 0;                       // the regeneration window starts again
+  return n;
+}
+
 function resetRun() {
   const sp = nearestRoadPoint(0, 0) || { x: 0, y: 0, h: 0 };
   P.car = makeCar(sp.x, sp.y, sp.h, 'player');
@@ -658,6 +731,7 @@ function busted() {
   respawn('police');
 }
 function wasted() {
+  DMG.deaths++;
   P.cash = 0;
   store.set('vm_cash', P.cash);
   bigMsg('WASTED', '#ff4fd8', 'cleaned out · patched up at the hospital');
@@ -687,6 +761,7 @@ function doRespawn() {
   const sp = P.recover || P.spawn;
   P.car.x = sp.x; P.car.y = sp.y; P.car.h = sp.h;
   P.car.vx = P.car.vy = 0; P.car.hp = 100;
+  P.calm = 0;
   P.wanted = 0; P.cool = 0; cops = [];
   cam.x = sp.x; cam.y = sp.y;
   P.dead = false;
@@ -814,7 +889,7 @@ function update(dt) {
       const a = c.h + off, s = Math.cos(a), t = Math.sin(a);
       if (solidAt(c.x + s * 2.4, c.y + t * 2.4)) continue;
       c.x += s * 1.2; c.y += t * 1.2;       // out of whatever the overlap is
-      c.vx += s * 4.5; c.vy += t * 4.5;     // and moving, so it does not re-settle
+      c.vx += s * UNSTICK; c.vy += t * UNSTICK;   // and moving, so it does not re-settle
       break;
     }
   }
@@ -829,10 +904,10 @@ function update(dt) {
   // have to respect the city, or a chase turns into cars swimming through walls.
   const impact = GHOST ? 0 : buildingCollide(c);
   P.bldCd = Math.max(0, (P.bldCd || 0) - dt);
-  if (impact > 4 && P.bldCd <= 0) {
+  if (impact > BLD_MIN && P.bldCd <= 0) {
     P.bldCd = .45;
-    const dmg = clamp((impact - 4) * 1.5, 0, 45);
-    c.hp -= dmg; cam.shake = Math.min(1, cam.shake + dmg / 45);
+    const dmg = hurtPlayer(clamp((impact - BLD_MIN) * 1.5, 0, BLD_MAX), 'bld');
+    cam.shake = Math.min(1, cam.shake + dmg / 45);
     SFX.crash(impact);
     for (let i = 0; i < 6; i++) parts.push(sparks(c.x, c.y));
   }
@@ -850,7 +925,7 @@ function update(dt) {
     const rel = carsCollide(c, t);
     if (rel > 6 && P.hitCd <= 0) {
       P.hitCd = .6;
-      c.hp -= clamp(rel * .7, 0, 22);
+      hurtPlayer(clamp(rel * .7, 0, TRAFFIC_MAX), 'traffic');
       cam.shake = Math.min(1, cam.shake + .35);
       SFX.crash(rel);
       for (let i = 0; i < 5; i++) parts.push(sparks((c.x + t.x) / 2, (c.y + t.y) / 2));
@@ -860,6 +935,7 @@ function update(dt) {
     }
   }
   P.hitCd -= dt;
+  P.copCd = Math.max(0, (P.copCd || 0) - dt);
 
   // --- pedestrians
   for (const p of peds) {
@@ -884,7 +960,17 @@ function update(dt) {
     const d = dist(k.x, k.y, c.x, c.y);
     if (d < 130) nearCop = true;
     const rel = carsCollide(c, k);
-    if (rel > 5) { c.hp -= clamp(rel * .5, 0, 14); damageCar(k, rel); addWanted(.22); SFX.crash(rel); }
+    /* RATE-LIMITED, LIKE EVERYTHING ELSE THAT HITS YOU. This was the one damage
+       source in the game with no cooldown on it: buildings are capped at one hit
+       per 0.45 s and traffic at one per 0.6 s, both with a comment saying why,
+       and a police car could take health on every frame it was touching you. A
+       cruiser leaning on the car at a roadblock was sixty hits a second where a
+       wall would have been two. It is the same rule as the other two now. */
+    if (rel > 5 && P.copCd <= 0) {
+      P.copCd = .6;
+      hurtPlayer(clamp(rel * .5, 0, COP_MAX), 'cop');
+      damageCar(k, rel); addWanted(.22); SFX.crash(rel);
+    }
     // busted: you stopped, a cop pulled up alongside and stopped too, for a beat.
     // The cop has to be stationary as well — one blowing past at speed is a near
     // miss, not an arrest.
@@ -930,6 +1016,13 @@ function update(dt) {
     if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
   }
 
+
+  // --- the armor comes back when nothing has hit you for a while
+  if (!P.dead) {
+    P.calm = (P.calm || 0) + dt;
+    if (P.calm > REGEN_AFTER && c.hp > 0 && c.hp < REGEN_CAP)
+      c.hp = Math.min(REGEN_CAP, c.hp + REGEN_RATE * dt);
+  }
 
   // --- health / death
   if (c.hp <= 0 && !P.dead) { c.hp = 0; wasted(); }
