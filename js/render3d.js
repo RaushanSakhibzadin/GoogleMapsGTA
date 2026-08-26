@@ -559,8 +559,9 @@ void main() {
   if (t.a <= 0.02) discard;
   float f = clamp((vD - uFogR.x) / (uFogR.y - uFogR.x), 0.0, 1.0);
   /* The glyphs are white and their rim is black; multiplying by the ink colour
-     tints the letters without touching the rim, which is what keeps them legible
-     on a pale wall in daylight and warm at dusk. */
+     tints the letters without touching the rim — black stays black whatever it
+     is multiplied by — which is what lets the ink be a mid blue in daylight and
+     still read against a pale stucco wall. */
   outC = vec4(mix(t.rgb * uInk, uFog, f), t.a * (1.0 - f));
 }`;
 
@@ -2324,10 +2325,24 @@ function render3D() {
     gl.uniformMatrix4fv(G3.sign.u.uVP, false, G3.VP);
     gl.uniform3fv(G3.sign.u.uFog, th.sky);
     gl.uniform2f(G3.sign.u.uFogR, FOG0, VIEW3);
-    /* Warm at dusk, plain white by day — the same lamp colour the street lights
-       use, so a fascia sign after dark belongs to the same night as everything
-       under it. */
-    gl.uniform3fv(G3.sign.u.uInk, themeName === 'day' ? [1, 1, 1] : [1, .93, .80]);
+    /* BLUE BY DAY, warm at dusk.
+
+       White by day was what shipped, and it read as a decal rather than as
+       paint: white glyphs under a bright sky have nothing above them to be
+       lighter than, so the lettering sat on the facade instead of on it. Real
+       shopfront signage in a city like this is painted, and painted signage is
+       almost never white on masonry.
+
+       The blue is chosen for LUMA as much as for hue, because the letters have
+       to read at the far end of a street against two very different walls. At
+       0.48 it is clearly lighter than dark brick and clearly darker than pale
+       stucco, so neither wall can swallow it — a deeper, more "correct" signage
+       blue goes to mud on the brick, and a paler one disappears on the render.
+
+       Dusk keeps the lamp colour the street lights use, so a fascia sign after
+       dark belongs to the same night as everything under it. */
+    gl.uniform3fv(G3.sign.u.uInk,
+                  themeName === 'day' ? [.24, .53, .90] : [1, .93, .80]);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
     gl.uniform1i(G3.sign.u.uTex, 1);

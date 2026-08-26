@@ -154,17 +154,40 @@ const shot = await p.evaluate(() => {
   dropAllCells();
   settle(60);
   state = 'play';
-  let lit = 0;
+  /* PER CHANNEL, NOT THE SUM OF THE THREE.
+
+     This summed R+G+B and asked for a change of 90, on the stated reasoning
+     that the glyphs are white on a dark rim so a sign pixel is one that got
+     markedly brighter or darker than the wall behind it. That reasoning died
+     with the white glyphs: the daylight ink is now a mid blue, which against a
+     wall of roughly its own brightness moves the sum by almost nothing while
+     moving the blue channel by a great deal. The test would have gone on
+     passing on the strength of the rim alone, and would have reported a city
+     with no lettering in it as a city with lettering.
+
+     The distance between two colours is the measurement that does not care
+     which colour the ink is. */
+  let lit = 0, inkR = 0, inkG = 0, inkB = 0, n = 0;
   for (let i = 0; i < A.length; i += 4) {
-    // the glyphs are white on a dark rim, so a sign pixel is one that got
-    // markedly brighter or markedly darker than the bare wall behind it
-    const d = (A[i] + A[i + 1] + A[i + 2]) - (B[i] + B[i + 1] + B[i + 2]);
-    if (Math.abs(d) > 90) lit++;
+    const dr = A[i] - B[i], dg = A[i + 1] - B[i + 1], db = A[i + 2] - B[i + 2];
+    if (Math.hypot(dr, dg, db) < 55) continue;
+    lit++;
+    /* The ink, read off the pixels that got BRIGHTER in blue — the glyph faces
+       rather than the black rim around them, which moves every channel down. */
+    if (db > 20) { inkR += A[i]; inkG += A[i + 1]; inkB += A[i + 2]; n++; }
   }
-  return { w, h, lit };
+  return { w, h, lit, glyphs: n,
+           ink: n ? [inkR / n, inkG / n, inkB / n].map(v => Math.round(v)) : null };
 });
 out.sign = shot;
 out.signsAreDrawn = shot.lit > 400;
+/* AND THE DAYLIGHT INK IS BLUE. Everything above is satisfied by lettering of
+   any colour, including the white this replaced, so without this the change the
+   player asked for is untested. Asserted as a relationship between the channels
+   rather than against a number, because the wall colour underneath and the fog
+   both shift the absolute values. */
+out.blueByDay = !!shot.ink && shot.glyphs > 100 &&
+                shot.ink[2] > shot.ink[0] * 1.5 && shot.ink[2] > shot.ink[1] * 1.2;
 
 /* ---- 2. and they stay on the building ---- */
 /* Geometry, not pixels: signQuad is the same function the cell builder uses, so
@@ -218,7 +241,7 @@ out.longNamesGetWider = out.shape.short > 0 && out.shape.long > out.shape.short 
 out.errs = errs.slice(0, 3);
 out.pass = out.ownName && out.cyrillic && out.shopLendsItsName &&
            out.shopfrontNamesIt && out.namelessStaysBlank && out.shopsAreNotPois &&
-           out.signsAreDrawn && out.staysOnTheWall && out.longNamesGetWider &&
+           out.signsAreDrawn && out.blueByDay && out.staysOnTheWall && out.longNamesGetWider &&
            !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
