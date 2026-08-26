@@ -76,7 +76,7 @@ pulls in the rest.
 | **Esc** | pause / change city |
 | touch | on-screen pads appear automatically on phones and tablets |
 | GHOST MODE | the switch on the title screen and the pause card — supporter perk, see the top |
-| **R** / the dial under the radar | next station — ◀ and ▶ step it, the name plays and stops it |
+| **R** / the bar along the bottom | next station — ◀ and ▶ step it, the name plays and stops it |
 | **♪** | top right — two levels, the game's and the radio's, set while you drive |
 | **⤓ LOG** | top right, on every screen — saves what the map servers sent and everything that went wrong |
 | **tap the radar** / **M** | pauses and opens the full city map — drag to pan, pinch to zoom |
@@ -117,8 +117,13 @@ pulls in the rest.
   [Radio Browser](https://www.radio-browser.info/) community database — open data, no key, the
   same idea as OpenStreetMap — filtered to the country you searched and then **sorted by how
   close each transmitter is to where you are driving**, so a city's own stations come before the
-  national networks. Three buttons under the radar, one thumb apart. If the directory is down or
-  the country has nothing in it, the strip says so and nothing else changes.
+  national networks. A bar along the bottom of the screen, below the driving controls, with the
+  name across the middle of it — wrapped to two lines rather than shrunk, because plenty of real
+  stations run to thirty characters and a phone is 390 points wide. It **re-tunes itself at
+  random** when a city loads and again every time you shunt another car, drawing from the near
+  half of the dial so a shuffle stays local; the police are deliberately exempt, since being
+  rammed by a cruiser mid-chase is already the loudest thing on screen. If the directory is down
+  or the country has nothing in it, the bar says so and nothing else changes.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.
@@ -304,7 +309,11 @@ pulls in the rest.
   afterwards and the car carries on sliding with the rear loose, so you can run it through a bend.
   It lays rubber for the whole arc and throws tyre smoke off the back.
 - **Collision that means something.** Buildings push you out along the nearest wall normal and
-  damage you in proportion to closing speed. Cars exchange impulses and dent each other.
+  damage you in proportion to closing speed. Cars exchange impulses and dent each other — and they
+  do it **when they are actually touching**, by the separating axis theorem over two oriented
+  rectangles. That was a circle, and one radius cannot describe a shape that is 4.5 m long and
+  2 m wide: it fired with a metre of daylight still between two cars side by side, and did not
+  fire until you were a metre and a half into the back of one.
 - **Every car is destructible.** Traffic and police take damage from any impact — including
   crashes with each other, which you don't have to be part of. A damaged car starts smoking and
   visibly loses top speed, down to about a third of it when it's nearly finished. At zero it goes
