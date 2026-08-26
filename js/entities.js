@@ -174,18 +174,158 @@ function rehome(c) {
   c.road_ = p.road; c.idx = p.idx; c.dir = dir;
   return true;
 }
+/* PEDESTRIANS WALK ON THE PAVEMENT, AND THE PAVEMENT IS A ROAD'S EDGE.
+
+   They used to be a random walk: spawned somewhere off a carriageway, given a
+   heading, and turned by a random amount every few seconds. The only thing
+   keeping them off the tarmac was a rule that reversed them if a step took them
+   from off-road to on-road — which does nothing about the far more common case
+   of a walk that drifts steadily away from any street at all, and after a minute
+   the city had people standing in the middle of car parks, inside courtyards and
+   out in open ground, facing nothing.
+
+   So a pedestrian is bound to a way, exactly the way traffic is: it holds the
+   road, the node it is walking towards, and which way along. What makes it a
+   pavement rather than a lane is one number — the offset is the carriageway's
+   half width plus a metre and a half, so they walk just outside the kerb of
+   whatever they are on, and a wide boulevard puts them further out than a back
+   street without anything having to know which is which.
+
+   AT THE END OF THE WAY THEY TURN ROUND rather than being re-homed. Re-homing is
+   a teleport, and a person vanishing from one pavement and appearing on another
+   is worse than a person walking back the way they came — which is a thing
+   people actually do. The side is flipped at the same time, so they come back
+   along the other pavement instead of retracing the same line. */
+const PAVE_GAP = 1.5;          // metres beyond the kerb to the middle of the walk
+
+function pedShirt() {
+  /* Clothes, not neon. They were picked from the same palette the cars use,
+     which is six fluorescent colours, and a person is not a car. */
+  return pick(['#3f4a63', '#6b3f3f', '#2f5646', '#5a4a6b', '#7a6a4a', '#40506b',
+               '#8a4a55', '#3a3f4a', '#6b5a3f', '#4a6b63']);
+}
+function pedSkin() {
+  return pick(['#f0c9a6', '#d9a878', '#b07d52', '#8a5a38', '#5e3a24', '#f5ddc0']);
+}
+function makePed(x, y, road, idx, dir, side) {
+  return {
+    x, y, road, idx, dir, side,
+    h: 0, spd: rand(1.0, 1.7),
+    shirt: pedShirt(), trews: pedShirt(), skin: pedSkin(),
+    // where in the stride they are, so a crowd is not one person copied
+    step: Math.random() * Math.PI * 2,
+    col: '#ffe36a',                       // the radar dot, which wants to be seen
+    t: rand(0, 10), dead: false
+  };
+}
 function spawnPeds(n) {
   for (let i = 0; i < n; i++) {
     const p = roadPoint(P.car.x, P.car.y, 40, 400);
     if (!p) continue;
-    const off = pick([-1, 1]) * rand(7, 13);   // start on the pavement, not the road
-    peds.push({
-      x: p.x + Math.cos(p.h + Math.PI / 2) * off, y: p.y + Math.sin(p.h + Math.PI / 2) * off,
-      h: p.h + (Math.random() < .5 ? 0 : Math.PI), spd: rand(1.1, 1.8),
-      col: pick(['#ffe36a', '#33e6ff', '#ff4fd8', '#fff', '#48ff9e', '#ff9f5a']),
-      t: rand(0, 10), dead: false
-    });
+    const side = pick([-1, 1]);
+    const dir = Math.random() < .5 ? 1 : -1;
+    const q = pedWalkPoint(p.road, p.idx, dir, side);
+    peds.push(makePed(q ? q.x : p.x, q ? q.y : p.y, p.road, p.idx, dir, side));
   }
+}
+
+/* Where the pavement is, at node `idx` of `r`, on `side`, for someone walking in
+   `dir`. Returns the point and the direction of travel, or null if the road has
+   gone away under it — which happens: ways are streamed in and out. */
+function pedWalkPoint(r, idx, dir, side) {
+  if (!r || !r.pts || r.pts.length < 2) return null;
+  const i = clamp(idx, 0, r.pts.length - 1);
+  const a = r.pts[i];
+  /* THE SEGMENT THIS NODE BELONGS TO, taken backwards from the target where
+     there is a node behind it and forwards where there is not.
+
+     Clamping the index was the first version and it is wrong at exactly the two
+     places every pedestrian eventually reaches: at either end of a way, i - dir
+     clamps back to i, the "segment" is a point, its length is zero, and the
+     fallback heading of due east was used to place the pavement. So the last
+     node of every street put its walkers an arbitrary five metres east of it —
+     which on a north-south street is the middle of the carriageway. Three of
+     thirty-four were standing in their own road because of it. */
+  let j = i - dir, flip = 1;
+  if (j < 0 || j >= r.pts.length) { j = i + dir; flip = -1; }
+  if (j < 0 || j >= r.pts.length) return null;
+  const b = r.pts[j];
+  let hx = (a.x - b.x) * flip, hy = (a.y - b.y) * flip;
+  const L = Math.hypot(hx, hy);
+  if (L < 1e-6) return null;
+  hx /= L; hy /= L;
+  const off = pedOffset(r);
+  // perpendicular, to the side this one walks on
+  return { x: a.x - hy * off * side, y: a.y + hx * off * side, hx, hy };
+}
+const pedOffset = r => (r.w || 6) * .5 + PAVE_GAP;
+
+/* AND THE PAVEMENT IS HELD TO, not merely aimed at.
+
+   Walking towards an offset node keeps them beside the road on a straight, and
+   cuts the corner on a bend: the straight line between two pavement points
+   either side of a bend passes inside it, and inside a bend is the carriageway.
+   So the lateral position is corrected against the segment they are actually on
+   — and only when they have ended up ON the tarmac, so a walk down a straight is
+   untouched and this costs one projection a frame for the few who need it. */
+function pedHold(p) {
+  const r = p.road;
+  if (!r || !r.pts || r.pts.length < 2) return;
+  const i = clamp(p.idx, 0, r.pts.length - 1);
+  const j = clamp(i - p.dir, 0, r.pts.length - 1);
+  if (i === j) return;
+  const a = r.pts[j], b = r.pts[i];
+  const ex = b.x - a.x, ey = b.y - a.y;
+  const L2 = ex * ex + ey * ey;
+  if (L2 < 1e-6) return;
+  let t = ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2;
+  t = clamp(t, 0, 1);
+  const cx = a.x + ex * t, cy = a.y + ey * t;
+  const lat = Math.hypot(p.x - cx, p.y - cy);
+  const want = pedOffset(r);
+  if (lat >= (r.w || 6) * .5) return;              // already clear of the tarmac
+  const L = Math.sqrt(L2);
+  const nx = -ey / L, ny = ex / L;                 // perpendicular to the segment
+  // out to the side they walk on, keeping whichever side they are already nearer
+  const sgn = (p.x - cx) * nx + (p.y - cy) * ny >= 0 ? 1 : -1;
+  p.x = cx + nx * want * sgn;
+  p.y = cy + ny * want * sgn;
+  // counted, so a test can tell a step from a step plus a sideways correction
+  p.holds = (p.holds || 0) + 1;
+}
+
+function walkPed(p, dt) {
+  const q = pedWalkPoint(p.road, p.idx, p.dir, p.side);
+  if (!q) {                                  // the way was streamed out from under them
+    const n = roadPoint(p.x, p.y, 0, 260) || roadPoint(p.x, p.y, 0, 600);
+    if (!n) return;
+    p.road = n.road; p.idx = n.idx; p.dir = Math.random() < .5 ? 1 : -1;
+    return;
+  }
+  let dx = q.x - p.x, dy = q.y - p.y;
+  const d = Math.hypot(dx, dy) || 1e-6;
+  if (d < 1.2) {
+    // arrived at this node: on to the next one, or turn round at the end
+    const next = p.idx + p.dir;
+    if (next < 0 || next >= p.road.pts.length) {
+      p.dir = -p.dir;
+      p.side = -p.side;                      // back along the other pavement
+      p.idx = clamp(p.idx + p.dir, 0, p.road.pts.length - 1);
+    } else p.idx = next;
+    return;
+  }
+  /* AND THEY DO NOT WALK THROUGH BUILDINGS. A pavement offset from a centreline
+     is right nearly everywhere and wrong where a footprint has been mapped over
+     the verge, so the far side is tried before giving up — which is what a person
+     would do, and costs one lookup on the frame it happens. */
+  const step = p.spd * dt;
+  const nx = p.x + dx / d * step, ny = p.y + dy / d * step;
+  if (typeof solidAt === 'function' && solidAt(nx, ny)) { p.side = -p.side; return; }
+  p.x = nx; p.y = ny;
+  pedHold(p);
+  p.h = Math.atan2(dy, dx);
+  // the stride, at about two paces a second at walking pace
+  p.step += step * 2.6;
 }
 // Returns false when there is nowhere to put a unit, so callers can stop asking.
 function spawnCop() {

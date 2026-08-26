@@ -1414,6 +1414,56 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
    that layout is written down for the cell meshes. */
 const LIT_ATTR = () => [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3],
                         [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
+/* A PERSON, out of six boxes and a stride.
+
+   They were one box: 0.64 m square, 1.7 m tall, in one of the six fluorescent
+   colours the cars are painted. At any distance that is a bollard, and a street
+   with forty bollards on it reads as a street with forty bollards on it.
+
+   Six boxes is the fewest that reads as a human being from a car: two legs, a
+   torso, two arms and a head. What actually sells it is not the count, it is
+   that THE LEGS SWING. A walking figure is recognised by its gait long before
+   its outline resolves, and the gait is one sine wave — the phase is carried on
+   the pedestrian and advanced by the distance walked rather than by time, so
+   somebody moving slowly takes slower steps instead of jogging on the spot.
+
+   ORIENTED TO THE WAY THEY ARE FACING, so the swing is fore-and-aft rather than
+   sideways. Everything is worked out in the person's own frame and rotated on
+   the way out, which is one sin and one cos for the whole figure. */
+const PED_H = 1.74;
+function pushPerson(out, p) {
+  const y0 = terrainH(p.x, p.y);
+  const ch = Math.cos(p.h), sh = Math.sin(p.h);
+  const shirt = parseColour(p.shirt) || [70, 80, 100];
+  const trews = parseColour(p.trews) || [50, 55, 70];
+  const skin = parseColour(p.skin) || [230, 200, 170];
+  /* One box, given in the walker's own axes: u runs forward, v across, and the
+     eight corners come out in the order pushBox wants them. */
+  const limb = (fwd, side, base, top, halfF, halfS, col) => {
+    const b = [];
+    for (const uy of [base, top])
+      for (const [a, o] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const f = fwd + a * halfF, sdd = side + o * halfS;
+        b.push(p.x + ch * f - sh * sdd, y0 + uy, p.y + sh * f + ch * sdd);
+      }
+    pushBox(out, b, col[0] / 255, col[1] / 255, col[2] / 255);
+  };
+  /* The stride. One leg forward while the other is back, and the arms opposite
+     to the legs, which is what people actually do and what makes a walk read as
+     a walk rather than as a shuffle. */
+  const sw = Math.sin(p.step) * .26;
+  limb(sw, -.11, 0, .86, .10, .075, trews);          // legs
+  limb(-sw, .11, 0, .86, .10, .075, trews);
+  /* The torso is WIDER THAN THE HEAD by enough to read as shoulders, which is
+     most of what makes a silhouette human at fifteen metres — the first version
+     had them within a couple of centimetres of each other and the figure came
+     out as a post with a knob on it. */
+  limb(0, 0, .84, 1.45, .115, .215, shirt);          // torso
+  limb(-sw * .7, -.28, .86, 1.41, .075, .062, shirt); // arms, counter-swinging
+  limb(sw * .7, .28, .86, 1.41, .075, .062, shirt);
+  limb(0, 0, 1.46, PED_H, .105, .105, skin);         // head
+}
+
 function buildCell(kx, kz) {
   const x0 = kx * CELL3, z0 = kz * CELL3, x1 = x0 + CELL3, z1 = z0 + CELL3;
   const gnd = [], lit = [], sgn = [], tre = [];
@@ -2173,13 +2223,7 @@ function render3D() {
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) addCar(c);
   for (const p of peds) {
     if (!near(p)) continue;
-    const y = terrainH(p.x, p.y);
-    const q = parseColour(p.col) || [230, 230, 230];
-    const r = .32, h = 1.7;
-    const b = [];
-    for (const uy of [0, 1]) for (const [a, o2] of [[-1, -1], [1, -1], [1, 1], [-1, 1]])
-      b.push(p.x + a * r, y + uy * h, p.y + o2 * r);
-    pushBox(dyn, b, q[0] / 255, q[1] / 255, q[2] / 255);
+    pushPerson(dyn, p);
   }
   const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
   if (dyn.length) G3.cars = GL.stream(G3.cars, new Float32Array(dyn), LITATTR);

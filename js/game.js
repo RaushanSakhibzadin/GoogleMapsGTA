@@ -940,12 +940,7 @@ function update(dt) {
   // --- pedestrians
   for (const p of peds) {
     if (p.dead) continue;
-    p.t -= dt;
-    if (p.t <= 0) { p.t = rand(2, 7); p.h += rand(-1.4, 1.4); }
-    const nx = p.x + Math.cos(p.h) * p.spd * dt, ny = p.y + Math.sin(p.h) * p.spd * dt;
-    // they stick to the pavement — stepping into the carriageway turns them around
-    if (onRoad(nx, ny) && !onRoad(p.x, p.y)) p.h += Math.PI * rand(.6, 1.4);
-    else { p.x = nx; p.y = ny; }
+    walkPed(p, dt);
     if (dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
       p.dead = true; addWanted(1);
       SFX.crash(8); toast('HEY! WATCH IT', 900);
