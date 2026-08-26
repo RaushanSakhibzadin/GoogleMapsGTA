@@ -125,6 +125,14 @@ pulls in the rest.
   work, and losing the song on top of the bang and the damage reads as the game taking it off
   you. If the directory is down or the country has nothing in it, the bar says so and nothing
   else changes.
+- **And it comes on with the car.** The dial tunes itself when a city starts, behind the loading
+  screen. Switching it off is remembered between sessions, and with it off nothing is asked of
+  the station directory at all — not a request that fails quietly, no request: it is somebody
+  else's server on a connection that may be metered. The name is the on/off switch and it says
+  so, carrying **■** while a station is playing and **▶** while it is not. On iOS the automatic
+  start is refused — Safari only begins audio from a real gesture, and the tap that started the
+  game is long over by the time a station list arrives — so the dial waits and the first touch
+  of a pad starts it.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.

@@ -109,7 +109,7 @@ async function open(opts = {}) {
      handler at all, which read as a dial that never tuned. */
   await p.route('**://*/**', r =>
     (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
-  await p.route('**/nominatim.openstreetmap.org/**', r => r.fulfill(json([{
+  await p.route('**/nominatim.openstreetmap.org/**', r => opts.nowhere ? r.abort() : r.fulfill(json([{
     lat: String(LAT0), lon: String(LON0),
     display_name: 'Savski venac, Beograd, Srbija',
     // the two letters the radio needs, which only addressdetails returns
@@ -206,6 +206,38 @@ const out = {};
   out.offSaysHowToStart = /▶/.test(out.offLabel) &&
                           /turn the radio on|play the radio/i.test(out.quiet.radio.action);
   out.quietErrs = errs.slice(0, 3);
+  await browser.close();
+}
+
+/* ---- 0c. AND A CITY THAT IS NOT WHERE YOU ASKED FOR ----
+
+   When the geocoder never answers, `lat` and `lon` stay null and the game falls
+   back to the bundled city — real Belgrade, with real coordinates of its own.
+   Arming the dial with the coordinates that were ASKED for rather than the ones
+   the world was BUILT on meant radioURL doing `null.toFixed(4)`, which is an
+   uncaught TypeError on the loading path, thrown once per mirror.
+
+   It was invisible until this release and would have stayed invisible: nothing
+   tuned until the dial was pressed, and nobody presses the dial in a city that
+   failed to load. Switching the radio on by default is what made a latent bug a
+   crash, which is the honest description of it.
+
+   Two assertions, and the first is the one that matters: NOTHING THREW. The
+   second is that the fallback city gets its own radio rather than none — it is
+   a real place and the player is really driving in it. */
+{
+  const { browser, p, errs, asked } = await open({ nowhere: true });
+  await p.waitForTimeout(2500);
+  out.nowhere = {
+    asked: asked[0] || '',
+    radio: await p.evaluate(() => window.__radio()),
+    errs: errs.slice(0, 3)
+  };
+  out.aFallbackCityDoesNotThrow = out.nowhere.errs.length === 0;
+  // the bundled city is Belgrade, so the dial must have asked about Belgrade
+  const at = /geo_lat=(4[45]\.\d+)/.exec(out.nowhere.asked);
+  out.tunesTheCityItActuallyBuilt = !!at && Math.abs(+at[1] - 44.8) < 0.4 &&
+                                    out.nowhere.radio.n > 0;
   await browser.close();
 }
 
@@ -576,6 +608,7 @@ out.errs = [].concat(out.armedErrs, out.quietErrs, out.liveErrs, out.shuffleErrs
                      out.deadErrs, out.emptyErrs)
              .filter(Boolean);
 out.pass = out.comesOnByItself && out.offStaysOff && out.offSaysHowToStart &&
+           out.aFallbackCityDoesNotThrow && out.tunesTheCityItActuallyBuilt &&
            out.stopIsExplicit && out.offIsRemembered &&
            out.stripBeforeTuning && out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
            out.popularityIsNotLocal && out.keepsTheUnplaced && out.dropsPlainHttp &&

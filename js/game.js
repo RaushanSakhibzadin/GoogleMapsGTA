@@ -356,7 +356,16 @@ async function startGame(query, lat, lon, label) {
      is expected to be refused on a phone — iOS starts audio only from a real
      gesture, and the tap that started the game is long over by the time a list
      comes back — so the dial parks and the first touch of a pad starts it. */
-  if (typeof radioAt === 'function') radioAt(lat, lon, want.cc || '');
+  /* THE COORDINATES THE WORLD WAS ACTUALLY BUILT ON, which are not always the
+     ones asked for. A geocode that never answered leaves lat and lon null and
+     the game falls back to the bundled city — real Belgrade, with real
+     coordinates of its own — so that is what the dial should be tuned to. And
+     the generated lattice under that has no location at all, which is why this
+     can still come out null: there is nothing local to a place that does not
+     exist, and radioAt refuses coordinates it cannot use. */
+  const rLat = Number.isFinite(lat) ? lat : (offline ? offline.lat : null);
+  const rLon = Number.isFinite(lon) ? lon : (offline ? offline.lon : null);
+  if (typeof radioAt === 'function') radioAt(rLat, rLon, want.cc || '');
   if (typeof radioArm === 'function') radioArm();
   /* The remembered view, applied here rather than on page load. Creating the
      first WebGL context and building a dozen cells of geometry is a real stall,

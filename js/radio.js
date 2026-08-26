@@ -73,9 +73,17 @@ function radioWanted(v) {
 }
 
 /* WHERE WE ARE. Recorded when a city finishes loading; radioArm decides whether
-   anything is asked of anybody. */
+   anything is asked of anybody.
+
+   AND COORDINATES IT CANNOT USE ARE NOT COORDINATES. A geocode that never
+   answered hands this null, and the generated lattice the game falls back to
+   after that is not anywhere at all — there is no station local to a place that
+   does not exist. This used to be harmless because nothing tuned until the dial
+   was pressed; now that a city arms it, `null.toFixed(4)` inside radioURL is a
+   real uncaught error on the loading path, thrown once per mirror. */
 function radioAt(lat, lon, cc) {
-  RADIO.at = { lat, lon, cc: cc || '' };
+  RADIO.at = (Number.isFinite(lat) && Number.isFinite(lon))
+    ? { lat, lon, cc: cc || '' } : null;
   RADIO.list = []; RADIO.i = -1; RADIO.on = false;
   RADIO.pending = false;
   RADIO.status = 'idle'; RADIO.err = '';
