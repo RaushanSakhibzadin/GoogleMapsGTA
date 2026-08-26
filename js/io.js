@@ -154,6 +154,8 @@ const SFX = (() => {
   let ac = null, eng = null, engGain = null, engFilt = null, started = false;
   let sirenOsc = null, sirenGain = null, sirenT = 0;
 
+  let gen = 0, watching = 0;
+
   /* iOS hands back a SUSPENDED AudioContext more often than not — opening the
      page from another app is the classic case — and it suspends again whenever
      the tab loses focus or another app takes the audio session. Resuming only at
@@ -161,13 +163,67 @@ const SFX = (() => {
      silent for ever with every later tap short-circuiting past the fix. So
      resume is its own thing, and every gesture retries it. */
   function resume() {
-    if (ac && ac.state !== 'running') { try { ac.resume(); } catch (e) {} }
+    if (!ac) return;
+    /* 'interrupted' IS A REAL STATE AND ONLY SAFARI HAS IT. A phone call, a
+       timer, another app taking the audio session — the context goes to
+       'interrupted' rather than 'suspended', and code that only knows the two
+       standard states either ignores it or, worse, treats it as running. */
+    if (ac.state !== 'running') {
+      try {
+        const r = ac.resume();
+        if (r && r.then) r.then(watch, watch);
+        else watch();
+      } catch (e) { watch(); }
+    } else watch();
   }
+
+  /* AND RESUMING IS NOT THE SAME AS WORKING, which is the whole of this bug.
+
+     Coming back from another app, Safari routinely hands back a context that
+     reports `running` and is dead: every node is still connected, every gain is
+     still set, currentTime does not advance and nothing reaches the speaker.
+     There is nothing to resume — the context has to be thrown away and built
+     again. Resuming was already here and was not enough, which is exactly what
+     "sound disappears when I switch away and come back" is.
+
+     So the clock is the test. Sample it, wait, sample it again: a context whose
+     clock has stopped while the wall clock moved is not a context, it is an
+     object. Half a second is long enough to be sure and short enough that the
+     player reads it as the sound fading back in. */
+  function watch() {
+    if (!ac || watching) return;
+    watching = 1;
+    const t0 = ac.currentTime, mine = gen;
+    setTimeout(() => {
+      watching = 0;
+      if (!ac || gen !== mine) return;
+      if (stalled(ac.state, t0, ac.currentTime)) rebuild();
+    }, 500);
+  }
+  /* Pure, and exported, because the alternative is a test that needs an
+     operating system willing to interrupt its audio on demand. */
+  function stalled(st, t0, t1) {
+    return (st === 'running' || st === 'interrupted') && t1 <= t0;
+  }
+  function rebuild() {
+    const dead = ac;
+    ac = null; eng = null; engGain = null; engFilt = null;
+    sirenOsc = null; sirenGain = null; started = false;
+    gen++;
+    try { if (dead) dead.close(); } catch (e) {}
+    start();
+  }
+
   function start() {
     if (started) { resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ac = new AC(); started = true;
+    /* Rebuild on the way back out of an interruption as well as on the timer:
+       Safari fires this when the session is taken and again when it is handed
+       back, which is earlier than any visibility event arrives. */
+    try { ac.onstatechange = () => { if (ac && ac.state !== 'suspended') resume(); }; }
+    catch (e) {}
     resume();
     eng = ac.createOscillator(); eng.type = 'sawtooth'; eng.frequency.value = 55;
     engFilt = ac.createBiquadFilter(); engFilt.type = 'lowpass'; engFilt.frequency.value = 700;
@@ -227,10 +283,11 @@ const SFX = (() => {
     src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
   }
   return {
-    start, resume, engine, siren,
+    start, resume, engine, siren, rebuild, stalled,
     // test hook: the OS suspending us is the failure mode, so it has to be reachable
     suspend: () => ac ? ac.suspend() : Promise.resolve(),
-    state: () => ({ started, state: ac ? ac.state : 'none', now: ac ? ac.currentTime : 0 }),
+    state: () => ({ started, gen, state: ac ? ac.state : 'none',
+                    now: ac ? ac.currentTime : 0 }),
     // v already carries the distance falloff from earshot(); under a whisper
     // there is nothing worth waking the audio graph up for
     crash: v => { if (v < .5) return; noise(.28, clamp(v / 20, .06, .45)); blip(90, .16, 'sawtooth', .06); },
@@ -254,6 +311,17 @@ function audioStart() { SFX.start(); }
    actually fire on iOS when the page returns. */
 for (const ev of ['visibilitychange', 'focus', 'pageshow'])
   addEventListener(ev, () => { if (!document.hidden) SFX.resume(); });
+/* AND ANY TAP ANYWHERE RETRIES IT, not just the driving pads.
+
+   iOS will only start or resume an audio context from inside a real user
+   gesture, and the events above are not gestures — a resume attempted from
+   visibilitychange can be refused, silently, leaving the game muted until the
+   player happens to touch one of the four pads. Somebody who came back to the
+   game and pressed pause, or opened the map, or did nothing at all, stayed
+   silent. Passive and on the window, so it costs nothing and cannot swallow
+   anything. */
+for (const ev of ['pointerdown', 'touchend', 'keydown'])
+  addEventListener(ev, () => SFX.start(), { passive: true });
 
 /* ------------------------------ 8. canvas ------------------------------ */
 const cv = $('game'), ctx = cv.getContext('2d');

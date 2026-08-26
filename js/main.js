@@ -317,6 +317,9 @@ window.__audio = () => SFX.state();
 window.__sfx = name => { SFX[name](); return true; };
 window.__sfxResume = () => SFX.resume();
 window.__audioSuspend = () => SFX.suspend();
+// the interruption Safari hands back as a context that says "running" and is not
+window.__audioStalled = (st, t0, t1) => SFX.stalled(st, t0, t1);
+window.__audioRebuild = () => { SFX.rebuild(); return SFX.state(); };
 // how far the camera has pulled back, and how much world that puts on screen
 window.__perf = () => ({ upd: +PERF.upd.toFixed(2), ren: +PERF.ren.toFixed(2), steps: +PERF.steps.toFixed(2) });
 window.__cam = () => ({ s: cam.s, viewR: Math.hypot(VW, VH) / 2 / cam.s + 60 });
