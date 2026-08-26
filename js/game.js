@@ -185,7 +185,7 @@ async function startGame(query, lat, lon, label) {
     try {
       const g = await geocode(query);
       lat = g.lat; lon = g.lon; name = g.name;
-      want.lat = lat; want.lon = lon; want.label = g.name;
+      want.lat = lat; want.lon = lon; want.label = g.name; want.cc = g.cc || '';
     } catch (err) {
       if (gen !== loadGen) return;
       console.warn('geocode failed:', err);
@@ -347,6 +347,12 @@ async function startGame(query, lat, lon, label) {
   if (touchUI) $('touch').classList.add('on');
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
+  /* THE DIAL, LOOKED UP BEHIND THE WHEEL. Not awaited and not on the loading
+     path: it is a nice-to-have that talks to a third server, and a player should
+     never wait on the radio to start driving. If it never answers, the strip
+     says there are no stations here and nothing else changes. */
+  if (typeof radioFind === 'function')
+    radioFind(lat, lon, want.cc || '').catch(() => {});
   /* The remembered view, applied here rather than on page load. Creating the
      first WebGL context and building a dozen cells of geometry is a real stall,
      and doing it while the menu is on screen makes the menu look broken; doing

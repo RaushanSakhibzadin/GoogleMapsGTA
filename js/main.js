@@ -194,6 +194,23 @@ function hideGLHelp(never) {
 $('glOk').onclick = () => hideGLHelp(false);
 $('glNever').onclick = () => hideGLHelp(true);
 
+/* ---- the radio ----
+   Three buttons rather than one, because a station you do not like has to be
+   one thumb away at speed. Each of them is also a user gesture, which is the
+   only thing iOS will start audio from. */
+$('radioP').onclick = () => { SFX.start(); radioStep(-1); };
+$('radioX').onclick = () => { SFX.start(); radioStep(1); };
+$('radioN').onclick = () => { SFX.start(); radioToggle(); };
+/* And coming back from another app: an <audio> element is not the WebAudio
+   graph and does not go through SFX, so it needs its own nudge — the browser
+   pauses it on the way out and does not always start it again on the way in. */
+for (const ev of ['visibilitychange', 'pageshow'])
+  addEventListener(ev, () => {
+    if (document.hidden || !RADIO.on) return;
+    const a = RADIO.el;
+    if (a && a.paused) { const q = a.play(); if (q && q.catch) q.catch(() => {}); }
+  });
+
 $('logBtn').onclick = () => saveLog();
 /* THE VIEW SWITCH. Both renderers are in the build and this picks one — see the
    note at the top of render3d.js. The choice is remembered, but it is NOT
@@ -317,6 +334,16 @@ window.__audio = () => SFX.state();
 window.__sfx = name => { SFX[name](); return true; };
 window.__sfxResume = () => SFX.resume();
 window.__audioSuspend = () => SFX.suspend();
+window.__radio = () => ({
+  status: RADIO.status, on: RADIO.on, i: RADIO.i, n: RADIO.list.length,
+  name: RADIO.list[RADIO.i] ? RADIO.list[RADIO.i].name : '',
+  label: radioLabel(), err: RADIO.err,
+  src: RADIO.el ? RADIO.el.src : '', paused: RADIO.el ? RADIO.el.paused : null,
+  list: RADIO.list.map(s => ({ name: s.name, km: s.km == null ? null : +s.km.toFixed(1) }))
+});
+window.__radioStep = d => radioStep(d);
+window.__radioToggle = () => radioToggle();
+window.__radioFind = (lat, lon, cc) => radioFind(lat, lon, cc);
 // the interruption Safari hands back as a context that says "running" and is not
 window.__audioStalled = (st, t0, t1) => SFX.stalled(st, t0, t1);
 window.__audioRebuild = () => { SFX.rebuild(); return SFX.state(); };

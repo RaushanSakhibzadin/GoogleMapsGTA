@@ -496,7 +496,11 @@ function sessAbort(s) {
 }
 
 async function geocode(q) {
-  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q);
+  /* addressdetails, for the two letters the radio needs. Nominatim gives the
+     country code in the structured address and nowhere else — display_name ends
+     with the country's NAME, localised, which is not something to match on. */
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=' +
+              encodeURIComponent(q);
   const t0 = Date.now();
   const r = await fetchTimeout(url, { headers: { 'Accept': 'application/json' } }, 12000);
   if (!r.ok) throw new Error('geocoder ' + r.status);
@@ -506,7 +510,10 @@ async function geocode(q) {
             query: q, body: raw });
   const j = JSON.parse(raw);
   if (!j.length) throw new Error('no such place');
-  return { lat: +j[0].lat, lon: +j[0].lon, name: j[0].display_name.split(',').slice(0, 2).join(',') };
+  const ad = j[0].address || {};
+  return { lat: +j[0].lat, lon: +j[0].lon,
+           cc: (ad.country_code || '').toUpperCase(),
+           name: j[0].display_name.split(',').slice(0, 2).join(',') };
 }
 
 /* Stream the body so a big city reports real progress instead of a frozen bar. */
