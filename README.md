@@ -106,6 +106,10 @@ pulls in the rest.
   for — houses get render and brick, offices get concrete and glass, warehouses get metal —
   and only then to size and height. Roofs use real roof materials (asphalt, gravel, terracotta
   tile, membrane) rather than the facade colour, since a roof is what you actually see from above.
+- **The name over the door, in the right colour.** Real OSM names painted across the widest wall
+  of the building that carries them, blue by day and warm at dusk — and **yellow if it is
+  somewhere you eat**, asked of `amenity` and `shop` rather than of the name, so a Belgrade
+  kafana and a Tokyo kissaten are both found without the game knowing either word.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.
@@ -304,8 +308,12 @@ pulls in the rest.
   Buildings that merely sit beside the road stay as solid as ever.
 - **Off-road handling.** An 8 m drivable grid rasterized from the road network — leave the
   tarmac and you lose top speed, gain drag, and the camera starts shaking.
-- **Traffic and pedestrians.** Cars drive the real ways node by node. Pedestrians keep to the
-  pavement and turn back at the kerb, so you have to work to hit one.
+- **Traffic and pedestrians.** Cars drive the real ways node by node, and so do the people —
+  each one is bound to a street at an offset of its half width plus a metre and a half, so a
+  boulevard puts them further out than a back street and nobody ends up standing in a car park.
+  They cross at junctions, turn round at the end of a way and come back along the other pavement.
+  Six boxes and a swinging stride rather than a coloured post, with the phase driven by distance
+  walked, so somebody moving slowly takes slower steps instead of jogging on the spot.
 - **Five-star wanted level.** Ramming cars, hitting cops, and running people down raises it.
   Police pursue directly and get faster with each star. Lose them for 8 seconds and it decays.
 - **Busted and wasted have somewhere to take you.** Give up — stop the car — and the units closing

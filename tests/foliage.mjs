@@ -91,7 +91,12 @@ async function open(opts = {}) {
     (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
   await p.goto(GAME);
   await p.waitForTimeout(300);
-  await p.click('#go');
+  /* THE WEBGL CARD IS IN THE WAY, and on this browser it is meant to be: with no
+   WebGL the game now opens with a card saying so and how to turn it back on. A
+   player taps GOT IT; this does the same thing, because a test that could not
+   reach DRIVE would be reporting the card rather than the renderer. */
+await p.evaluate(() => window.__hideGLHelp && window.__hideGLHelp(false));  // DISMISS_GL_CARD
+await p.click('#go');
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
   await p.waitForTimeout(600);
   await p.evaluate(src => { window.__settle = eval('(' + src[0] + ')'); window.__park = eval('(' + src[1] + ')'); },

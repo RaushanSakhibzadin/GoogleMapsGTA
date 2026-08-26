@@ -241,7 +241,8 @@ out.stride = await p.evaluate(async () => {
      window walks further than they end up from the start, so the straight-line
      version made a constant phase-per-metre look like a spread from 2.6 to 8.2
      — and 2.6 is the constant. */
-  const s0 = live.map(q => ({ q, step: q.step, x: q.x, y: q.y, path: 0 }));
+  const s0 = live.map(q => ({ q, step: q.step, x: q.x, y: q.y, path: 0,
+                             holds: q.holds || 0 }));
   await new Promise(res => {
     const t0 = window.__simT();
     const tick = () => {
@@ -253,7 +254,14 @@ out.stride = await p.evaluate(async () => {
     };
     requestAnimationFrame(tick);
   });
-  const rows = s0.map(b => ({ d: b.path, ds: b.q.step - b.step })).filter(r => r.d > 1);
+  /* Anyone pushed back onto the pavement inside the window is dropped, for the
+     same reason the heading section drops them: the correction moves somebody
+     sideways, which adds to the path they have covered and nothing to the
+     stride. One of eleven, and it read as a phase of 1.2 radians per metre
+     against everybody else's 2.6. */
+  const rows = s0.map(b => ({ d: b.path, ds: b.q.step - b.step,
+                              held: (b.q.holds || 0) !== b.holds }))
+                 .filter(r => r.d > 1 && !r.held);
   // phase per metre, which must be the same for everybody
   const k = rows.map(r => r.ds / r.d);
   return { n: rows.length, min: Math.min(...k), max: Math.max(...k) };
