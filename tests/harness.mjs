@@ -36,3 +36,24 @@ export const CHROME = findChrome();
 
 // where screenshots land; nothing in the repo depends on them
 export const SHOTS = process.env.SHOTS || '/tmp';
+
+/* THE STATION DIRECTORY, ANSWERED WITH NOTHING.
+
+   The radio switches itself on when a city starts, so every test that loads a
+   city now makes a real request to radio-browser.info. Unrouted, that request
+   fails, and the browser logs the failure as a console error — three times, once
+   per mirror. Thirty-one tests in this suite treat a console error as a failure,
+   which is right, so they have to stub this the same way they already stub
+   Overpass and Nominatim.
+
+   AN EMPTY LIST RATHER THAN A STUBBED ONE, because none of those tests is about
+   the radio: a 200 with `[]` is a country with no stations in it, which the dial
+   is required to survive — see the last section of tests/radio.mjs — and it
+   leaves nothing playing to interfere with what they are measuring.
+
+   REGISTER IT LAST. Playwright matches the most recently registered route first,
+   so this has to come after any catch-all or the catch-all wins and the request
+   fails anyway. Called immediately before goto in every test that uses it, which
+   is the one place that is reliably after all the others. */
+export const stubRadio = target => target.route(/radio-browser\.info/,
+  r => r.fulfill({ contentType: 'application/json', body: '[]' }));

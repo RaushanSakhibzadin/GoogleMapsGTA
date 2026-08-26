@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const { fakeOSM } = await import('./fake.mjs');
 const URL = GAME;
 
@@ -32,6 +32,7 @@ await p.route('**/api/interpreter', async route => {
 function URL2(u) { return new globalThis.URL(u); }
 
 const t0 = Date.now();
+await stubRadio(p);
 await p.goto(URL);
 await p.waitForTimeout(300);
 await p.click('#go');

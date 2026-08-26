@@ -6,7 +6,7 @@
    on it, that the car has not moved a millimetre while the map was up, and that
    panning and pinching actually change what is drawn. */
 import { chromium, devices } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -50,6 +50,7 @@ await p.route('**/api/interpreter', r => {
   if (isPois(q)) return r.fulfill(json(pois()));
   return r.fulfill(json(streets()));
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.tap('#go');

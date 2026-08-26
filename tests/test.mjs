@@ -6,7 +6,7 @@ const URL = GAME;
 const OUT = process.env.SHOTS || '/tmp';
 
 import { fakeOSM } from './fake.mjs';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 
 async function run(mode) {
   const browser = await chromium.launch({ executablePath: CHROME });
@@ -24,6 +24,8 @@ async function run(mode) {
   } else {
     await page.route('**://*/**', r => (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
   }
+
+  await stubRadio(page);
 
   await page.goto(URL);
   await page.waitForTimeout(400);

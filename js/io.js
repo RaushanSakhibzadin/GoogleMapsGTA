@@ -356,7 +356,14 @@ for (const ev of ['visibilitychange', 'focus', 'pageshow'])
    silent. Passive and on the window, so it costs nothing and cannot swallow
    anything. */
 for (const ev of ['pointerdown', 'touchend', 'keydown'])
-  addEventListener(ev, () => SFX.start(), { passive: true });
+  addEventListener(ev, () => {
+    SFX.start();
+    /* And the same gesture starts the radio if it armed itself and was refused
+       — see radioArm. Guarded because js/radio.js is loaded after this one and
+       because the dial is not the sound effects: a game with the radio switched
+       off must not be a game with no engine note. */
+    if (typeof radioGesture === 'function') radioGesture();
+  }, { passive: true });
 
 /* ------------------------------ 8. canvas ------------------------------ */
 const cv = $('game'), ctx = cv.getContext('2d');

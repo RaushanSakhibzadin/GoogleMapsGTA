@@ -1,5 +1,5 @@
 import { chromium, devices } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const URL = GAME;
 const LAT0 = 56.9496, LON0 = 24.1052;                       // Riga
@@ -50,6 +50,7 @@ const out = {};
   // ring have it too would stack nine copies of every building on the same stones
   await p.route('**/api/interpreter', r => r.fulfill({ contentType: 'application/json',
     body: JSON.stringify(atCentre(r) ? rigaish() : { elements: [] }) }));
+  await stubRadio(p);
   await p.goto(URL);
   await p.waitForTimeout(300);
 

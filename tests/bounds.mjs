@@ -9,7 +9,7 @@
    water, it was the overhang, and a motorway way runs just as far. Same test,
    same assertions, a road doing the overhanging. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const URL = GAME;
 const LAT0 = 44.8125, LON0 = 20.4489;                 // Brankov Most, Belgrade
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -76,6 +76,7 @@ async function run(browser, mode) {
     if (mode === 'line') els.push(overhang(mode));
     return r.fulfill(json({ elements: els }));
   });
+  await stubRadio(p);
   await p.goto(URL);
   await p.waitForTimeout(200);
   await p.click('#go');

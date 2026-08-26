@@ -14,7 +14,7 @@
    the off-road drag. So the hill is measured where a hill is meant to be felt,
    along a real street picked for the height it gains end to end. */
 import { chromium } from 'playwright';
-import { CHROME, GAME } from './harness.mjs';
+import { CHROME, GAME, stubRadio } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -25,6 +25,7 @@ p.on('console', m => {
     errs.push('console: ' + m.text());
 });
 await p.route('**://*/**', r => (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.click('#go');

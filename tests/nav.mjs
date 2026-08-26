@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const { fakeOSM } = await import('./fake.mjs');
 
@@ -12,6 +12,7 @@ await p.route('**/nominatim.openstreetmap.org/**', r => r.fulfill({ contentType:
   body: JSON.stringify([{ lat: '25.7825', lon: '-80.1300', display_name: 'Ocean Drive, Miami Beach, Florida' }]) }));
 const bboxOf = r => { const m = decodeURIComponent(r.request().postData() || '').match(/\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)/); return m ? m.slice(1).map(Number) : null; };
 await p.route('**/api/interpreter', r => r.fulfill({ contentType: 'application/json', body: JSON.stringify(fakeOSM(bboxOf(r))) }));
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.click('#go');

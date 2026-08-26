@@ -2,7 +2,7 @@
 import { chromium } from 'playwright';
 import { fakeOSM } from './fake.mjs';
 import { fakeArterials, kindOf, bboxOf } from './wide.mjs';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 
 const OUT = process.env.SHOTS || '/tmp';
 const URL = GAME;
@@ -38,6 +38,8 @@ await p.route('**/api/interpreter', route => {
   if (kind === 'pois') return route.fulfill(json({ elements: [] }));
   return route.fulfill(json(fakeOSM(bbox)));    // streets + buildings both
 });
+
+await stubRadio(p);
 
 await p.goto(URL);
 await p.waitForTimeout(250);

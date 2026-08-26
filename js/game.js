@@ -347,14 +347,17 @@ async function startGame(query, lat, lon, label) {
   if (touchUI) $('touch').classList.add('on');
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
-  /* THE DIAL KNOWS WHERE IT IS, AND ASKS NOBODY UNTIL IT IS PRESSED. No network
-     on the loading path and none behind it: the lookup happens on the first tap,
-     which is how a car radio works and which is a real user gesture — the only
-     thing iOS will start audio from. */
+  /* THE RADIO COMES ON WITH THE CAR, which is what a car does — unless the
+     player switched it off, which radioWanted remembers between sessions.
+
+     Behind the loading screen rather than on it: the city is already up and
+     drivable by the time this asks anyone for anything, so a slow or unreachable
+     station directory costs nothing but a radio. And the play attempt inside it
+     is expected to be refused on a phone — iOS starts audio only from a real
+     gesture, and the tap that started the game is long over by the time a list
+     comes back — so the dial parks and the first touch of a pad starts it. */
   if (typeof radioAt === 'function') radioAt(lat, lon, want.cc || '');
-  /* A fresh start gets a fresh station. radioAt has just cleared the list, so
-     there is nothing to shuffle yet — the draw happens inside radioFind when
-     the first press tunes it, which is the same thing one press later. */
+  if (typeof radioArm === 'function') radioArm();
   /* The remembered view, applied here rather than on page load. Creating the
      first WebGL context and building a dozen cells of geometry is a real stall,
      and doing it while the menu is on screen makes the menu look broken; doing

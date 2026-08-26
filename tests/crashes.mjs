@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const URL = GAME;
 const LAT0 = 40.7580, LON0 = -73.9855;
@@ -23,6 +23,7 @@ p.on('pageerror', e => errs.push(String(e)));
 p.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 await p.route('**/nominatim.openstreetmap.org/**', r => r.fulfill(json([{ lat: String(LAT0), lon: String(LON0), display_name: 'Midtown' }])));
 await p.route('**/api/interpreter', r => r.fulfill(json(isB(r.request()) ? { elements: [] } : streets())));
+await stubRadio(p);
 await p.goto(URL);
 await p.waitForTimeout(250);
 await p.click('#go');

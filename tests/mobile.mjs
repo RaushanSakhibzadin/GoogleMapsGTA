@@ -6,7 +6,7 @@
 
    Usage: node mobile.mjs [cpuThrottleRate]   (1 = no throttle) */
 import { chromium, devices } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const RATE = +(process.argv[2] || 1);
 const LAT0 = 44.8069, LON0 = 20.4735;                      // Krunski venac, Belgrade
@@ -44,6 +44,7 @@ await p.route('**/api/interpreter', r => {
 });
 
 const cdp = await ctx.newCDPSession(p);
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.tap('#go');

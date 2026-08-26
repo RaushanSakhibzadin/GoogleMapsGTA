@@ -23,7 +23,7 @@
  *   - a monument tagged building=yes does not ALSO become an ordinary building
  */
 import { chromium } from 'playwright';
-import { CHROME, GAME } from './harness.mjs';
+import { CHROME, GAME, stubRadio } from './harness.mjs';
 
 const LAT0 = 44.8115, LON0 = 20.4641;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -91,6 +91,7 @@ await p.route('**/api/interpreter', async r => {
              : kind === 'buildings' ? BUILDINGS : { elements: [] };
   return r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.click('#go');

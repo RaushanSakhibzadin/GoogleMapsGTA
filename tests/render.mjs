@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 56.9496, LON0 = 24.1052;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -48,6 +48,7 @@ await p.route('**/api/interpreter', r => {
   return r.fulfill({ contentType: 'application/json',
     body: JSON.stringify(centred ? fixture() : { elements: [] }) });
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.click('#go');

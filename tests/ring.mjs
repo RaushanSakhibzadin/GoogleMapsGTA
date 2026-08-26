@@ -26,7 +26,7 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
+import { CHROME, GAME, ROOT, SHOTS, stubRadio } from './harness.mjs';
 
 const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const HEAVY = process.argv[2] === 'heavy';
@@ -139,6 +139,8 @@ await p.route('**/api/interpreter', async r => {
   }
   return r.fulfill({ contentType: 'application/json', body: EMPTY });
 });
+
+await stubRadio(p);
 
 await p.goto(GAME);
 await p.waitForTimeout(250);

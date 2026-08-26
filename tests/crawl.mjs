@@ -9,7 +9,7 @@
    that still matter here are `onRoad`, which must stay at the top of the clock,
    and the building rows, which must not pin the car. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;                      // Krunski venac, Belgrade
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -58,6 +58,7 @@ await p.route('**/api/interpreter', r => {
   if (isArterials(q)) return r.fulfill(json({ elements: [] }));
   return r.fulfill(json(atCentre(r) ? fixture() : { elements: [] }));
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.click('#go');

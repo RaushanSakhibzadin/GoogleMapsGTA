@@ -3,7 +3,7 @@
    car you gained accel*dt a frame and handed 0.78 of the closing speed straight
    back — an equilibrium at walking pace that never resolves. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8125, LON0 = 20.4489;                      // Savski venac, Belgrade
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -31,6 +31,7 @@ await p.route('**/api/interpreter', r => {
     return r.fulfill(json({ elements: [] }));
   return r.fulfill(json(streets()));
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.click('#go');

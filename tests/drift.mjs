@@ -5,7 +5,7 @@
    the faults being tested are in how throttle, steering and the handbrake combine
    over time, and pinning the car each frame would hide exactly that. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const URL = GAME;
 const LAT0 = 40.7580, LON0 = -73.9855;
@@ -37,6 +37,7 @@ await p.route('**/api/interpreter', r => {
   if (isArterials(q)) return r.fulfill(json({ elements: [] }));
   return r.fulfill(json(streets()));
 });
+await stubRadio(p);
 await p.goto(URL);
 await p.waitForTimeout(250);
 await p.click('#go');

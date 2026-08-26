@@ -28,7 +28,7 @@ import { gunzipSync } from 'zlib';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
+import { CHROME, GAME, ROOT, SHOTS, stubRadio } from './harness.mjs';
 
 const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 
@@ -137,6 +137,8 @@ await p.route('**/api/interpreter', r => {
   served.push({ host, kind, body: payload === EMPTY ? 'EMPTY' : 'real' });
   return r.fulfill({ contentType: 'application/json', body: payload });
 });
+
+await stubRadio(p);
 
 await p.goto(GAME);
 await p.waitForTimeout(300);

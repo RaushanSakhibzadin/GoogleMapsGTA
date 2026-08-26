@@ -10,7 +10,7 @@
    car that will not move, throttle down, nothing there to explain it. So the
    last scenario drives out past the loaded tiles and insists it stays fast. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -57,6 +57,7 @@ await p.route('**/api/interpreter', r => {
   return r.fulfill(json(atCentre(r) ? fixture() : { elements: [] }));
 });
 const URL_ = GAME;
+await stubRadio(p);
 await p.goto(URL_);
 await p.waitForTimeout(250);
 

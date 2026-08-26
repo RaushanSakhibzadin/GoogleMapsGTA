@@ -28,7 +28,7 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
+import { CHROME, GAME, ROOT, SHOTS, stubRadio } from './harness.mjs';
 
 const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const VIEWPORTS = (process.env.VP || '1180x700,1440x900,390x700,700x1180')
@@ -100,6 +100,7 @@ for (const [VPW, VPH] of VIEWPORTS) {
     else if (kind === 'buildings' && near(box, reply.buildings.bbox)) body = reply.buildings.body;
     return r.fulfill({ contentType: 'application/json', body });
   });
+  await stubRadio(p);
   await p.goto(GAME);
   await p.waitForTimeout(250);
   await p.tap('#go');

@@ -371,6 +371,8 @@ window.__radio = () => ({
   status: RADIO.status, on: RADIO.on, i: RADIO.i, n: RADIO.list.length,
   name: RADIO.list[RADIO.i] ? RADIO.list[RADIO.i].name : '',
   label: radioLabel(), err: RADIO.err,
+  wanted: radioWanted(), pending: RADIO.pending,
+  action: $('radioN') ? $('radioN').getAttribute('aria-label') : '',
   src: RADIO.el ? RADIO.el.src : '', paused: RADIO.el ? RADIO.el.paused : null,
   list: RADIO.list.map(s => ({ name: s.name, km: s.km == null ? null : +s.km.toFixed(1) }))
 });
@@ -378,6 +380,9 @@ window.__radioStep = d => radioStep(d);
 window.__radioToggle = () => radioToggle();
 window.__radioFind = (lat, lon, cc) => radioFind(lat, lon, cc);
 window.__radioWake = () => radioWake();
+window.__radioWanted = v => radioWanted(v);
+window.__radioArm = () => radioArm();
+window.__radioGesture = () => radioGesture();
 /* the two levels, and the panel that sets them */
 window.__mix = () => ({
   open: !$('mix').classList.contains('hide'),

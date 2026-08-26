@@ -30,7 +30,7 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { CHROME, GAME, ROOT, SHOTS } from './harness.mjs';
+import { CHROME, GAME, ROOT, SHOTS, stubRadio } from './harness.mjs';
 
 const FIX = join(ROOT, 'tests', 'fixtures', 'stari-grad');
 const session = JSON.parse(readFileSync(join(FIX, 'session.json'), 'utf8'));
@@ -64,6 +64,7 @@ await p.route('**/api/interpreter', r => {
   else if (kind === 'buildings' && near(box, rep.buildings.bbox)) body = rep.buildings.body;
   return r.fulfill({ contentType: 'application/json', body });
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.tap('#go');

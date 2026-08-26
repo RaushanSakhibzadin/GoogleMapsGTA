@@ -10,7 +10,7 @@
    Usage: node fencepin.mjs [tileDelayMs]   — the delay is how slow the streaming
    is, i.e. how easily you outrun it on a real network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const DELAY = +(process.argv[2] || 0);
 const LAT0 = 44.8069, LON0 = 20.4735;
@@ -81,6 +81,7 @@ await p.route('**/api/interpreter', async r => {
   if (DELAY) await new Promise(res => setTimeout(res, DELAY));
   return r.fulfill(json(bb ? tileStreets(bb) : { elements: [] }));
 });
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(250);
 await p.click('#go');

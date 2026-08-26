@@ -41,25 +41,77 @@ const RADIO_HOSTS = [
 const RADIO = {
   list: [], i: -1, on: false,
   status: 'idle',            // idle | finding | none | ready | playing | error
-  err: '', el: null, at: null
+  err: '', el: null, at: null,
+  /* Set when a station is tuned and ready but the browser would not let it start
+     yet — see radioArm. The next real user gesture clears it. */
+  pending: false,
+  told: false                // the one-time "tap the name to stop" hint
 };
 
-/* WHERE WE ARE, REMEMBERED WITHOUT ASKING ANYONE ANYTHING.
+/* ON UNLESS YOU TURNED IT OFF, and it remembers which.
 
-   The dial used to look itself up the moment a city finished loading. It is a
-   third-party server, on a connection that may be metered, for a feature the
-   player has not asked for yet — and when it cannot be reached the browser logs
-   a failed resource load, three times, which is noise in everybody's console
-   for a radio nobody switched on.
+   Stopping the dial is a decision about the game, not about this session: a
+   player who does not want the radio should not have to switch it off every time
+   they load a city. So the toggle writes here, and this is what decides whether a
+   fresh city tunes itself.
 
-   So the city is only recorded here, and the FIRST PRESS tunes. That is how a
-   car radio works, it uses nothing until it is wanted, and the press is a real
-   user gesture — which is the only thing iOS will start audio from anyway. */
+   Read lazily, like the two volumes, because `store` is defined in js/game.js
+   and that file is evaluated after this one. */
+const RADIO_ON_KEY = 'vm_radio_on';
+let radioOn = null;
+function radioWanted(v) {
+  if (v != null) {
+    radioOn = !!v;
+    if (typeof store !== 'undefined') store.set(RADIO_ON_KEY, radioOn ? '1' : '0');
+    return radioOn;
+  }
+  if (radioOn == null) {
+    const raw = (typeof store !== 'undefined') ? store.get(RADIO_ON_KEY, '1') : '1';
+    radioOn = raw !== '0';
+  }
+  return radioOn;
+}
+
+/* WHERE WE ARE. Recorded when a city finishes loading; radioArm decides whether
+   anything is asked of anybody. */
 function radioAt(lat, lon, cc) {
   RADIO.at = { lat, lon, cc: cc || '' };
   RADIO.list = []; RADIO.i = -1; RADIO.on = false;
+  RADIO.pending = false;
   RADIO.status = 'idle'; RADIO.err = '';
   radioPaint();
+}
+
+/* SWITCHING THE CAR ON SWITCHES THE RADIO ON, which is what a car does.
+
+   Called once, when a city starts. It tunes and then tries to play — and the
+   try is expected to fail on a phone, which is the whole reason this is two
+   steps rather than one. iOS starts audio only from inside a real user gesture,
+   and by the time a list of stations has come back over the network the tap that
+   started the game is long over. So a refusal is not an error here: it parks the
+   dial on `pending` and the next touch of anything — a pad, a key, the screen —
+   starts it, through radioGesture below.
+
+   NOTHING IS ASKED IF THE PLAYER TURNED IT OFF. That is the setting radioWanted
+   remembers, and it is also what keeps this honest for anyone who does not want
+   a radio: no request to a third-party server, on a connection that may be
+   metered, for a feature they have switched off. */
+function radioArm() {
+  if (!radioWanted() || !RADIO.at) return false;
+  radioWake().then(n => {
+    if (!n || !radioWanted()) return;
+    radioPlay();
+  });
+  return true;
+}
+
+/* The next real gesture after a refused start. Wired to the same window-level
+   pointerdown/touchend/keydown that unlocks the sound effects — see js/io.js —
+   so it costs nothing and needs no control of its own. */
+function radioGesture() {
+  if (!RADIO.pending || RADIO.on || !radioWanted()) return false;
+  RADIO.pending = false;
+  return radioPlay();
 }
 
 /* A DIFFERENT STATION EVERY TIME A CITY IS TUNED, chosen from the local ones.
@@ -137,6 +189,14 @@ function radioEl() {
   });
   a.addEventListener('playing', () => {
     RADIO.status = 'playing'; RADIO.err = ''; radioPaint();
+    /* SAID ONCE, THE FIRST TIME SOUND ARRIVES. The dial turns itself on now, so
+       the first thing a player wants to know is how to turn it off — and a
+       symbol on a button they have not looked at yet does not answer that. Once
+       a session, on the frame the music actually starts, which is the moment the
+       question occurs to them. */
+    if (RADIO.told) return;
+    RADIO.told = true;
+    if (typeof toast === 'function') toast('RADIO ON — TAP THE NAME TO STOP', 2800);
   });
   a.addEventListener('stalled', () => { if (RADIO.on) radioPaint(); });
   document.body.appendChild(a);
@@ -250,8 +310,21 @@ function radioPlay() {
   const pr = a.play();
   if (pr && pr.catch) pr.catch(e => {
     if (!RADIO.on) return;
+    const name = String((e && e.name) || e);
+    /* A REFUSAL IS NOT A FAILURE. NotAllowedError means the browser will not
+       start audio outside a user gesture — which is the normal answer on a phone
+       when the game armed the dial by itself. Saying DEAD AIR to that would be a
+       lie about a station that is perfectly fine, so it parks instead and the
+       next touch of anything starts it. */
+    if (/NotAllowed/i.test(name)) {
+      RADIO.on = false;
+      RADIO.pending = true;
+      RADIO.status = RADIO.list.length ? 'ready' : 'idle';
+      radioPaint();
+      return;
+    }
     RADIO.status = 'error';
-    RADIO.err = String((e && e.name) || e).slice(0, 40);
+    RADIO.err = name.slice(0, 40);
     radioPaint();
   });
   radioPaint();
@@ -259,13 +332,19 @@ function radioPlay() {
 }
 function radioStop() {
   RADIO.on = false;
+  RADIO.pending = false;
   const a = RADIO.el;
   if (a) { try { a.pause(); } catch (e) {} }
   RADIO.status = RADIO.list.length ? 'ready' : (RADIO.status === 'none' ? 'none' : 'idle');
   radioPaint();
 }
+/* THE TOGGLE IS THE SETTING. Switching the dial off is a decision about the
+   game rather than about this session — somebody who does not want a radio
+   should not have to say so every time they load a city — so both directions
+   are remembered, and radioArm reads it on the next start. */
 function radioToggle() {
-  if (RADIO.on) { radioStop(); return false; }
+  if (RADIO.on || RADIO.pending) { radioWanted(false); radioStop(); return false; }
+  radioWanted(true);
   if (!RADIO.list.length) { radioWake().then(n => { if (n) radioPlay(); }); return true; }
   return radioPlay();
 }
@@ -293,17 +372,29 @@ function radioStep(d) {
    characters were the difference between the whole name and an ellipsis.
 
    The two states that are NOT obvious from a colour still say so: a stream that
-   died, and one still opening. */
+   died, and one still opening.
+
+   AND IT CARRIES THE CONTROL IT IS. The name button starts and stops the radio,
+   and nothing on it said so — the dial turned itself on and the only way to
+   learn how to turn it off was to guess that the station name was a button. So
+   it wears the symbol for what pressing it does now: ■ while something is
+   playing, ▶ while it is not. Two characters, which is what a stop button costs
+   when you already have somewhere to put it, and the same pair of symbols every
+   music player on the phone already uses. */
+const radioGlyph = () => (RADIO.on ? '■ ' : '▶ ');
 function radioLabel() {
   const s = RADIO.list[RADIO.i];
-  if (RADIO.status === 'idle') return 'RADIO';
+  if (RADIO.status === 'idle') return radioWanted() ? 'RADIO' : '▶ RADIO';
   if (RADIO.status === 'finding') return 'TUNING…';
   if (RADIO.status === 'none') return 'NO STATIONS HERE';
   if (!s) return 'RADIO OFF';
-  if (RADIO.status === 'error') return s.name + ' · DEAD AIR';
-  if (RADIO.status === 'loading') return s.name + ' …';
-  return s.name;
+  if (RADIO.status === 'error') return radioGlyph() + s.name + ' · DEAD AIR';
+  if (RADIO.status === 'loading') return radioGlyph() + s.name + ' …';
+  return radioGlyph() + s.name;
 }
+// what pressing the name will do, for a screen reader and for the tooltip
+const radioAction = () => (RADIO.on ? 'Stop the radio' :
+                           RADIO.list.length ? 'Play the radio' : 'Turn the radio on');
 
 /* THE LAST RESORT, for a name too long even for two lines.
 
@@ -331,7 +422,15 @@ function radioPaint() {
   const el = typeof $ === 'function' ? $('radio') : document.getElementById('radio');
   if (!el) return;
   const n = document.getElementById('radioN');
-  if (n) { n.textContent = radioLabel(); radioFit(n); }
+  if (n) {
+    n.textContent = radioLabel();
+    radioFit(n);
+    // the same thing the glyph says, for anyone not reading the glyph
+    const act = radioAction();
+    n.setAttribute('aria-label', act);
+    n.setAttribute('title', act);
+    n.setAttribute('aria-pressed', RADIO.on ? 'true' : 'false');
+  }
   /* THE CLASS GOES ON <html>, not on the bar. The bar reserves a strip at the
      bottom of the screen and everything else has to lift by that much — which is
      done with a custom property declared on :root, and a property set further

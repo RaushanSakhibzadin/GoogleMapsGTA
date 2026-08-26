@@ -27,17 +27,27 @@
  *   which is a change to the geocoder, two files away from anything called
  *   radio.
  *
- *   THE SHUFFLE IS NOT LOCAL. The dial re-tunes at random every time the game
- *   starts and every time you shunt another car, and "at random" over the whole
- *   list would undo the ranking above — the far end of it is national networks
- *   two hundred kilometres away. Asserted by drawing four hundred times from a
- *   twenty-four station dial and checking the far half never comes up.
+ *   THE DRAW IS NOT LOCAL. The dial re-tunes at random every time a city starts,
+ *   and "at random" over the whole list would undo the ranking above — the far
+ *   end of it is national networks two hundred kilometres away. Asserted by
+ *   drawing four hundred times from a twenty-four station dial and checking the
+ *   far half never comes up.
  *
- *   AND IT RE-TUNES WHEN YOU ARE HIT, which was asked for and then asked to be
- *   taken away again — a crash already has the bang, the shake and the damage on
- *   it, and losing the song too reads as the game taking it off you. That is one
+ *   IT RE-TUNES WHEN YOU ARE HIT, which was asked for and then asked to be taken
+ *   away again — a crash already has the bang, the shake and the damage on it,
+ *   and losing the song too reads as the game taking it off you. That is one
  *   call site in a different file, and the only way to see it is to stage a
  *   collision and watch the dial across it.
+ *
+ *   IT COMES ON BY ITSELF WHEN IT SHOULD NOT. The dial now switches on with the
+ *   car, and the honest half of that is the player who switched it off: they
+ *   must get no request to a third-party directory at all, not one that fails
+ *   politely. Counted, rather than inferred from whether a sound came out.
+ *
+ *   AND THERE IS NO VISIBLE WAY TO STOP IT. Something that turns itself on has
+ *   to say how to turn it off, and the only control that does is the station
+ *   name — which does not look like a control. It carries ■ or ▶ for its own
+ *   action now, and that symbol is asserted on the rendered label.
  */
 import { chromium, devices } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
@@ -134,35 +144,67 @@ async function open(opts = {}) {
   await p.goto(GAME);
   await p.waitForTimeout(400);
   await p.evaluate(() => window.__hideGLHelp && window.__hideGLHelp(false));
+  /* THE SETTING IS WRITTEN BEFORE THE CITY LOADS, because the city load is what
+     reads it. `off` is the player who switched the radio off in an earlier
+     session; the default is on. */
+  if (opts.off) await p.evaluate(() => window.__radioWanted(false));
   await p.fill('#q', 'Savski venac, Beograd');
   await p.tap('#go');
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
   await p.waitForTimeout(1200);
-  /* THE FIRST PRESS IS WHAT TUNES IT. Nothing is looked up on the loading path —
-     see the note above radioAt — so a test that waited for stations to appear on
-     their own would wait for ever. This is the tap. */
-  if (!opts.noPress) await p.evaluate(() => window.__radioWake());
   return { browser, p, errs, asked };
 }
 
 const out = {};
 
-/* ---- 0. nothing is asked of anybody until the dial is pressed ----
+/* ---- 0. IT COMES ON WITH THE CAR, and it stays off if you turned it off ----
 
-   It is a third-party server, on a connection that may be metered, for a
-   feature the player has not switched on. It also used to fail three times into
-   everybody's console for a radio nobody wanted, which is how this was found:
-   twenty-three tests in the suite watch for console errors, and every one of
-   them started failing. */
+   Both halves matter and they are the same setting read twice.
+
+   ON is what a car does, and it is what was asked for. Nothing is pressed here:
+   the city loads and the dial has to have tuned itself and asked to play.
+
+   OFF has to be a decision that STICKS, and it is also the honest half. Talking
+   to a third-party directory, on a connection that may be metered, for a feature
+   the player switched off is exactly the thing this used to avoid by asking
+   nobody anything until it was pressed — so with the setting off, the count of
+   requests must be zero rather than "one that fails quietly".
+
+   That count is the assertion. Whether a stream then plays is a browser
+   decision this cannot make (see the pending case below); whether a request went
+   out is entirely the game's. */
 {
-  const { browser, p, errs, asked } = await open({ noPress: true });
-  out.quiet = { asked: asked.length, radio: await p.evaluate(() => window.__radio()) };
-  out.silentUntilPressed = out.quiet.asked === 0 &&
-                           out.quiet.radio.status === 'idle' &&
-                           out.quiet.radio.label === 'RADIO';
-  // and the strip is on screen, saying RADIO, waiting to be pressed
+  const { browser, p, errs, asked } = await open();
+  await p.waitForFunction(() => window.__radio().status !== 'finding', null, { timeout: 20000 })
+         .catch(() => {});
+  out.armed = { asked: asked.length, radio: await p.evaluate(() => window.__radio()) };
+  /* on, tuned, and either playing or parked waiting for a touch — a headless
+     Chromium allows the autoplay a phone refuses, so both are correct here and
+     the thing asserted is that it is not merely sitting there idle */
+  out.comesOnByItself =
+    out.armed.asked >= 1 &&
+    out.armed.radio.wanted === true &&
+    out.armed.radio.n > 0 &&
+    (out.armed.radio.on === true || out.armed.radio.pending === true);
   out.stripBeforeTuning = await p.evaluate(() =>
     getComputedStyle(document.getElementById('radio')).display !== 'none');
+  out.armedErrs = errs.slice(0, 3);
+  await browser.close();
+}
+{
+  const { browser, p, errs, asked } = await open({ off: true });
+  await p.waitForTimeout(1500);
+  out.quiet = { asked: asked.length, radio: await p.evaluate(() => window.__radio()) };
+  out.offStaysOff = out.quiet.asked === 0 &&
+                    out.quiet.radio.wanted === false &&
+                    out.quiet.radio.on === false &&
+                    out.quiet.radio.n === 0 &&
+                    out.quiet.radio.status === 'idle';
+  /* AND THE WAY BACK IS ON SCREEN. A radio you switched off must still say how
+     to switch it on, or the setting is a trap. */
+  out.offLabel = out.quiet.radio.label;
+  out.offSaysHowToStart = /▶/.test(out.offLabel) &&
+                          /turn the radio on|play the radio/i.test(out.quiet.radio.action);
   out.quietErrs = errs.slice(0, 3);
   await browser.close();
 }
@@ -172,6 +214,13 @@ const out = {};
   const { browser, p, errs, asked } = await open();
   await p.waitForFunction(() => window.__radio().status !== 'finding', null, { timeout: 20000 })
          .catch(() => {});
+  /* SILENCED, NOT SWITCHED OFF, before the mechanics below are measured. The
+     dial now arms itself, and a headless Chromium — unlike a phone — lets the
+     autoplay through, so by this point it is chasing a mock stream that will
+     never answer and the state is 'loading' or 'error'. radioStop puts it back
+     to 'ready' without touching the remembered setting, which is the state every
+     section from here down was written against. */
+  await p.evaluate(() => radioStop());
   out.found = await p.evaluate(() => window.__radio());
   out.asked = asked[0] || '';
   /* The country code has to have travelled from Nominatim, through the loader,
@@ -230,17 +279,41 @@ const out = {};
      right URL and told to play, which is the whole of what the game controls. */
   out.play = await p.evaluate(() => {
     window.__radioStep(0);                       // back to a known station
-    const before = window.__radio();
+    const snap = () => {
+      const r = window.__radio();
+      return { on: r.on, src: r.src, paused: r.paused, label: r.label,
+               action: r.action, wanted: r.wanted, name: r.name };
+    };
+    const before = snap();
     document.getElementById('radioN').click();
-    const on = window.__radio();
+    const on = snap();
     document.getElementById('radioN').click();
-    const off = window.__radio();
-    return { before: before.on, onSrc: on.src, on: on.on, off: off.on,
-             offPaused: off.paused, want: before.name };
+    const off = snap();
+    return { before, on, off };
   });
-  out.playsTheStation = out.play.before === false && out.play.on === true &&
-                        /near\.example|b\.example|unplaced\.example|far\.example/.test(out.play.onSrc) &&
-                        out.play.off === false && out.play.offPaused === true;
+  out.playsTheStation =
+    out.play.before.on === false && out.play.on.on === true &&
+    /near\.example|b\.example|unplaced\.example|far\.example/.test(out.play.on.src) &&
+    out.play.off.on === false && out.play.off.paused === true;
+
+  /* ---- 4b. AND THE BUTTON SAYS WHAT PRESSING IT WILL DO ----
+
+     The dial turns itself on now, so the first thing a player needs is the way
+     to turn it off — and the only control that does that is the station name,
+     which does not look like a control. So it wears the symbol for its own
+     action: ■ while something is playing, ▶ while it is not. Asserted on the
+     rendered label rather than on a flag, because the glyph IS the feature.
+
+     AND STOPPING IT IS REMEMBERED. Switching the radio off is a decision about
+     the game rather than about this session — otherwise it comes back on at the
+     next city and the off switch is decoration. */
+  out.stopIsExplicit =
+    /^▶/.test(out.play.before.label) && /^■/.test(out.play.on.label) &&
+    /^▶/.test(out.play.off.label) &&
+    // the name itself is still there next to the symbol
+    out.play.on.label.includes(out.play.on.name) &&
+    /stop/i.test(out.play.on.action) && /play|turn the radio on/i.test(out.play.off.action);
+  out.offIsRemembered = out.play.on.wanted === true && out.play.off.wanted === false;
 
   /* ---- 5. and it is visible and reachable on a phone ---- */
   out.strip = await p.evaluate(() => {
@@ -315,7 +388,8 @@ const out = {};
     return { long, short };
   });
   out.showsTheWholeName =
-    out.longName.long.text === 'Radio Televizija Vojvodine 021' &&
+    // the whole name, and the play/stop symbol in front of it — see 4b
+    out.longName.long.text === '▶ Radio Televizija Vojvodine 021' &&
     // nothing spills out of the box in either direction: it wrapped, it fits
     out.longName.long.scroll <= out.longName.long.client + 1 &&
     out.longName.long.tall <= out.longName.long.box + 1 &&
@@ -498,9 +572,12 @@ const out = {};
   await browser.close();
 }
 
-out.errs = [].concat(out.quietErrs, out.liveErrs, out.shuffleErrs, out.deadErrs, out.emptyErrs)
+out.errs = [].concat(out.armedErrs, out.quietErrs, out.liveErrs, out.shuffleErrs,
+                     out.deadErrs, out.emptyErrs)
              .filter(Boolean);
-out.pass = out.silentUntilPressed && out.stripBeforeTuning && out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
+out.pass = out.comesOnByItself && out.offStaysOff && out.offSaysHowToStart &&
+           out.stopIsExplicit && out.offIsRemembered &&
+           out.stripBeforeTuning && out.asksForThisCountry && out.asksNearHere && out.nearestFirst &&
            out.popularityIsNotLocal && out.keepsTheUnplaced && out.dropsPlainHttp &&
            out.forwardAndBack && out.wraps && out.playsTheStation && out.reachable &&
            out.spansTheBottom && out.nameGetsTheWidth && out.nothingIsCovered &&

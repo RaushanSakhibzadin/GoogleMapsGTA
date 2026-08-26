@@ -20,7 +20,7 @@
    It runs offline on the bundled city — every non-file request is aborted — so
    there is a real street grid with real building footprints and no network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, SHOTS } from './harness.mjs';
+import { CHROME, GAME, SHOTS, stubRadio } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -33,6 +33,7 @@ p.on('console', m => {
     errs.push('console: ' + m.text());
 });
 await p.route('**://*/**', r => (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
+await stubRadio(p);
 await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.click('#go');

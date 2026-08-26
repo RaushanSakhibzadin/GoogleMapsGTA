@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const URL = GAME;
 const LAT0 = 56.9496, LON0 = 24.1052;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -63,6 +63,7 @@ async function scenario(name, setup, act) {
   p.on('pageerror', e => errs.push(String(e)));
   p.on('console', m => { if (m.type() === 'error' && !/ERR_FAILED|ERR_ABORTED/.test(m.text())) errs.push('console: ' + m.text()); });
   await setup(p, hits);
+  await stubRadio(p);
   await p.goto(URL);
   await p.waitForTimeout(250);
   const t0 = Date.now();

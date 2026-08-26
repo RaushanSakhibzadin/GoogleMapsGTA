@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 
 const LAT0 = 25.7825, LON0 = -80.1300;
@@ -83,6 +83,8 @@ await p.route('**/api/interpreter', async route => {
   asked.push({ s, w, n, e });
   route.fulfill({ contentType: 'application/json', body: JSON.stringify(cityFor(s, w, n, e)) });
 });
+
+await stubRadio(p);
 
 await p.goto(GAME);
 await p.waitForTimeout(300);
