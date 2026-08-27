@@ -437,6 +437,27 @@ function mapFit(keep) {
   MAPV.cx = P.car.x; MAPV.cy = P.car.y;
   mapClamp();
 }
+/* HOW BIG A LANDMARK IS DRAWN, at a given zoom.
+   Everything else on this overlay — the dots, the faces, the car — is drawn
+   unscaled, because a marker that shrinks with the map is a marker you cannot
+   find when you are looking at a whole city. That is right at the far end and
+   wrong at the near end: pinched all the way in to one block, the same 15 px
+   emoji sits there like a footnote on a street it is supposed to be labelling.
+
+   So the size follows the zoom BETWEEN TWO STOPS instead. 90 m of world is the
+   nominal footprint of a landmark — roughly a city block — and the glyph is
+   drawn that big, floored at the size it has always been so nothing gets worse
+   when zoomed out, and capped at 44 px so a hard pinch doesn't fill the screen
+   with a hospital sign. On a 390 pt phone that means the default 5 km framing
+   is at the floor, growth starts around 2.3 km across, and the ceiling lands
+   near 800 m — one neighbourhood, which is where you are reading names anyway.
+
+   Takes MAPV.s, in px per metre, NOT the local `s` inside drawBigMap — that one
+   has already been multiplied by DPR, and the DPR comes back on at the point of
+   drawing. Passing it here would square the device ratio. */
+const MAP_FACE_M = 90, MAP_FACE_MIN = 15, MAP_FACE_MAX = 44;
+const mapFaceSize = s => clamp(MAP_FACE_M * s, MAP_FACE_MIN, MAP_FACE_MAX);
+
 function mapClamp() {
   const wide = Math.max(W.maxX - W.minX, 1), tall = Math.max(W.maxY - W.minY, 1);
   /* THE MAP FILLS THE SCREEN. Zooming out used to stop at
@@ -565,18 +586,22 @@ function drawBigMap() {
     /* A dark rim, drawn as a stroke behind the glyph. Emoji are drawn by the
        platform in their own colours and several of these are pale, which is
        invisible against a pale daylight map. */
-    g.lineWidth = 3 * DPR; g.strokeStyle = 'rgba(0,0,0,.55)';
+    g.lineWidth = Math.max(2, px * .2) * DPR; g.strokeStyle = 'rgba(0,0,0,.55)';
     g.strokeText(e, x, y - px * .05 * DPR);
     g.fillText(e, x, y - px * .05 * DPR);
     g.restore();
   };
-  for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], 4.2);
-  if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 6);
-  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, GOLD, 6);
+  /* The dot grows with the face it sits under, at the ratio the two had when
+     both were fixed — 4.2 px of disc to 15 px of glyph — so zooming in scales
+     the whole marker rather than sliding a growing emoji off a stuck dot. */
+  const fpx = mapFaceSize(MAPV.s), dotR = fpx * .28;
+  for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], dotR);
+  if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', dotR * 1.4);
+  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, GOLD, dotR * 1.4);
   // faces over the top of every dot, so one landmark never hides another's
-  for (const p of W.pois) face(p.x, p.y, p.kind, 15);
-  if (MISSION.state === 'pickup' && MISSION.pick) face(MISSION.pick.x, MISSION.pick.y, 'pickup', 18);
-  if (MISSION.state === 'deliver' && MISSION.drop) face(MISSION.drop.x, MISSION.drop.y, 'drop', 18);
+  for (const p of W.pois) face(p.x, p.y, p.kind, fpx);
+  if (MISSION.state === 'pickup' && MISSION.pick) face(MISSION.pick.x, MISSION.pick.y, 'pickup', fpx * 1.2);
+  if (MISSION.state === 'deliver' && MISSION.drop) face(MISSION.drop.x, MISSION.drop.y, 'drop', fpx * 1.2);
 
   // the car, pointing where it is pointing
   const [cx, cy] = toPx(P.car.x, P.car.y);

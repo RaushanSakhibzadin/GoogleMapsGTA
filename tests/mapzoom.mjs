@@ -100,9 +100,58 @@ out.newCity = await p.evaluate(() => {
 });
 out.newCityClearsTheZoom = out.newCity.zoomed > 0.2 && out.newCity.cleared === 0;
 
+/* ---- 5. and the landmarks get bigger as you zoom in ---- */
+/* Reported: pinch all the way in to one block and the hospital sign is still the
+   same 15 px footnote it was at 5 km across. Everything on the marker layer is
+   drawn unscaled — which is right when the whole city is on screen and wrong
+   when one street is.
+ *
+ * ASKED AT BOTH ENDS, because "it grows" is easy to satisfy in a way that ruins
+ * the far end: a size that simply tracks the zoom would vanish when zoomed out,
+ * which is the bug the unscaled layer exists to prevent. So the floor and the
+ * ceiling are checked as well as the growth between them. */
+out.sizes = await p.evaluate(() =>
+  [0.001, 0.01, 0.05, 0.2, 0.3, 0.45, 1].map(s => +mapFaceSize(s).toFixed(2)));
+out.faceHasAFloor   = out.sizes[0] === 15 && out.sizes[1] === 15;
+out.faceGrowsWithS  = out.sizes[4] > out.sizes[3] && out.sizes[3] > out.sizes[2];
+out.faceHasACeiling = out.sizes[6] === 44 && out.sizes[6] >= out.sizes[5];
+
+/* AND THE SIZE HAS TO REACH THE CANVAS, which the three checks above cannot
+   tell you — they would all pass on a build that computes a number and then
+   draws 15 px anyway. So the marker is actually drawn, twice, and the ink is
+   counted.
+ *
+ * The roads and parks are emptied and the car teleported out of frame first, so
+ * the only thing left in the sampled box is one landmark against a flat
+ * background and the count is its footprint rather than whatever street happened
+ * to run past it. Destructive, which is why it is last. */
+out.ink = await p.evaluate(() => {
+  W.roads = []; W.parks = []; W.buildings = [];
+  W.pois = [{ x: 0, y: 0, kind: 'hospital' }];
+  MISSION.state = 'none';
+  window.__tp(9000, 9000, 0);                 // the car arrow, well outside the box
+  window.__openMap();
+  const cv = document.getElementById('bigmapC'), g = cv.getContext('2d');
+  const count = s => {
+    MAPV.s = s; MAPV.cx = 0; MAPV.cy = 0;     // the landmark, dead centre
+    drawBigMap();
+    const r = Math.round(80 * DPR);           // room for the largest glyph
+    const d = g.getImageData(cv.width / 2 - r, cv.height / 2 - r, r * 2, r * 2).data;
+    const bg = g.getImageData(2, 2, 1, 1).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4)
+      if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 24) n++;
+    return n;
+  };
+  return { far: count(0.02), near: count(0.45) };
+});
+out.markerFootprintGrows = out.ink.far > 40 && out.ink.near > out.ink.far * 2;
+
 out.errs = errs.slice(0, 3);
 out.pass = out.zoomTookEffect && out.zoomSurvivesClosing && out.followsTheCar &&
-           out.newCityClearsTheZoom && out.clearedOpensOnTheDefault && !out.errs.length;
+           out.newCityClearsTheZoom && out.clearedOpensOnTheDefault &&
+           out.faceHasAFloor && out.faceGrowsWithS && out.faceHasACeiling &&
+           out.markerFootprintGrows && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);
