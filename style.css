@@ -513,9 +513,12 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    face mean what. Dragging a map to pan it and pinching it to zoom are the two
    gestures every map on the phone already uses. */
 @media (max-height:520px),(max-width:560px){ #mapHint{display:none} }
-body.theme-day #mapWhere{color:#7d4a00;text-shadow:2px 2px 0 rgba(255,255,255,.85)}
-body.theme-day #mapKey{color:rgba(0,0,0,.7)}
-body.theme-day #mapHint{color:rgba(0,0,0,.45)}
+/* NO DAYLIGHT OVERRIDES HERE ANY MORE, and their absence is the fix rather than
+   an oversight. These three were dark text — brown, 70% black, 45% black — for a
+   map drawn on a pale sheet of paper. The daylight map is drawn on the same dark
+   soil as the world now, so the rules above, written for the night map, are the
+   right ones for both: gold place name, white legend, faint white hint. Putting
+   a daylight rule back would put dark text on dark ground. */
 /* the radar is the way in, so it has to be pressable through the HUD */
 #mini{pointer-events:auto;cursor:pointer}
 

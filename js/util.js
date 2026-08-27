@@ -108,6 +108,13 @@ const ROOFMAT = {
   slate:     [rgb(104, 108, 116), rgb(92, 96, 104)]
 };
 
+/* THE DAYLIGHT SOIL, named because two surfaces are made of it and they have to
+   stay made of the same one. The ground you drive over and the ground the map
+   draws are the same ground; written out twice they drift apart, which is
+   exactly what happened when the world went sea-green and the map stayed bone
+   grey for a whole release. One name, both uses, no way to change half of it. */
+const DAY_SOIL = '#1c5249';
+
 /* Two complete looks. PAL is the live one; every draw call reads it. */
 const THEMES = {
   dusk: {
@@ -139,14 +146,25 @@ const THEMES = {
        js/render3d.js) — flat ground solves to k = 1.0 — so the top-down view,
        the software 3D and WebGL all paint this value, and anything picked here
        is seen as picked. */
-    ground: '#1c5249',
+    ground: DAY_SOIL,
     /* And the ring under the kerb goes with it. It is drawn wider than the
        pavement to put a shadow under the road's edge, which only works while it
        is DARKER than what surrounds it — at the old bone grey it would have been
        a light halo widening every street instead. */
     park: '#9dbf86', parkEdge: '#7ba368', kerb: '#c2bcb1', case: '#0e2b26',
     road: '#a6a29b', roadBig: '#b2aea6', line: 'rgba(250,240,190,.85)',
-    mapBg: '#e8e3d8', mapPark: '#b7d0a2',
+    /* AND THE MAP IS DRAWN ON THE SAME SOIL. It was left on the old bone grey
+       when the world changed under it, so opening the map in daylight went from
+       a dark green city to a pale sheet of paper — reported straight away, and
+       fairly. The radar reads mapBg too, so this is both of them.
+
+       It costs nothing in legibility and gains some: white minor roads and pale
+       gold arterials on dark ground is a stronger separation than either was
+       against grey, and the parks stay lighter than what surrounds them. What it
+       DOES cost is the daylight overrides on the map's own labels — they were
+       dark text for a pale sheet, and the stylesheet's base rules, written for
+       the night map, are now right for both. */
+    mapBg: DAY_SOIL, mapPark: '#b7d0a2',
     mapRoad: '#ffffff', mapRoadBig: '#ffe9a8',
     lights: false, showNeon: false,
     // daylight: near-true colour on top, honest shading down the walls

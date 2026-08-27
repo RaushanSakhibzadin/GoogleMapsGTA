@@ -21,6 +21,14 @@
  * grass rolls, and a field with a metre of fall across it lands a few percent
  * either side of the flat value rather than on it.
  *
+ * AND THE MAP IS MADE OF THE SAME SOIL, which is the half that was missed the
+ * first time and reported: the world went sea-green and the map — the big one
+ * and the radar, which share mapBg — stayed bone grey, so opening the map in
+ * daylight went from a dark green city to a sheet of paper. They share one
+ * constant now, and this holds them close together rather than identical, so
+ * the map's copy can still be nudged a shade for legibility without the two
+ * being free to drift apart again.
+ *
  * AND THAT THE NIGHT WAS LEFT ALONE, because "night is ok" was half the request
  * and the cheapest way to break it is to touch the shared palette by accident.
  *
@@ -88,7 +96,8 @@ const hsl = hex => {
 
 const themeNow = t => p.evaluate(name => {
   applyTheme(name);
-  return { ...window.__theme(), road: PAL.road, kerb: PAL.kerb, case: PAL.case, park: PAL.park };
+  return { ...window.__theme(), road: PAL.road, kerb: PAL.kerb, case: PAL.case, park: PAL.park,
+           mapBg: PAL.mapBg, mapRoad: PAL.mapRoad, mapPark: PAL.mapPark };
 }, t);
 out.day = await themeNow('day');
 out.dayHSL = hsl(out.day.ground);
@@ -207,6 +216,42 @@ out.padGlyphLum = +lumOf(rgba(out.pads.fg)).toFixed(1);
 out.padsRead = Math.abs(out.padLum - out.padGlyphLum) > 60 &&
                Math.abs(out.padLum - out.groundLum) > 25;
 
+/* ---- and the map is drawn on the same soil ---- */
+/* The half that was missed the first time, and reported: the world went
+   sea-green and the map — the big one and the radar, which share mapBg — stayed
+   the old bone grey, so opening the map in daylight went from a dark green city
+   to a sheet of paper.
+ *
+ * ASKED AS "THE SAME SOIL", not as one hex equalling another. Both have to be
+ * that dark blue-green, and they have to be close enough together to read as the
+ * same material — which is the thing that broke — while still leaving room for
+ * the map's copy to be nudged a shade for legibility one day. Equality would
+ * forbid that; 24 units of RGB distance forbids only the drift. */
+out.mapHSL = hsl(out.day.mapBg);
+const rgbGap = (a, b) => { const x = hexRGB(a), y = hexRGB(b);
+  return Math.round(Math.hypot(x.r - y.r, x.g - y.g, x.b - y.b)); };
+out.mapSoilGap = rgbGap(out.day.mapBg, out.day.ground);
+out.mapIsTheSameSoil = out.mapHSL.h >= 150 && out.mapHSL.h <= 200 &&
+                       out.mapHSL.s >= 0.25 && out.mapHSL.l >= 0.10 && out.mapHSL.l <= 0.32 &&
+                       out.mapSoilGap < 24;
+// and the streets still come off it — white on grey was never the hard case
+out.mapRoadLum = +lum(out.day.mapRoad).toFixed(1);
+out.mapRoadsRead = Math.abs(out.mapRoadLum - lum(out.day.mapBg)) > 55;
+
+/* AND THE MAP CANVAS ACTUALLY PAINTS IT. drawBigMap fills with PAL.mapBg and
+   does no lighting of any kind, so this one is exact, the same claim the
+   top-down world gets. */
+out.mapInk = await p.evaluate(async ([src, want]) => {
+  window.__openMap();
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const cv = document.getElementById('bigmapC');
+  const g = cv.getContext('2d');
+  const r = eval(src)(g.getImageData(0, 0, cv.width, cv.height).data, want);
+  window.__closeMap();
+  return r;
+}, [COUNT, out.day.mapBg]);
+out.mapPaintsIt = out.mapInk.exact > 0.2;
+
 /* ---- and the night is where it was left ---- */
 out.dusk = await themeNow('dusk');
 out.duskHSL = hsl(out.dusk.ground);
@@ -215,6 +260,7 @@ out.nightUntouched = out.duskHSL.h >= 250 && out.duskHSL.h <= 290 && out.duskHSL
 
 out.errs = errs.slice(0, 3);
 out.pass = out.groundIsDarkSeaGreen && out.roadsStillRead && out.padsRead &&
+           out.mapIsTheSameSoil && out.mapRoadsRead && out.mapPaintsIt &&
            out.topDownPaintsIt && out.chasePaintsIt && out.nightUntouched && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
