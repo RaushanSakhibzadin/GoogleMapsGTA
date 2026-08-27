@@ -279,6 +279,12 @@ function softTreeSites(cx, cy) {
    trade — a Canvas2D drawImage cannot shear a bitmap onto an arbitrary quad
    without a transform per tree, and this renderer exists because the machine
    running it has no GPU to spare. */
+/* HALF TRANSPARENT HERE TOO, so the two renderers draw the same street.
+
+   globalAlpha rather than a second tinted canvas: unlike the brightness filter
+   below — which cost a compositing pass per call and took ninety trees from 59
+   fps to 13 — alpha on a drawImage is free, it is a blend factor the blit was
+   already doing. The value is the GL path's, so the two cannot drift apart. */
 function softTree(g, th, t) {
   const cv = treeCanvas();
   if (!cv) return;
@@ -300,6 +306,8 @@ function softTree(g, th, t) {
   const col = Math.min(cols - 1, Math.floor(hash2(t.x, t.z + 7.77) * cols));
   // half a pixel off each side, for the same reason the GL path insets its UVs
   const sx = col * cw + 0.5, sw = cw - 1;
+  const a0 = g.globalAlpha;
+  g.globalAlpha = a0 * (typeof TREE_ALPHA === 'number' ? TREE_ALPHA : 1);
   if (hash2(t.x + 7.77, t.z) < 0.5) {
     g.save();
     g.translate(fp[0], 0);
@@ -309,6 +317,7 @@ function softTree(g, th, t) {
   } else {
     g.drawImage(art, sx, 0, sw, art.height, fp[0] - w / 2, tp[1], w, h);
   }
+  g.globalAlpha = a0;
 }
 
 /* THE TREE, DARKENED ONCE PER THEME RATHER THAN ONCE PER TREE.

@@ -651,11 +651,26 @@ void main() {
    or you drive a circle round one — the cross has a real orientation, it just
    happens to look the same from most of them.
 
-   ALPHA TEST, NOT BLENDING. The fragment is either leaf or it is not, so it can
-   be discarded outright and the tree can write depth like anything solid. That
-   is what lets a hundred of them be drawn in any order, and it is why this can
-   live in the same static per-cell mesh the buildings do rather than needing to
-   be sorted every frame. */
+   ALPHA TESTED FOR ITS SHAPE, THEN BLENDED FOR ITS BODY, which is two different
+   things and the distinction is what keeps this cheap.
+
+   The cutout is still a hard test: a texel is leaf or it is not, and the ones
+   that are not are discarded. That is what gives the silhouette a crisp edge and
+   what lets the tree WRITE DEPTH like anything solid — so it is still drawn in
+   any order, still lives in the same static per-cell mesh as the buildings, and
+   still needs no sorting.
+
+   What changed is that the leaf itself is only half opaque, so the street shows
+   through it. Asked for, and it is the right call for this game: a plane tree in
+   full leaf is two storeys of solid green standing between the camera and the
+   road, and a chase camera behind a car spends a lot of its time looking through
+   one. Half is enough to read as foliage and little enough to drive by.
+
+   DEPTH IS STILL WRITTEN, which is the part that matters for everything drawn
+   after this pass. The signs and the cars come later and are depth-tested
+   against the trees, so a car behind a tree is still behind it. Turning depth
+   writes off — the usual move for transparent geometry — would let every car in
+   the city draw straight over the foliage in front of it. */
 const SH_TREE_V = `#version 300 es
 in vec3 aPos; in vec2 aUV;
 uniform mat4 uVP;
@@ -667,16 +682,21 @@ in vec2 vU; in float vD;
 uniform sampler2D uTex;
 uniform vec3 uFog, uLit;
 uniform vec2 uFogR;
+uniform float uAlpha;
 out vec4 outC;
 void main() {
   vec4 t = texture(uTex, vU);
   /* Half, not "greater than nothing". A soft edge kept as a fringe of
      half-transparent pixels writes depth for the whole fringe and punches a halo
-     of nothing through whatever is behind it. */
+     of nothing through whatever is behind it. This is the SHAPE test and it is
+     unrelated to uAlpha below, which is how solid the leaf that survives it is. */
   if (t.a < 0.5) discard;
   float f = clamp((vD - uFogR.x) / (uFogR.y - uFogR.x), 0.0, 1.0);
-  outC = vec4(mix(t.rgb * uLit, uFog, f), 1.0);
+  outC = vec4(mix(t.rgb * uLit, uFog, f), uAlpha);
 }`;
+/* How solid a leaf is. Half, as asked — see the note above SH_TREE_V for why a
+   tree you can see the road through is the right answer for a chase camera. */
+const TREE_ALPHA = 0.5;
 
 /* THE CAR, which is the one thing in this world that is a MODEL rather than
    geometry generated from the map.
@@ -2470,12 +2490,23 @@ function render3D() {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(G3.tree.u.uTex, 2);
+      /* Read through G3 so it can be moved at runtime: tests/foliage.mjs renders
+         the same frame at 1.0 and at 0.5 and checks the second lands halfway
+         between the first and the tree-less background, which is the only way to
+         measure "half transparent" rather than assert it. */
+      gl.uniform1f(G3.tree.u.uAlpha, G3.treeAlpha == null ? TREE_ALPHA : G3.treeAlpha);
       gl.disable(gl.CULL_FACE);
+      /* BLENDED, BUT STILL WRITING DEPTH — see the note above SH_TREE_V. The
+         depth mask is deliberately left alone: the signs and the cars are drawn
+         after this and have to be able to go behind a tree. */
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       for (const cell of draw) if (cell.tre) {
         gl.bindVertexArray(cell.tre.vao);
         gl.drawArrays(gl.TRIANGLES, 0, cell.tre.n);
         G3.tris += cell.tre.n / 3;
       }
+      gl.disable(gl.BLEND);
       gl.enable(gl.CULL_FACE);
       gl.useProgram(G3.lit.p);
     }

@@ -330,6 +330,57 @@ const out = {};
      out of 243,000 and every comparison in this file was measuring the camera. */
   out.onScreen = out.frame.vsFlat.n > 2500 && out.frame.control === 0;
 
+  /* ---- HALF TRANSPARENT, MEASURED AGAINST BOTH ENDS ----
+
+     Asked for: you can see the street through a tree. That is a claim about a
+     number, and the number is checkable — but only against BOTH ends of it, or
+     any change at all looks like a pass.
+
+     Three renders of one parked street, differing in the leaf's opacity alone:
+
+       SOLID    uAlpha 1.0 — the tree as it used to be drawn
+       HALF     uAlpha 0.5 — as shipped
+       NONE     no trees at all, which is the background behind them
+
+     Over the pixels where the trees actually are, HALF has to sit between the
+     other two and near the middle. Asserting only "HALF is not SOLID" would pass
+     at 0.99, and asserting only "HALF is not NONE" would pass at 0.01.
+
+     A tree's own texture is mottled and lit, so the midpoint is not exact — the
+     bar is that the halfway point lands within a fifth of the span, which no
+     accidental value does. */
+  out.seeThrough = await p.evaluate(() => {
+    applyTheme('dusk');
+    window.__park();
+    const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+    const band = () => window.__px3(0, Math.floor(h * 0.30), w, Math.floor(h * 0.45));
+    const settle = () => window.__settle(70);
+    const shot = (alpha, off) => {
+      G3.treeAlpha = alpha; G3.noTrees = !!off; settle(); return band();
+    };
+    const SOLID = shot(1.0, false);
+    const HALF = shot(0.5, false);
+    const NONE = shot(null, true);          // null → the shipped constant, unused here
+    G3.treeAlpha = null; G3.noTrees = false; settle();
+
+    /* Only where a tree IS: the pixels that solid trees and no trees disagree
+       about. Everywhere else is the same street in all three and would drown the
+       reading in zeros. */
+    const lum = (A, i) => A[i] * .3 + A[i + 1] * .6 + A[i + 2] * .1;
+    let n = 0, frac = 0;
+    for (let i = 0; i < SOLID.length; i += 4) {
+      const s = lum(SOLID, i), o = lum(NONE, i), hf = lum(HALF, i);
+      if (Math.abs(s - o) < 30) continue;   // no tree here, or too faint to read
+      n++;
+      frac += (hf - o) / (s - o);           // 0 = background, 1 = solid tree
+    }
+    return { treePixels: n, mean: +(frac / Math.max(1, n)).toFixed(3) };
+  });
+  /* Enough pixels for the mean to mean anything, and the mean itself between a
+     third and two thirds of the way from the street to a solid tree. */
+  out.treesAreHalfTransparent = out.seeThrough.treePixels > 1500 &&
+                                out.seeThrough.mean > 0.33 && out.seeThrough.mean < 0.67;
+
   /* ---- and the same question in daylight ----
 
      Written because removing the daylight half of treeLit() broke nothing. The
@@ -520,7 +571,8 @@ const out = {};
 }
 
 out.errs = [].concat(out.glErrs, out.softErrs, out.genErrs).filter(Boolean);
-out.pass = out.rightAtlasAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
+out.pass = out.treesAreHalfTransparent &&
+           out.rightAtlasAfterDark && out.everyTreeInTheAtlasIsUsed && out.hasLeafDetail &&
            out.isACutout && out.onScreen && out.litOnce && out.dayLitOnce && out.softDrawsIt &&
            out.cacheKeyedByTheme && out.dayIsItsOwnTree &&
            out.generatesFast && out.deterministic && !out.errs.length;
