@@ -225,25 +225,44 @@ out.deliverIsGold = !!out.deliverInk && out.deliverInk.g > out.deliverInk.b + 40
 
 /* ---- 6. and the radar pings too ---- */
 /* The surface you actually look at while driving. It is redrawn every frame
-   already, so there is no phase to pass in and no need for one — sampled over a
-   full period of wall clock instead, which is the real thing running. */
+   already, so there is no phase to pass in — the real animation is sampled
+   instead, on the real clock.
+ *
+ * SAMPLED EVERY FRAME FROM INSIDE THE PAGE, over one and a half periods. The
+ * first version of this took ten readings from Node with waitForTimeout between
+ * them, and that is not a measurement of the ring: each round trip overshoots,
+ * so under a loaded machine all ten samples drift into the same corner of the
+ * cycle. It passed alone at 61 against 35 and failed inside the full suite at
+ * 53 against 35, which is the test reporting how busy the box was. Ninety
+ * samples across the whole phase cannot miss the peak or the trough.
+ *
+ * PROPORTIONAL, NOT ABSOLUTE. The blip underneath is a fixed area and the ring
+ * is drawn relative to it, so the ratio holds at any device pixel ratio; a
+ * pixel count would have to be retuned for every screen. */
 await p.evaluate(() => { window.__closeMap(); MISSION.state = 'pickup'; MISSION.pick = { x: 70, y: -70 }; });
 await p.waitForTimeout(300);
-const miniInk = () => p.evaluate(() => {
+out.radar = await p.evaluate(ms => new Promise(res => {
   const cv = document.getElementById('mini');
-  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-  let n = 0;
-  // the objective's pink, at any strength the ring fades through
-  for (let i = 0; i < d.length; i += 4)
-    if (d[i] > 120 && d[i + 2] > 110 && d[i + 1] < d[i] * .72) n++;
-  return n;
-});
-const shots = [];
-for (let i = 0; i < 10; i++) { shots.push(await miniInk()); await p.waitForTimeout(out.period / 8); }
-out.radar = { shots, lo: Math.min(...shots), hi: Math.max(...shots) };
-/* Over a full cycle the ring is at its widest and at nothing, so the pink on the
-   radar has to swing. A static blip gives the same number ten times. */
-out.radarPings = out.radar.hi > out.radar.lo + 20 && out.radar.lo > 0;
+  const g = cv.getContext('2d');
+  const shots = [];
+  const t0 = performance.now();
+  const tick = () => {
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    // the objective's pink, at any strength the ring fades through
+    for (let i = 0; i < d.length; i += 4)
+      if (d[i] > 120 && d[i + 2] > 110 && d[i + 1] < d[i] * .72) n++;
+    shots.push(n);
+    if (performance.now() - t0 < ms * 1.5) requestAnimationFrame(tick);
+    else res({ n: shots.length, lo: Math.min(...shots), hi: Math.max(...shots) });
+  };
+  requestAnimationFrame(tick);
+}), out.period);
+/* Over a full cycle the ring is at its widest and at nothing at all, so the pink
+   on the radar has to swing by a third of the blip it surrounds. A static blip
+   gives the same number ninety times. */
+out.radarPings = out.radar.n > 40 && out.radar.lo > 0 &&
+                 out.radar.hi > out.radar.lo * 1.33;
 
 out.errs = errs.slice(0, 3);
 out.pass = out.drewEveryFrame && out.reachGrows && out.repeatsExactly &&
