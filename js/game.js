@@ -21,19 +21,62 @@ const store = {
    stop being solid. Normally the car is a road car: leave the tarmac and it
    drops to walking pace and leans back towards it.
 
-   It is a switch, in the open, on trust. There is no server here — the whole
-   game is static files on GitHub Pages and the source is public — so any check
-   would be a line of JavaScript anyone could read and flip in half a minute.
-   Pretending otherwise would just be theatre that annoys honest players. So it
-   asks, links to the Patreon, and believes you. */
+   IT USED TO BE A NAKED SWITCH, on trust, and the note here argued that any
+   check would be a line of JavaScript anyone could read — which is still true
+   and is not the point. A perk everyone already has is not a perk: the switch
+   sat in the menu next to the ask, and there was no moment where backing the
+   thing gave you anything you did not have thirty seconds earlier. Now the word
+   goes in the Patreon post and the switch does not exist until it is typed.
+
+   WHAT THIS IS AND IS NOT. It is a courtesy lock. The game is static files on
+   GitHub Pages, the source is public, and PERK_WORD is three lines down in
+   plain text — anybody who opens the console can read it or simply set the flag
+   themselves, and no amount of hashing changes that, because the code doing the
+   comparison is equally readable and equally editable. What it does buy is that
+   the perk is no longer sitting in the menu for every passer-by, and that the
+   word is worth something to the people who paid for it. Obfuscating it would
+   cost the one thing that matters here — being able to test the real path with
+   the real word — and buy nothing but theatre. */
+/* CHANGING THE WORD is this line and nothing else. Case, leading and trailing
+   space and any spaces inside are all ignored, because it gets typed on a phone
+   with autocorrect fighting back. */
+const PERK_WORD = 'kalemegdan';
+const perkNorm = w => String(w == null ? '' : w).toLowerCase().replace(/\s+/g, '');
+const perkMatches = w => !!perkNorm(w) && perkNorm(w) === perkNorm(PERK_WORD);
+
 // Set when the city you are driving is not the one you asked for; read by the
 // pause card so the answer is still there later.
 let FELLBACK = null;
-let GHOST = store.get('vm_ghost', '0') === '1';
+/* THE STAMP RATHER THAN A '1', so that changing the word re-locks everyone who
+   unlocked with the old one. A bare flag would leave last season's word working
+   forever on every phone that had ever typed it. */
+const PERK_STAMP = 'w:' + perkNorm(PERK_WORD);
+let PERK = store.get('vm_perk', '') === PERK_STAMP;
+/* AND GHOST IS GATED ON IT AT THE READ, not only at the switch. Every player who
+   ever turned the old free toggle on still has vm_ghost=1 sitting in their
+   browser; without this they would keep the perk forever and the lock would
+   apply only to new players, which is the one group it does not need to. */
+let GHOST = PERK && store.get('vm_ghost', '0') === '1';
+/* And the stale flag is cleared rather than left lying there. Without this an
+   old free-toggle player who later types the word would find GHOST already on
+   after their next reload, switched by a decision they made months ago under
+   different rules — the gate would hold for exactly one session and then hand
+   the perk over on its own. */
+if (!PERK) store.set('vm_ghost', '0');
 function setGhost(on) {
-  GHOST = !!on;
+  GHOST = PERK && !!on;
   store.set('vm_ghost', GHOST ? '1' : '0');
   syncGhostUI();
+}
+/* Returns whether the word was right, so the caller can say so. Unlocking does
+   NOT switch the perk on — it makes the switch exist, and pressing it is still
+   a decision. */
+function perkTry(word) {
+  if (!perkMatches(word)) return false;
+  PERK = true;
+  store.set('vm_perk', PERK_STAMP);
+  syncGhostUI();
+  return true;
 }
 // Both copies of the switch and the on-screen tag read off the one flag, so the
 // menu and the pause card can never disagree about what the car is doing.
@@ -43,6 +86,9 @@ function syncGhostUI() {
     el.setAttribute('aria-pressed', GHOST ? 'true' : 'false');
   }
   $('ghostTag').classList.toggle('on', GHOST);
+  // one class on <body>, so both perk blocks swap between the word box and the
+  // switch without either of them needing a rule of its own
+  document.body.classList.toggle('perked', PERK);
 }
 function wirePatreon(url) {
   const link = url == null ? PATREON : url;
@@ -57,9 +103,33 @@ function wirePatreon(url) {
 }
 for (const id of ['ghostM', 'ghostP'])
   $(id).onclick = () => {
+    if (!PERK) return;                       // the switch is not there, but be sure
     setGhost(!GHOST);
     if (state === 'play') toast(txt(GHOST ? 'toast.ghostOn' : 'toast.ghostOff'), 1400);
   };
+
+/* The word box, in both perk blocks. Wrong words say so in place rather than as
+   a toast, because the menu is up before the game has started and there is
+   nothing to toast over. */
+for (const [box, btn, msg] of [['keyMi', 'keyMb', 'keyMe'], ['keyPi', 'keyPb', 'keyPe']]) {
+  const input = $(box), button = $(btn), note = $(msg);
+  if (!input || !button) continue;
+  const submit = () => {
+    if (perkTry(input.value)) {
+      input.value = '';
+      if (note) { note.textContent = ''; note.classList.remove('on'); }
+      /* Said in both places: a toast if there is a game to toast over, and the
+         line in the card either way — the menu has no toast layer over it. */
+      if (state === 'play') toast(txt('perk.on'), 1600);
+      else if (note) { note.textContent = txt('perk.on'); note.classList.add('on', 'ok'); }
+      return;
+    }
+    if (note) { note.textContent = txt('perk.wrong'); note.classList.add('on'); note.classList.remove('ok'); }
+    input.select();
+  };
+  button.onclick = submit;
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+}
 wirePatreon();
 syncGhostUI();
 

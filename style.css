@@ -207,6 +207,38 @@ button.tgl[aria-pressed=true]{border-color:var(--gold);color:var(--gold);
   background:rgba(255,227,106,.12)}
 button.tgl[aria-pressed=true] .dot{background:var(--gold);border-color:var(--gold);
   box-shadow:0 0 10px rgba(255,227,106,.9)}
+/* THE WORD BOX AND THE SWITCH ARE THE SAME SLOT. Both perk blocks carry both,
+   and one class on <body> decides which is showing — so the menu and the pause
+   card can never end up in different states, which is the same reason the switch
+   and the tag already read off one flag. */
+body:not(.perked) .perk .tgl{display:none}
+body.perked .perk .keyRow{display:none}
+.keyRow{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(460px,92vw)}
+.keyWhy{font-size:12.5px;line-height:1.45;color:rgba(255,255,255,.72);text-align:center}
+.keyIn{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;justify-content:center}
+/* 16px on the input is not a style choice: iOS zooms the whole page in on focus
+   for anything smaller, and it does not zoom back out. */
+.keyIn input{font-family:var(--ui);font-size:16px;padding:10px 13px;border-radius:10px;
+  min-width:0;width:min(240px,60vw);color:#fff;background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.28);letter-spacing:.02em}
+.keyIn input:focus{outline:none;border-color:var(--cyan);background:rgba(51,230,255,.10)}
+.keyIn input::placeholder{color:rgba(255,255,255,.38)}
+.keyIn button{font-size:13px;padding:10px 16px}
+.keyErr{display:none;font-size:12px;font-weight:600;color:#ff8a90}
+.keyErr.on{display:block}
+.keyErr.ok{color:var(--gold)}
+/* THE MENU HAS NO SPARE HEIGHT ON A PHONE, and this block added three rows to
+   it. On a 390x664 iPhone the card went from fitting exactly to fourteen pixels
+   of scroll — it still scrolls, so nothing is unreachable, but "fits" is worth
+   more than the fourteen pixels this claws back off the line spacing and the
+   explanation. Measured with tests/menufit.mjs at four viewports. */
+@media (max-width:760px),(pointer:coarse){
+  .perk{margin-top:12px}
+  .keyRow{gap:6px}
+  .keyWhy{font-size:11.5px;line-height:1.38}
+  .keyIn input{padding:8px 12px}
+  .keyIn button{padding:8px 14px}
+}
 /* Patreon coral, so the ask is legible as an ask without competing with DRIVE. */
 .pat{display:none;font-size:12.5px;font-weight:600;text-decoration:none;padding:8px 14px;
   border-radius:999px;color:#ff8a90;background:rgba(255,66,77,.10);
@@ -701,6 +733,10 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
      a perk block too. The keyboard hint is the first thing to go — the controls
      on this screen are thumb pads. */
   #menu .hint{display:none}
+  /* and the perk's explanation goes with it, for the same reason: on a 342 point
+     screen the box, the button and the Patreon link underneath say what this is
+     between them, and two lines of prose above them do not fit. */
+  .keyWhy{display:none}
   #menu .logo{font-size:clamp(30px,7.5vw,54px)}
   #menu .rule{margin:8px 0 10px}
   #menu .presets{margin-top:8px}

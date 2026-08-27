@@ -3,7 +3,7 @@
    Every test used to carry a pinned path to one Chromium build number and an
    absolute path to one checkout, which is fine while they live in a scratch
    directory on one machine and useless the moment they are checked in. */
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -35,6 +35,17 @@ export const GAME_ASIS = GAME_URL;
    So the physics is measured in the cheap renderer, deliberately, and the tests
    that care about the expensive one ask for it by name. */
 export const GAME = GAME_URL + '?view=2d';
+
+/* THE PERK WORD, READ OUT OF THE GAME rather than typed in here again.
+   GHOST is behind a word from the Patreon post now, and the tests that want the
+   perk have to unlock it the way a player does. Copying the word into a test
+   file would make a second place for it to be wrong the day it changes; this
+   reads the one definition in js/game.js, and fails loudly if that line ever
+   stops looking like itself. */
+const PERK_SRC = readFileSync(join(ROOT, 'js', 'game.js'), 'utf8');
+const PERK_M = /const PERK_WORD\s*=\s*'([^']+)'/.exec(PERK_SRC);
+if (!PERK_M) throw new Error('harness: could not find PERK_WORD in js/game.js');
+export const PERK_WORD = PERK_M[1];
 
 /* Playwright's own browser if it downloaded one, otherwise whatever is under
    PLAYWRIGHT_BROWSERS_PATH — sandboxes usually have the binary on disk with the

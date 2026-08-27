@@ -9,7 +9,7 @@
    that still matter here are `onRoad`, which must stay at the top of the clock,
    and the building rows, which must not pin the car. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
+import { CHROME, GAME, PERK_WORD, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;                      // Krunski venac, Belgrade
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -107,6 +107,9 @@ out.intoWall = await hold('nose against a wall', -250, -190, Math.PI / 2);
 // and the sane case, on tarmac
 out.onRoad = await hold('on the road', -500, 0, 0);
 // the same spots with the perk on, for comparison
+// GHOST is behind the Patreon word now, so the perk is unlocked the way a
+// player unlocks it before the switch will do anything.
+await p.evaluate(w => window.__perk(w), PERK_WORD);
 await p.evaluate(() => window.__ghost(true));
 out.ghostOpenGround = await hold('open field · GHOST', -500, 400, 0);
 out.ghostInsideBlock = await hold('inside a building · GHOST', 0, 85, 0);

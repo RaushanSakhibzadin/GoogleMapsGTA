@@ -27,7 +27,7 @@
    It runs offline on the bundled city — every non-file request is aborted — so
    there are real building footprints and no network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, stubRadio } from './harness.mjs';
+import { CHROME, GAME, PERK_WORD, stubRadio } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -67,7 +67,7 @@ await p.waitForTimeout(2200);
 
    Stood off the south face by half its depth plus thirty metres and pointed at
    it, so the chase camera is looking straight down the wall. */
-out.parked = await p.evaluate(() => {
+out.parked = await p.evaluate(PERK => {
   let best = null;
   for (const b of W.buildings) {
     const d = Math.hypot(b.cx - P.car.x, b.cy - P.car.y);
@@ -107,11 +107,12 @@ out.parked = await p.evaluate(() => {
      anything was read, the death camera took over, and both the facade and the
      wheels went with it — which read as a flaky test rather than as what it
      was. */
+  window.__perk(PERK);          // the perk is locked until the word goes in
   window.__ghost(true);
   window.__heal();
   return { h: +b.h.toFixed(1), wide: +(b.bb.x1 - b.bb.x0).toFixed(1),
            stood: +off.toFixed(1), searched: +(off - base).toFixed(1) };
-});
+}, PERK_WORD);
 await p.waitForTimeout(3000);
 // daylight, where a window is a dark rectangle on a light wall and the sky has
 // the most range in it — dusk works too, with less of everything

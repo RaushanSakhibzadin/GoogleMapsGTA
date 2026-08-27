@@ -10,7 +10,7 @@
    car that will not move, throttle down, nothing there to explain it. So the
    last scenario drives out past the loaded tiles and insists it stays fast. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
+import { CHROME, GAME, PERK_WORD, ROOT, stubRadio } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -74,10 +74,17 @@ out.linksAtMenu = await p.evaluate(() => {
              href: el.getAttribute('href'), target: el.getAttribute('target'),
              rel: el.getAttribute('rel') };
   };
-  return { patM: one('patM'), perkM: one('perkM'), ghostM: one('ghostM') };
+  return { patM: one('patM'), perkM: one('perkM'), ghostM: one('ghostM'), keyM: one('keyM') };
 });
+/* THE SWITCH IS NO LONGER WHAT IS SHOWN HERE, and that is the change rather than
+   a regression: on a browser that has never typed the word the perk block holds
+   the word box and the ask, and the switch does not exist until it is unlocked.
+   So the block and the link are asserted visible, the box with them, and the
+   switch asserted ABSENT — which is the half that would otherwise quietly go
+   back to a free toggle without a single test noticing. */
 out.menuLinkWired = out.linksAtMenu.patM.visible &&
-  out.linksAtMenu.perkM.visible && out.linksAtMenu.ghostM.visible &&
+  out.linksAtMenu.perkM.visible && out.linksAtMenu.keyM.visible &&
+  out.linksAtMenu.ghostM.display === 'none' &&
   /^https:\/\/www\.patreon\.com\//.test(out.linksAtMenu.patM.href || '') &&
   out.linksAtMenu.patM.target === '_blank' && /noopener/.test(out.linksAtMenu.patM.rel || '');
 
@@ -200,6 +207,51 @@ out.defaultIntoBuilding = await p.evaluate(async () => {
 // it has to have got there AND been stopped by it. Damage is not asserted:
 // off-road you can only arrive at walking pace, well under the 4 m/s that hurts.
 out.buildingStaysSolid = out.defaultIntoBuilding.reachedIt && !out.defaultIntoBuilding.inside;
+
+/* ---- 1b. AND IT IS LOCKED UNTIL THE WORD GOES IN ---- */
+/* GHOST used to be a switch sitting in the menu next to the Patreon ask, free
+   to anyone who scrolled that far — which is a perk nobody has to back anything
+   to get. The word now lives in the Patreon post and the switch does not exist
+   until it is typed.
+ *
+ * DRIVEN THROUGH THE REAL BOX AND THE REAL BUTTON, because the gate is the UI:
+ * calling the unlock function directly would test the string compare and not
+ * the thing a supporter actually does. The wrong word is asked first — a gate
+ * that opens for everything is not a gate, and it is the half that a happy-path
+ * test never covers. */
+out.lock = await p.evaluate(async word => {
+  const vis = id => getComputedStyle(document.getElementById(id)).display !== 'none';
+  const r = { perkedAtStart: window.__perked() };
+  // the physics flag itself must refuse, not merely the button
+  r.ghostRefused = window.__ghost(true) === false;
+  window.__ghost(false);
+  r.switchHidden = !vis('ghostM');
+  r.boxShown = vis('keyM');
+
+  const input = document.getElementById('keyMi');
+  const say = () => document.getElementById('keyMe').textContent;
+  input.value = 'open sesame';
+  document.getElementById('keyMb').click();
+  r.wrongPerked = window.__perked();
+  r.wrongSaid = say();
+
+  /* Typed the way a phone types it: a capital the keyboard added and a space
+     that came with the paste. Both are meant to be forgiven. */
+  input.value = '  ' + word.slice(0, 4).toUpperCase() + ' ' + word.slice(4) + '  ';
+  document.getElementById('keyMb').click();
+  r.messyPerked = window.__perked();
+  r.switchNow = vis('ghostM');
+  r.boxNow = vis('keyM');
+  // unlocking makes the switch exist; it does not press it
+  r.ghostStillOff = window.__ghost() === false;
+  return r;
+}, PERK_WORD);
+out.lockedUntilTheWord =
+  out.lock.perkedAtStart === false && out.lock.ghostRefused &&
+  out.lock.switchHidden && out.lock.boxShown &&
+  out.lock.wrongPerked === false && !!out.lock.wrongSaid &&
+  out.lock.messyPerked === true && out.lock.switchNow && !out.lock.boxNow &&
+  out.lock.ghostStillOff;
 
 /* ---- 2. GHOST: speed back, walls gone ---- */
 await setGhost(true);
@@ -337,6 +389,25 @@ await p2.waitForTimeout(300);
 out.survivesReload = await p2.evaluate(() => window.__ghost());
 await p2.close();
 
+/* AND A BROWSER THAT NEVER TYPED THE WORD DOES NOT GET IT — including one that
+   had the old free toggle switched on, which is every player who ever used the
+   perk while it was free. Their vm_ghost=1 is still sitting in localStorage; if
+   the gate were only on the switch they would keep GHOST for ever and the lock
+   would apply to new players only, which is the one group it does not need to.
+   A fresh context, because localStorage is what is being tested. */
+const ctx3 = await b.newContext();
+const p3 = await ctx3.newPage({ viewport: { width: 900, height: 640 } });
+await p3.addInitScript(() => { try { localStorage.setItem('vm_ghost', '1'); } catch (e) {} });
+await p3.goto(URL_);
+await p3.waitForTimeout(400);
+out.stale = await p3.evaluate(() => ({
+  ghost: window.__ghost(), perked: window.__perked(),
+  switchHidden: getComputedStyle(document.getElementById('ghostM')).display === 'none'
+}));
+await p3.close(); await ctx3.close();
+out.oldToggleIsRevoked = out.stale.ghost === false && out.stale.perked === false &&
+                         out.stale.switchHidden;
+
 out.fps = await p.evaluate(() => new Promise(r => {
   let n = 0; const t = performance.now();
   const tick = () => { n++; performance.now() - t < 1500 ? requestAnimationFrame(tick) : r(Math.round(n / 1.5)); };
@@ -359,6 +430,7 @@ out.pass =
   out.aiUnaffected &&
   out.frontierStaysFast &&
   out.menuLinkWired && out.emptyHidesEverything && out.pauseWorks &&
+  out.lockedUntilTheWord && out.oldToggleIsRevoked &&
   out.survivesReload === true &&
   out.fps >= 55 && !errs.length;
 console.log(JSON.stringify(out, null, 1));

@@ -399,7 +399,13 @@ window.__onRoad = (x, y) => onRoad(x, y);
 // handling: hold the controls exactly, and read the slide back out
 window.__setInput = o => { inputOverride = o; };
 window.__touch = () => ({ ...touch });          // what the pads currently read
+/* THE PHYSICS FLAG, and it goes through the same gate the button does — so a
+   test that wants GHOST has to unlock the perk first, exactly as a player does,
+   and the gate cannot be true in the game and bypassed in every test that
+   touches it. __perk is the unlock; it takes the real word. */
 window.__ghost = on => { if (on != null) setGhost(on); return GHOST; };
+window.__perk = w => perkTry(w);
+window.__perked = () => PERK;
 window.__patreon = url => { wirePatreon(url); return PATREON; };
 window.__roadDataHere = (x, y) => roadDataHere(x, y);
 window.__roadList = () => W.roads.map(r => ({ cls: r.cls, name: r.name, drive: r.drive, w: r.w, pts: r.pts }));
