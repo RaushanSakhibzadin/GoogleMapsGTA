@@ -736,20 +736,25 @@ function addWanted(n) {
 /* A repair shop puts the armor back and resprays you on the way out. The new
    colour excludes the current one, so it always visibly changes. */
 function repairAt(p) {
-  if (P.cash < REPAIR_COST) {
+  /* PRICED OFF THE DAMAGE, and priced BEFORE the car is healed — repairCost(100)
+     is the minimum, so reading it after setting hp to 100 would charge everyone
+     a hundred dollars whatever they arrived in. */
+  const cost = repairCost(P.car.hp);
+  if (P.car.hp >= 100) { p.cool = 2; return; }   // nothing to fix, nothing to charge
+  if (P.cash < cost) {
     p.cool = 2;                                // just long enough not to spam the toast
-    toast(txt('toast.repairsCost', { n: REPAIR_COST }), 1600);
+    toast(txt('toast.repairsCost', { n: cost }), 1600);
     return;
   }
   p.cool = 6;                                  // parked on it shouldn't re-fire
-  P.cash -= REPAIR_COST;
+  P.cash -= cost;
   store.set('vm_cash', P.cash);
   P.car.hp = 100;
   const others = PAL.carBody.filter(c => c !== P.car.color);
   P.car.color = pick(others.length ? others : PAL.carBody);
   SFX.pickup();
   toast((p.name ? p.name.toUpperCase() + ' · ' : '') +
-        txt('toast.repaired', { n: REPAIR_COST }), 1800);
+        txt('toast.repaired', { n: cost }), 1800);
 }
 
 function busted() {

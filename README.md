@@ -360,9 +360,12 @@ pulls in the rest.
   a fireball, a shockwave that takes out whatever is parked beside it, and **WASTED**: cleaned out
   completely, and you wake up at the nearest hospital. Where the map has neither, you go back to
   where the game started.
-- **Repair shops, $1000.** Drive into a real `shop=car_repair` and you leave with full armor and a
-  different paint job, for a thousand dollars. Turn up short and they'll tell you the price and
-  nothing else happens.
+- **Repair shops, $100 to $1000.** Drive into a real `shop=car_repair` and you leave with full
+  armor and a different paint job. The bill follows the damage — linear in the health you are
+  missing, a hundred for a scratch and a thousand for a wreck, rounded to the nearest ten. A flat
+  thousand was the wrong shape twice over: too much for a dent, so a lightly damaged car drove
+  past, and the same price for a wreck, so limping in was never worth more than any other visit.
+  Turn up short and they'll tell you the price and nothing else happens.
 - **Landmarks are drive-through.** Repair shops, police stations and hospitals go transparent and
   stop colliding, exactly like a building with a road under it — drive straight in, no damage, no
   wall. They're marked in green on the radar, police stations in blue and hospitals in red.

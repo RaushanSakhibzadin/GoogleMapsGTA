@@ -1470,7 +1470,27 @@ function zoneAt(x, y) {
   return best;
 }
 
-const REPAIR_COST = 1000;
+/* WHAT A REPAIR COSTS, WHICH IS WHAT THERE IS TO REPAIR.
+
+   It was a flat thousand, which is the wrong shape twice over: a thousand for a
+   scratch is a bill nobody pays, so a lightly dented car simply drove past the
+   garage, and a thousand for a wreck is the same bill as the scratch, so there
+   was never a moment where limping in was worth it. A price that follows the
+   damage makes the garage a decision instead of a fixed toll.
+
+   Linear in the health that is missing, between the two ends asked for: $100 at
+   a scratch, $1000 at nearly dead. Rounded to the nearest ten, because a bill
+   reading $317 in a game about a neon city is a spreadsheet.
+
+   Note the FLOOR APPLIES AT FULL HEALTH TOO — repairAt never fires on an
+   undamaged car, but the radar hint prices the shop from wherever you are, and
+   quoting $0 for a garage you cannot use would be worse than quoting its
+   minimum. */
+const REPAIR_MIN = 100, REPAIR_MAX = 1000;
+function repairCost(hp) {
+  const missing = Math.max(0, Math.min(100, 100 - (hp == null ? 0 : hp))) / 100;
+  return Math.round((REPAIR_MIN + (REPAIR_MAX - REPAIR_MIN) * missing) / 10) * 10;
+}
 
 /* The nearest landmark of a kind. Recomputed a few times a second rather than
    every frame: there are three hundred of these in a real city, the answer only

@@ -323,6 +323,9 @@ window.__dmg = () => ({ ...DMG });
 window.__dmgReset = () => { for (const k in DMG) DMG[k] = 0; };
 window.__hurt = () => { P.car.hp = 0; };
 window.__heal = () => { P.car.hp = 100; return P.car.hp; };
+// set the armor exactly, so a test can price a repair at a known level of damage
+window.__setHp = n => { P.car.hp = Math.max(0, Math.min(100, +n || 0)); return P.car.hp; };
+window.__repairCost = hp => repairCost(hp == null ? P.car.hp : hp);
 window.__tp = (x, y, h) => { P.car.x = x; P.car.y = y; if (h != null) P.car.h = h;
   P.car.vx = P.car.vy = 0; cam.x = x; cam.y = y; };
 window.__m = () => ({ state: MISSION.state, done: MISSION.done, reward: MISSION.reward,
@@ -525,7 +528,8 @@ window.__noWindows = v => { G3.noWin = !!v; return G3.noWin; };
 window.__plainCars = v => { G3.plainCars = !!v; return G3.plainCars; };
 window.__project = (x, y) => toScreen(x, y).map(v => +v.toFixed(1));
 window.__cfg = () => ({ streets: STREETS, buildings: BUILDINGS, pois: POIS, hedge: HEDGE, maxTries: MAX_TRIES,
-  searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: REPAIR_COST,
+  searchRadii: POI_RADII, recoverMax: RECOVER_MAX, repairCost: repairCost(P.car ? P.car.hp : 100),
+  repairBand: [REPAIR_MIN, REPAIR_MAX],
   streetsQueryTimeout: +(overpassQL(0,0,0,0,'streets').match(/timeout:(\d+)/)||[])[1],
   buildingsQueryTimeout: +(overpassQL(0,0,0,0,'buildings').match(/timeout:(\d+)/)||[])[1],
   poisQueryTimeout: +(overpassQL(0,0,0,0,'pois').match(/timeout:(\d+)/)||[])[1],

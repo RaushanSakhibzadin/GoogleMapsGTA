@@ -185,16 +185,37 @@ const out = {};
   await p.close();
 }
 
-// ---------- 6. repair shop: costs $1000, and does nothing when you can't pay ----------
+/* ---------- 6. the repair shop, priced off the damage ----------
+
+   It was a flat $1000: too much for a scratch, so a lightly dented car drove
+   past, and the same bill for a wreck, so limping in was never worth more than
+   any other visit. The price is linear in the health that is MISSING now,
+   between $100 at a scratch and $1000 at nearly dead.
+
+   THE BAND IS ASSERTED AT BOTH ENDS AND IN THE MIDDLE, because "it varies" is
+   satisfied by any nonsense that varies. And the charge is checked against what
+   the shop QUOTED for that exact damage rather than against a constant, so the
+   test says the player was charged the advertised price rather than restating
+   the formula. */
 {
   const { p, errs } = await boot(b);
   out.repair = await p.evaluate(async (R) => {
     const dent = async () => { window.__tp(0, 0, 0); window.__explodeAt(7, 0); await new Promise(r => setTimeout(r, 220)); };
 
+    // --- the price follows the damage, before anything is bought
+    const band = [100, 75, 50, 25, 0].map(hp => {
+      window.__setHp(hp);
+      return { hp, cost: window.__repairCost() };
+    });
+
     // --- too poor: nothing may happen at all
     window.__setCash(400);
     window.__playerColour('#ff4fd8');
     await dent();
+    /* Broke RELATIVE TO THIS BILL. $400 used to be poor because everything cost
+       a thousand; now a light dent can cost less than that, so the wallet is set
+       from the quote to keep this case about the refusal. */
+    window.__setCash(Math.max(0, window.__repairCost() - 50));
     const poorBefore = { hp: window.__p().hp, col: window.__p().colour, cash: window.__cash() };
     window.__tp(R.x, R.y, 0);
     await new Promise(r => setTimeout(r, 500));
@@ -207,6 +228,8 @@ const out = {};
     window.__setCash(2500);
     window.__playerColour('#ff4fd8');
     await dent();
+    // what the shop will charge for exactly this much damage
+    const quoted = window.__repairCost();
     const before = { hp: window.__p().hp, col: window.__p().colour, cash: window.__cash() };
     window.__tp(R.x, R.y, 0);
     // sitting on the shop while broke keeps re-arming its short cooldown, so give
@@ -216,13 +239,23 @@ const out = {};
     // sitting on it must not keep charging or respraying
     const colours = new Set([after.col]);
     for (let i = 0; i < 12; i++) { await new Promise(r => setTimeout(r, 120)); colours.add(window.__p().colour); }
-    return { poorBefore, poorAfter, before, after, cashParked: window.__cash(),
-             distinctColoursWhileParked: colours.size };
+    return { band, quoted, poorBefore, poorAfter, before, after,
+             cashParked: window.__cash(), distinctColoursWhileParked: colours.size };
   }, REPAIR);
   const r = out.repair;
   out.repair.healed = r.before.hp < 100 && r.after.hp === 100;
   out.repair.recoloured = r.before.col !== r.after.col;
-  out.repair.charged1000 = r.before.cash - r.after.cash === 1000;
+  /* Charged what it quoted for the damage it found — not a constant, and not
+     zero. */
+  out.repair.charged = r.before.cash - r.after.cash;
+  out.repair.chargedTheQuote = r.charged !== 0 && out.repair.charged === r.quoted &&
+                               r.quoted >= 100 && r.quoted <= 1000;
+  const band = r.band;
+  const cost = hp => (band.find(x => x.hp === hp) || {}).cost;
+  out.repair.priceFollowsTheDamage =
+    cost(100) === 100 && cost(0) === 1000 &&           // both ends, exactly as asked
+    cost(50) > cost(75) && cost(25) > cost(50) &&      // and monotonic between them
+    cost(75) > cost(100);
   out.repair.chargedOnce = r.cashParked === r.after.cash;
   out.repair.poorUntouched = r.poorAfter.hp === r.poorBefore.hp &&
                              r.poorAfter.col === r.poorBefore.col &&
@@ -374,14 +407,69 @@ const out = {};
   await p.waitForTimeout(500);
   out.ladder.wideBoxesKm = wideBoxes;
   out.ladder.boxesAtHandover = boxesAtHandover;
-  out.ladder.escalated = boxesAtHandover.length === 2 && boxesAtHandover[0] === 36 && boxesAtHandover[1] === 90;
-  // the whole point of moving it: driving must not add a single wide request
-  out.ladder.noneWhilePlaying = wideBoxes.length === boxesAtHandover.length;
+  /* WIDE BOXES ONLY, and rungs rather than requests.
+
+     Two things this used to conflate. The recorder matches any amenity query
+     without a highway clause, which is also what a 1.8 km POI TILE looks like —
+     so the 2 km tile boxes that stream in while you drive were being counted as
+     wide sweeps, and "no wide requests while playing" was false the moment the
+     car moved.
+
+     And a rung is not a request: a mirror that answers a landmark query with an
+     empty element list is not trusted (see "empty-response mirrors poisoning the
+     load"), so an empty rung is retried across the mirrors. The 36 km rung
+     legitimately goes out five times before the ladder widens. What has to be
+     true is the ORDER it widens in — 36, then 90, and no further — not how many
+     times each was asked. */
+  const onlyWide = a => a.filter(k => k > 10);
+  const rungs = a => onlyWide(a).filter((k, i, w) => i === 0 || k !== w[i - 1]);
+  out.ladder.wideRungs = rungs(boxesAtHandover);
+  out.ladder.escalated = out.ladder.wideRungs.join(',') === '36,90';
+  // the whole point of moving it: driving must not add a single WIDE request
+  out.ladder.noneWhilePlaying =
+    onlyWide(wideBoxes).length === onlyWide(boxesAtHandover).length;
   out.ladder.stoppedAtLastRung = out.ladder.extra === null;
   out.ladder.sweptAtHandover = atHandover.sweep.sweptTo;
   out.ladder.errs = errs;
   await p.close();
 }
 
+/* AND A VERDICT, which this did not have.
+
+   Like tests/hud.mjs, this measured a great deal, printed it, and exited zero —
+   so tests/run.mjs recorded a pass whatever it found. Every boolean in the
+   report is now the verdict, and every `errs` list has to be empty. Which is
+   what makes the repair pricing above an assertion rather than a note.
+
+   Read off the report rather than restated, so a section added later is covered
+   by construction instead of by remembering to add it here. */
+const ASSERTIONS = [
+  'parsed.hospitalIsBuilding',
+  'repair.healed', 'repair.recoloured', 'repair.chargedTheQuote',
+  'repair.priceFollowsTheDamage', 'repair.chargedOnce', 'repair.poorUntouched',
+  'through.wentThrough', 'through.noDamage', 'through.ordinaryStaysSolid',
+  'through.allLandmarksPassable',
+  'wasted.nearHospital', 'busted.arrested', 'busted.nearStation',
+  'busted.copActuallyStopped',
+  'wide.usedNearStation', 'wide.cappedFarHospital',
+  'ladder.escalated', 'ladder.noneWhilePlaying', 'ladder.stoppedAtLastRung'
+];
+/* NAMED, NOT SWEPT. The first version of this failed anything in the report that
+   was `false`, which caught `notBusted.dead: false` and `through.insideNow:
+   false` — both of which are the DESIRED state rather than a broken assertion.
+   A verdict that cannot tell a measurement from a claim is a verdict that cries
+   wolf, and the cure for that is to say which ones are claims. */
+const flat = [];
+for (const name of ASSERTIONS) {
+  const [sec, key] = name.split('.');
+  const body = out[sec];
+  if (!body || !(key in body)) { flat.push(name + ' (missing)'); continue; }
+  if (body[key] === false) flat.push(name);
+}
+for (const [sec, body] of Object.entries(out))
+  if (body && body.errs && body.errs.length) flat.push(sec + '.errs: ' + body.errs[0]);
+out.failing = flat;
+out.pass = flat.length === 0;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+process.exit(out.pass ? 0 : 1);
