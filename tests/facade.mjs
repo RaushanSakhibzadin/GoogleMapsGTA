@@ -185,15 +185,23 @@ out.frozeSky = await freeze();
      did, and it read 153 at the horizon instead of 175 while the zenith stayed
      at 143.5 to the decimal, which is what gave it away.
 
-     Nothing in this frame that is not sky leads on blue: not the road, not the
-     masonry, and certainly not a tree. Rows that end up with too little sky in
-     them are left as NaN and skipped rather than averaged from three pixels. */
+     BLUE OVER RED WAS NOT ENOUGH ON ITS OWN. It was, while the daylight ground
+     was a bone grey; the ground is a dark sea-green now, and green-blue leads
+     on blue over red comfortably — so every row of grass counted as sky, the
+     horizon was found at row 0 and the "gradient" measured was the ground
+     climbing into the sky. Sky also leads on blue over GREEN, at both ends of
+     both themes' gradients, and the grass does not: 73 blue against 82 green.
+     One more comparison and the grass is out, along with the tree canopy the
+     paragraph above is about, which was only ever excluded by luck.
+
+     Rows that end up with too little sky in them are left as NaN and skipped
+     rather than averaged from three pixels. */
   const rows = [];
   for (let y = 0; y < H; y++) {
     let s = 0, n = 0;
     for (let x = 0; x < W; x++) {
       const i = at(x, y);
-      if (px[i + 2] < px[i] + 8) continue;         // warmer than it is blue: not sky
+      if (px[i + 2] < px[i] + 8 || px[i + 2] <= px[i + 1]) continue;   // not blue-led: not sky
       s += lum(px, i); n++;
     }
     rows.push(n > W * 0.5 ? s / n : NaN);

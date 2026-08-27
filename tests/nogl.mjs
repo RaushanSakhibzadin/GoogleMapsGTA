@@ -109,7 +109,7 @@ const look = () => p.evaluate(() => {
   const band = (y0, y1) => {
     const d = g.getImageData(0, Math.floor(h * y0), w, Math.max(1, Math.floor(h * (y1 - y0)))).data;
     let blue = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4) { if (d[i + 2] > d[i] + 14) blue++; n++; }
+    for (let i = 0; i < d.length; i += 4) { if (d[i + 2] > d[i] + 14 && d[i + 2] > d[i + 1]) blue++; n++; }
     return +(blue / n).toFixed(3);
   };
   return { top: band(0.02, 0.12), bottom: band(0.80, 0.95) };
