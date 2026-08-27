@@ -181,8 +181,14 @@ en: {
              '(<span class="path">Experimental Features</span> on older iOS).',
   'gl.ios3': 'Find <b>WebGL</b> in the list and switch it on.',
   'gl.ios4': 'Close the browser from the app switcher, then open it again.',
+  /* THE LAST SENTENCE IS LOAD-BEARING and its wording is asserted on by
+     tests/glhelp.mjs: the card names WebGPU only in order to say that turning it
+     on does nothing here, because it sits in the same iOS list and is the
+     obvious wrong thing to switch. Translating this string is fine; rewriting
+     the English is what broke it once. */
   'gl.iosAside': 'Chrome, Firefox and Edge on iPhone all use Safari’s engine, so this ' +
-                 'covers them too. WebGPU in the same list is a different switch and will not help.',
+                 'covers them too. WebGPU in the same list is a different feature and ' +
+                 'does not affect this.',
 
   // --- errors
   'err.notFound': 'Couldn’t find “{q}”. Try a fuller name, like “Ocean Drive, Miami Beach”.'
