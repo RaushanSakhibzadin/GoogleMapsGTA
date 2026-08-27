@@ -812,6 +812,16 @@ function toast(t, ms) {
 }
 
 /* ---- street & district announcements, GTA style ---- */
+/* HOW LONG THE STREET NAME STAYS UP. It was four seconds, which is about two
+   blocks at speed — long enough to catch it only if you were already looking at
+   that corner of the screen when it appeared, and the name of the road you are
+   on is worth reading late as well as early. Nine gives you time to glance down
+   after the corner rather than during it.
+
+   Nothing stacks up as a result: a new street REPLACES the label and restarts
+   the clock, so a dense grid shows a near-continuous readout of where you are
+   rather than a queue of names waiting their turn. */
+const STREET_HOLD = 9;
 const NAV = { street: '', zone: '', cand: '', candT: 0, showT: 0, lastX: 0, lastY: 0, tick: 0 };
 function updateNav(dt) {
   const c = P.car;
@@ -829,7 +839,7 @@ function updateNav(dt) {
   else NAV.candT += dt;
   if (nm && nm !== NAV.street && NAV.candT > .35 &&
       dist(c.x, c.y, NAV.lastX, NAV.lastY) > 12) {
-    NAV.street = nm; NAV.lastX = c.x; NAV.lastY = c.y; NAV.showT = 4;
+    NAV.street = nm; NAV.lastX = c.x; NAV.lastY = c.y; NAV.showT = STREET_HOLD;
     $('street').textContent = nm;
     $('street').classList.add('on');
   }

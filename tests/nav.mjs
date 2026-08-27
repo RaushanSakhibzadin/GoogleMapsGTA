@@ -56,6 +56,48 @@ const flips = await p.evaluate(async () => {
 await p.evaluate(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w' })));
 out.intersectionNames = flips;
 
+/* ---------- the street label stays up long enough to read ---------- */
+/* It held for four seconds, which is about two blocks at speed — you caught it
+   only if you were already looking at that corner of the screen when it
+   appeared. Asked to last longer.
+ *
+ * MEASURED END TO END, from the label changing to the label going away, rather
+ * than by reading the constant back out — a number the game stores and never
+ * spends is not a duration. In SIMULATED seconds, because that is the clock
+ * update() actually decrements: headless Chromium drops frames, the loop caps
+ * catch-up at five steps, and wall-clock here would measure the renderer.
+ *
+ * THE CAR IS STOPPED DEAD the moment the new name lands. Left coasting it
+ * crosses the next junction inside the hold, adopts that street, restarts the
+ * clock, and the measurement silently becomes two holds end to end. */
+out.hold = await p.evaluate(() => new Promise(res => {
+  window.__tp(-480, 300, Math.PI / 2);
+  const el = document.getElementById('street');
+  const was = window.__nav().street;
+  const t0 = window.__simT();
+  let onAt = null;
+  window.__setInput({ gas: 1 });
+  const tick = () => {
+    const t = window.__simT() - t0;
+    const nav = window.__nav();
+    if (onAt === null && nav.street && nav.street !== was) {
+      onAt = t;
+      window.__setInput(null);
+      P.car.vx = P.car.vy = 0;                 // and it stays exactly here
+    }
+    if (onAt !== null && P.car) { P.car.vx = 0; P.car.vy = 0; }
+    if (onAt !== null && !el.classList.contains('on'))
+      return res({ was, onAt: +onAt.toFixed(2), offAt: +t.toFixed(2),
+                   hold: +(t - onAt).toFixed(2), street: nav.street });
+    if (t > 30) return res({ was, onAt, offAt: null, hold: null, street: nav.street });
+    requestAnimationFrame(tick);
+  };
+  tick();
+}));
+/* Comfortably past the old four, and still transient rather than permanent — a
+   label that never leaves is a different bug and would pass a floor alone. */
+out.labelHoldsLongEnough = out.hold.hold !== null && out.hold.hold > 6 && out.hold.hold < 14;
+
 // ---------- zone banner ----------
 out.zoneSouth = await p.evaluate(async () => { window.__tp(300, 300, 0); return null; });
 await p.waitForTimeout(400);
@@ -95,6 +137,68 @@ out.fps = await p.evaluate(() => new Promise(res => {
   const tick = () => { n++; if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else res(Math.round(n / 1.5)); };
   requestAnimationFrame(tick);
 }));
+/* ---------- and it is the same gold-on-light-blue in both themes ---------- */
+/* Asked for in these words: yellow with a light blue border, because that reads
+   in daylight and at night. It used to be cyan by night and a dark teal by day
+   — two colours to keep right instead of one, and the daylight half had been
+   picked for a pale ground that is now dark sea-green, so it was heading for
+   teal on teal.
+ *
+ * HELD AGAINST THE STYLESHEET'S OWN VARIABLES rather than against hexes typed in
+ * here, which would only be a third copy of them — the same reason daynight.mjs
+ * holds the stars against --gold instead of against a number. */
+const banner = () => p.evaluate(() => {
+  const cs = getComputedStyle(document.getElementById('street'));
+  const root = getComputedStyle(document.documentElement);
+  return { color: cs.color, shadow: cs.textShadow,
+           gold: root.getPropertyValue('--gold').trim(),
+           cyan: root.getPropertyValue('--cyan').trim() };
+});
+const asRGB = hex => { const n = parseInt(hex.replace('#', ''), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+const count = (hay, needle) => hay.split(needle).length - 1;
+const reads = b => ({
+  gold: b.color === asRGB(b.gold),
+  // eight offsets make the ring; four surviving is still a ring and not a smear
+  ring: count(b.shadow, asRGB(b.cyan)) >= 4,
+  /* AND A DARK DROP UNDERNEATH. The ring is light, and light on light is the
+     one case a light ring cannot rescue — a sunlit white facade. */
+  dark: /rgba\(0,\s*0,\s*0,[^)]*\)[^,]*\d+px/.test(b.shadow) || /rgba\(0,\s*0,\s*0/.test(b.shadow)
+});
+await p.evaluate(() => applyTheme('dusk'));
+out.bannerDusk = await banner();
+await p.evaluate(() => applyTheme('day'));
+out.bannerDay = await banner();
+out.readsDusk = reads(out.bannerDusk);
+out.readsDay = reads(out.bannerDay);
+out.bannerIsGoldOnLightBlue =
+  Object.values(out.readsDusk).every(Boolean) && Object.values(out.readsDay).every(Boolean);
+// one treatment, not two: the whole point of the pair is that it needs no theme
+out.sameInBothThemes = out.bannerDusk.color === out.bannerDay.color &&
+                       out.bannerDusk.shadow === out.bannerDay.shadow;
+
 out.errs = errs;
+
+/* AND A VERDICT, which this did not have.
+   For its whole life it printed a report and exited zero, so tests/run.mjs
+   recorded a pass on every run whatever it found — the same hole hud.mjs and
+   poi.mjs were pulled out of. The list is named rather than "every boolean in
+   the report", so adding a diagnostic later cannot silently become a gate.
+
+   Only claims observed to hold on a build that behaves are in here: the label
+   names the street it is showing, a crossroads does not strobe through a list
+   of names, the two districts are told apart, and the theme toggle actually
+   repaints a building. */
+out.namesTheStreet = !!out.onOcean.street && out.onOcean.streetTxt === out.onOcean.street &&
+                     out.onOcean.streetShown && !!out.onAlpha.street &&
+                     out.onAlpha.street !== out.onOcean.street;
+out.doesNotStrobe = out.intersectionNames.length <= 3;
+out.zonesAreToldApart = !!out.zoneAtSouthBeach && !!out.zoneAtFlamingo &&
+                        out.zoneAtSouthBeach !== out.zoneAtFlamingo;
+const ASSERTIONS = ['namesTheStreet', 'doesNotStrobe', 'zonesAreToldApart', 'buildingChanged',
+                    'labelHoldsLongEnough', 'bannerIsGoldOnLightBlue', 'sameInBothThemes'];
+out.failing = ASSERTIONS.filter(k => !out[k]);
+out.pass = out.failing.length === 0 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
+process.exit(out.pass ? 0 : 1);

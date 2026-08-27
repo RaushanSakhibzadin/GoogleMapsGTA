@@ -354,10 +354,31 @@ body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255
 #mini{width:clamp(120px,21vw,178px);height:clamp(120px,21vw,178px);border-radius:50%;
   border:3px solid rgba(255,79,216,.75);box-shadow:0 0 26px rgba(255,79,216,.4),inset 0 0 30px rgba(0,0,0,.65);
   background:#0a0614}
-/* street name: appears when you turn onto a new road, then fades (GTA V style) */
+/* street name: appears when you turn onto a new road, then fades (GTA V style)
+
+   GOLD WITH A LIGHT BLUE EDGE, AND THE SAME IN BOTH THEMES. It was cyan at
+   night and a dark teal by day, which is two colours to get right instead of
+   one — and the daylight half was picked for a pale ground that is now a dark
+   sea-green, so it was heading for teal on teal.
+
+   The pairing does the work by itself: gold is far from anything this game
+   draws underneath it, and the light blue ring around each letter separates it
+   from a bright facade, where the gold alone would wash out. Eight offsets
+   rather than -webkit-text-stroke, which thins hairlines at some sizes and is
+   the one property here that older WebKit renders differently. The soft dark
+   drop underneath is what carries it over a white wall in daylight; the ring
+   alone is light, and light on light is the case the ring cannot fix.
+
+   There is deliberately NO body.theme-day override any more. Adding one back
+   would be re-solving a problem this colour exists to have already solved. */
 #street{max-width:100%;font-family:var(--ui);font-weight:700;font-size:13px;
-  letter-spacing:.13em;text-transform:uppercase;color:var(--cyan);
-  text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(51,230,255,.55);
+  letter-spacing:.13em;text-transform:uppercase;color:var(--gold);
+  text-shadow:
+    -1px -1px 0 var(--cyan), 1px -1px 0 var(--cyan),
+    -1px  1px 0 var(--cyan), 1px  1px 0 var(--cyan),
+     0 -1.6px 0 var(--cyan), 0 1.6px 0 var(--cyan),
+    -1.6px 0 0 var(--cyan), 1.6px 0 0 var(--cyan),
+     0 2px 7px rgba(0,0,0,.85);
   opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
 #street.on{opacity:1;transform:none}
 
@@ -613,7 +634,9 @@ body.theme-day #obj small,body.theme-day #spdU{color:#0a6478;text-shadow:0 0 8px
 body.theme-day #timer{color:#a3186f}
 body.theme-day #spdN{color:#241f2e}
 body.theme-day #zone{color:#7d4a00}
-body.theme-day #street{color:#07596b;text-shadow:0 2px 5px rgba(255,255,255,.95)}
+/* #street has no daylight rule on purpose — see the note where it is defined:
+   the gold-with-a-light-blue-edge is one treatment that reads in both themes,
+   and an override here would be the second colour it exists to remove. */
 /* the white backing the rest of the daylight text has: the ground behind this
    corner is dark now, and a 55%-black label on it was a smudge */
 body.theme-day #hpLbl{color:rgba(0,0,0,.62);text-shadow:0 1px 3px rgba(255,255,255,.85)}
