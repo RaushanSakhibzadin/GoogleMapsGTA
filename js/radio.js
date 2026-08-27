@@ -47,6 +47,7 @@ const RADIO = {
   pending: false,
   told: false,               // the one-time "tap the name to stop" hint
   watch: null,               // the deadline a station has to make a sound by
+  primed: false,             // the element has been played once inside a gesture
   dead: []                   // stations dropped for dead air, for the log
 };
 
@@ -245,6 +246,42 @@ function radioDrop(why) {
   return true;
 }
 
+/* BLESSED INSIDE A REAL TAP, so the start that comes later is allowed.
+
+   This is what "on by default AND playing" needs, and it is not the same problem
+   as arming the dial. Safari grants permission to an <audio> ELEMENT, from the
+   gesture that first plays it, and the element keeps that permission when its
+   src changes afterwards. What it will not do is start an element that has never
+   been touched, from a callback — and by the time a list of stations has come
+   back over the network, the tap that started the game is long over, so the
+   automatic start was refused every time and the dial sat there waiting for the
+   next touch.
+
+   So the element is played once, silently, from the first real gesture there is
+   — the same window-level handler that unlocks the sound effects. Two hundred
+   milliseconds of digital silence as a data URI: nothing is fetched, nothing is
+   heard, and the element is blessed from then on.
+
+   NOTHING HAPPENS IF THE RADIO IS OFF. No element, no permission, no silent clip
+   — a player who switched it off should not have an audio element created on
+   their first touch of the screen. */
+const RADIO_SILENCE =
+  'data:audio/wav;base64,UklGRiwBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgBAAA=' +
+  'gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA' +
+  'gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA' +
+  'gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+function radioPrime() {
+  if (RADIO.primed || !radioWanted()) return false;
+  RADIO.primed = true;
+  const a = radioEl();
+  try {
+    a.src = RADIO_SILENCE;
+    const pr = a.play();
+    if (pr && pr.catch) pr.catch(() => {});     // refused is survivable; we tried
+  } catch (e) {}
+  return true;
+}
+
 function radioEl() {
   if (RADIO.el) return RADIO.el;
   const a = document.createElement('audio');
@@ -262,6 +299,11 @@ function radioEl() {
     radioDrop('stream failed');
   });
   a.addEventListener('playing', () => {
+    /* THE PRIMING CLIP FIRES THIS TOO, and it is not a station starting. Without
+       the guard the dial announced itself as playing before it had tuned
+       anything, and the one-time "tap the name to stop" hint was spent on two
+       hundred milliseconds of silence. */
+    if (!RADIO.on) return;
     radioWatchOff();                       // it works: stop counting against it
     RADIO.status = 'playing'; RADIO.err = ''; radioPaint();
     /* SAID ONCE, THE FIRST TIME SOUND ARRIVES. The dial turns itself on now, so

@@ -2895,10 +2895,50 @@ function setMode3D(on) {
    Silently: a player who chose 3D on a machine that has since lost WebGL2 gets
    the top-down game and no scolding, because there is nothing they can do about
    it and the game works either way. */
+/* THE CHASE VIEW IS THE DEFAULT NOW, on every system and browser that can draw
+   it at all — which, since the software renderer exists, is all of them.
+
+   It used to default to the top-down view and wait to be asked. That made the
+   3D button a thing you had to find, and the view the game is really about the
+   one most people never saw. The stored preference still wins in BOTH
+   directions: `'0'` is a player who pressed 2D and meant it, and only a missing
+   key is a player who has never expressed one.
+
+   AND "CAN DRAW IT" INCLUDES WITHOUT A GPU. If WebGL2 will not start, SOFT3D
+   draws the same street on the 2D canvas — slower and plainer, but it is the
+   chase view, and setMode3D falls back to it by itself. So there is no hardware
+   test here: the only thing that sends somebody to the top-down game is asking
+   for it. */
 function restoreView3D() {
-  let want = false;
-  try { want = localStorage.getItem('vm3d') === '1'; } catch (e) {}
-  if (want === MODE3D) return;
-  if (want && (!GL.init($('gl')) || !initGL3())) return;
-  setMode3D(want);
+  let saved = null;
+  try { saved = localStorage.getItem('vm3d'); } catch (e) {}
+  /* ?view=2d / ?view=3d PINS IT, above the stored preference and above the
+     default. Two uses, and the second is why it is in the product rather than in
+     a test helper: it is how you ask somebody to try the other renderer without
+     talking them through a button, and it is how the test suite measures the
+     PHYSICS without paying for the chase view.
+
+     That second one is not a convenience. Headless Chromium rasterises 3D
+     through SwiftShader at about eight frames a second, and the loop caps the
+     physics at five steps a frame — so below twelve fps the simulated clock runs
+     slower than the wall clock, and a test that holds the accelerator for five
+     real seconds gets three simulated ones. Making 3D the default turned that
+     from a thing a few tests opted into to a thing every test paid: the same
+     five second hold reached 250 km/h before and 119 after, with nothing about
+     the driving changed. */
+  const q = (typeof location !== 'undefined' && /[?&]view=(2d|3d)/.exec(location.search || ''));
+  if (q) { if ((q[1] === '3d') !== MODE3D) setMode3D(q[1] === '3d'); return; }
+  if (saved === '0') return;                  // asked for the top-down game, and meant it
+  if (MODE3D) return;
+  /* HARDWARE FIRST, and if it starts, everybody gets the chase view. */
+  if (GL.init($('gl')) && initGL3()) { setMode3D(true); return; }
+  /* AND IF IT DOES NOT, only somebody who ASKED for 3D gets the software
+     renderer. That is the "if possible" in the request, and it is not a
+     technicality: SOFT3D draws the same street on the 2D canvas at a few frames
+     a second. For a player who chose it over a blank 3D button that is a fair
+     trade; for a phone that has just opened the game — an iPhone in Lockdown
+     Mode, say, where WebGL is switched off for every site — it is a first
+     impression of a game that runs badly. They get the top-down game, which is
+     fast and complete, and the 3D button is still there to be pressed. */
+  if (saved === '1') setMode3D(true);
 }

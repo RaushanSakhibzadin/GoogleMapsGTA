@@ -1,6 +1,9 @@
 /* VICE MAPS — all of the styling. Loaded by index.html; no build step. */
 :root.radio-on{--radioBar:calc(var(--radioH) + env(safe-area-inset-bottom))}
 :root{
+  /* See the meta of the same name in index.html: this is what stops Chrome on
+     Android re-tinting the palette, which turned every gold in the game brown. */
+  color-scheme:dark;
   --pink:#ff4fd8; --cyan:#33e6ff; --gold:#ffe36a; --violet:#8a5cff;
   --bg:#120a1e;
   /* THE HUD FACE, AND WHAT ANDROID ACTUALLY HAS.
@@ -39,7 +42,7 @@
      cannot steer. The floor of 72px was the culprit: below about 390 the vw term
      stopped applying and the circles simply stayed too big for the screen.
 
-     So the size is solved for instead. The row needs edgeL + 3 pads + gas + 16px
+     So the size is solved for instead. The row needs edgeL + 3 pads + gas + 20px
      of internal spacing + a 14px gap + edgeR, and gas is 1.34 pads, so 4.34 pads
      is exactly whatever is left over. That makes the row fit any width by
      construction, at any safe-area inset, rather than fitting the handsets
@@ -49,7 +52,7 @@
 
      The 48px floor is the accessibility minimum for a touch target and only
      applies below about 290pt, which no phone is. */
-  --pad:clamp(48px,calc((100vw - var(--edgeL) - var(--edgeR) - 30px) / 4.34),104px);
+  --pad:clamp(48px,calc((100vw - var(--edgeL) - var(--edgeR) - 34px) / 4.34),104px);
   /* The accelerator is held for basically the whole game, so it gets its own
      larger size. Everything on the right-hand side positions off THIS, not
      --pad, or the brake and DRIFT end up underneath it. */
@@ -72,7 +75,12 @@
      on :root, and a variable set further down the tree cannot reach it. */
   --radioBar:0px;
   --radioH:56px;
-  --edgeB:calc(max(26px,calc(env(safe-area-inset-bottom) + 6px)) + var(--radioBar));
+  /* The bottom inset WITHOUT the dial's strip, for things that are drawn over
+     the top of the dial rather than beside it — the big map is z-index 65 and
+     the radio bar is 36, so a control on the map must not lift to clear a bar
+     that is not visible behind it. */
+  --edgeB0:max(26px,calc(env(safe-area-inset-bottom) + 6px));
+  --edgeB:calc(var(--edgeB0) + var(--radioBar));
 }
 *{box-sizing:border-box;margin:0;padding:0}
 /* THE VISIBLE HEIGHT, NOT THE LAYOUT HEIGHT.
@@ -455,14 +463,34 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    width, and it holds in the landscape layout too, where the row is centred. */
 #mapTop{position:absolute;top:calc(58px + env(safe-area-inset-top));left:14px;right:14px;
   display:flex;align-items:center;gap:10px;pointer-events:none}
+/* The close button left this row, so the name gets the width it was sharing. */
 #mapWhere{flex:1;min-width:0;font-family:var(--hud);font-size:clamp(15px,4vw,22px);
   letter-spacing:1px;color:var(--gold);text-shadow:2px 2px 0 rgba(0,0,0,.8);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#mapClose{pointer-events:auto;font-family:var(--hud);font-size:17px;
-  line-height:1;padding:9px 13px;border-radius:10px;color:#fff;cursor:pointer;
-  background:rgba(255,79,216,.22);border:1px solid var(--pink);box-shadow:none}
+/* CLOSE IS BOTTOM RIGHT, where the hand already is.
+
+   It sat in the top bar beside the city name, which on a modern phone is the one
+   corner a thumb cannot reach without shifting grip — and this is a panel you
+   open by tapping the radar, glance at, and close again. Bottom right is the
+   same corner the accelerator lives in while driving.
+
+   Fixed to the viewport rather than to the map's top bar, and given a real
+   target: 52 points square, clear of the home-indicator strip and the side
+   gesture strips by the same insets everything else uses. The key runs along the
+   bottom LEFT, so the two do not meet — and the key stops short of it because
+   its own max-width is well under the screen. */
+#mapClose{position:fixed;right:var(--edgeR);bottom:var(--edgeB0);z-index:66;
+  pointer-events:auto;font-family:var(--hud);font-size:20px;
+  line-height:1;min-width:52px;height:52px;padding:0 14px;border-radius:14px;
+  color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,79,216,.28);border:1px solid var(--pink);box-shadow:none;
+  backdrop-filter:blur(3px)}
+/* Wrapped clear of the close button, which is now in the corner it used to run
+   into: the key reached x=348 on a 390 point phone and the button starts at 314.
+   It wraps to two lines instead, which is what flex-wrap was already there for. */
 #mapKey{position:absolute;left:14px;bottom:calc(12px + env(safe-area-inset-bottom));
-  display:flex;flex-wrap:wrap;gap:4px 12px;max-width:min(420px,88vw);
+  display:flex;flex-wrap:wrap;gap:4px 12px;
+  max-width:min(420px,calc(100vw - var(--edgeR) - 90px));
   font-size:11.5px;color:rgba(255,255,255,.72);pointer-events:none}
 #mapKey span{display:inline-flex;align-items:center;gap:5px}
 #mapKey i{width:9px;height:9px;border-radius:50%;display:inline-block}
@@ -548,7 +576,12 @@ body.theme-day #mapHint{color:rgba(0,0,0,.45)}
    the steering says which hand it is for. Two circles this size cannot get
    nearer than about six without their borders meeting, so this is as close to
    the pedal as it goes. */
-#tB{right:calc(var(--edgeR) + 6px + var(--gas))}
+/* Ten, not six. Six was a real gap and measured as one, but two circles with a
+   two point border each and six points between them read as touching on a
+   phone — and "the buttons intersect" was the report. The row's own sizing
+   formula carries the change: 10 + 10 of internal spacing plus the 14 point gap
+   in the middle is the 34 subtracted in --pad. */
+#tB{right:calc(var(--edgeR) + 10px + var(--gas))}
 #tA{right:var(--edgeR);background:rgba(51,230,255,.22);
   width:var(--gas);height:var(--gas);font-size:34px}
 #tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;

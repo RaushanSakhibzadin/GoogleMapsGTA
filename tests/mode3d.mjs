@@ -20,7 +20,7 @@
    It runs offline on the bundled city — every non-file request is aborted — so
    there is a real street grid with real building footprints and no network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, SHOTS, stubRadio } from './harness.mjs';
+import { CHROME, GAME, GAME_ASIS, SHOTS, stubRadio } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -448,6 +448,44 @@ out.pass =
   // cells must be getting recycled rather than accumulating for ever
   out.glAfterDrive.cells <= 44 &&
   !errs.length;
+/* ---- AND IT IS THE VIEW YOU GET WITHOUT ASKING ----
+
+   The chase view is the default now, on every system and browser that can draw
+   it. This is the one place in the suite that opens the game AS SHIPPED — every
+   other test pins ?view=2d so it can measure the physics without paying for
+   SwiftShader — so this is the only thing standing between "3D by default" and
+   a preference nobody set.
+
+   Three cases, and the last two matter as much as the first: a default is only
+   safe if it can still be overridden. A player who pressed 2D and meant it
+   stores '0' and must keep the top-down game; the URL pin must win over both. */
+{
+  const shipped = async (url, seed) => {
+    const c = await browser.newContext();
+    const q = await c.newPage();
+    if (seed != null)
+      await q.addInitScript(v => { try { localStorage.setItem('vm3d', v); } catch (e) {} }, seed);
+    await q.route('**://*/**', r => (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
+    await stubRadio(q);
+    await q.goto(url);
+    await q.waitForTimeout(300);
+    await q.evaluate(() => window.__hideGLHelp && window.__hideGLHelp(false));
+    await q.click('#go');
+    await q.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
+    await q.waitForTimeout(1200);
+    const m = await q.evaluate(() => ({ mode3d: window.__mode3d(),
+                                        soft: typeof SOFT3D !== 'undefined' && SOFT3D }));
+    await c.close();
+    return m;
+  };
+  out.fresh = await shipped(GAME_ASIS, null);          // never expressed a preference
+  out.chose2D = await shipped(GAME_ASIS, '0');         // pressed 2D and meant it
+  out.pinned2D = await shipped(GAME + '', null);       // ?view=2d, which the suite uses
+  out.defaultsTo3D = out.fresh.mode3d === true;
+  out.remembersTopDown = out.chose2D.mode3d === false;
+  out.urlPinWins = out.pinned2D.mode3d === false;
+}
+out.pass = out.pass && out.defaultsTo3D && out.remembersTopDown && out.urlPinWins;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

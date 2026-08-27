@@ -362,6 +362,10 @@ for (const ev of ['pointerdown', 'touchend', 'keydown'])
        — see radioArm. Guarded because js/radio.js is loaded after this one and
        because the dial is not the sound effects: a game with the radio switched
        off must not be a game with no engine note. */
+    /* And the same gesture BLESSES the radio element, so the automatic start
+       that happens a few seconds later — once a city has loaded and a station
+       list has come back — is allowed rather than refused. See radioPrime. */
+    if (typeof radioPrime === 'function') radioPrime();
     if (typeof radioGesture === 'function') radioGesture();
   }, { passive: true });
 

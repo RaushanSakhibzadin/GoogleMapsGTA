@@ -13,9 +13,28 @@ export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
    tests the code it ships with; GAME points it at a different build, which is
    how a fix is checked against the version that lacks it — a test that passes on
    broken code proves nothing, and that check needs somewhere broken to aim at. */
-export const GAME = process.env.GAME
+const GAME_URL = process.env.GAME
   ? (process.env.GAME.startsWith('file://') ? process.env.GAME : 'file://' + process.env.GAME)
   : 'file://' + join(ROOT, 'index.html');
+
+/* THE GAME AS SHIPPED, with nothing pinned — what a player gets, including the
+   chase view by default. Used by the tests that are ABOUT the default. */
+export const GAME_ASIS = GAME_URL;
+
+/* AND THE GAME PINNED TO THE TOP-DOWN VIEW, which is what almost every test in
+   this suite wants.
+
+   Not a shortcut: headless Chromium draws 3D through SwiftShader at about eight
+   frames a second, and the loop caps the physics at five steps a frame, so below
+   twelve fps the simulated clock falls behind the wall clock. Every test that
+   measures a speed, a distance or a duration is then measuring the renderer.
+   When the chase view became the default, one unchanged five-second hold on the
+   accelerator went from 250 km/h to 119 — the driving was identical; the frames
+   were not.
+
+   So the physics is measured in the cheap renderer, deliberately, and the tests
+   that care about the expensive one ask for it by name. */
+export const GAME = GAME_URL + '?view=2d';
 
 /* Playwright's own browser if it downloaded one, otherwise whatever is under
    PLAYWRIGHT_BROWSERS_PATH — sandboxes usually have the binary on disk with the
