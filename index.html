@@ -44,7 +44,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=029e3e525b">
+<link rel="stylesheet" href="style.css?v=0f7a6b5222">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -52,7 +52,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='029e3e525b';</script>
+<script>window.BUILD='0f7a6b5222';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -375,22 +375,22 @@ addEventListener('error', function (e) {
 <!-- FIRST, ahead of everything. Every other file may want a string, and the
      markup is translated before the first paint rather than after it — a
      flash of English on a Japanese phone is a bug you cannot un-see. -->
-<script src="js/i18n.js?v=029e3e525b"></script>
-<script src="js/util.js?v=029e3e525b"></script>
-<script src="js/log.js?v=029e3e525b"></script>
-<script src="js/geo.js?v=029e3e525b"></script>
-<script src="js/world.js?v=029e3e525b"></script>
+<script src="js/i18n.js?v=0f7a6b5222"></script>
+<script src="js/util.js?v=0f7a6b5222"></script>
+<script src="js/log.js?v=0f7a6b5222"></script>
+<script src="js/geo.js?v=0f7a6b5222"></script>
+<script src="js/world.js?v=0f7a6b5222"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=029e3e525b"></script>
-<script src="js/body3d.js?v=029e3e525b"></script>
-<script src="js/entities.js?v=029e3e525b"></script>
-<script src="js/io.js?v=029e3e525b"></script>
-<script src="js/game.js?v=029e3e525b"></script>
+<script src="js/terrain.js?v=0f7a6b5222"></script>
+<script src="js/body3d.js?v=0f7a6b5222"></script>
+<script src="js/entities.js?v=0f7a6b5222"></script>
+<script src="js/io.js?v=0f7a6b5222"></script>
+<script src="js/game.js?v=0f7a6b5222"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=029e3e525b"></script>
+<script src="js/gl.js?v=0f7a6b5222"></script>
 <!-- Every texture in the game, grown out of arithmetic at load: the trees after
      dark, the same trees in daylight, and the render on the walls. Must come
      before render3d.js, which is the only thing that asks it for anything.
@@ -400,13 +400,13 @@ addEventListener('error', function (e) {
      missing picture of a tree was survivable and render3d.js painted its own.
      This one is not: it is the only source of those textures now, so it is
      checked like the rest. -->
-<script src="js/radio.js?v=029e3e525b"></script>
-<script src="js/proctex.js?v=029e3e525b"></script>
-<script src="js/carmesh.js?v=029e3e525b"></script>
-<script src="js/render.js?v=029e3e525b"></script>
-<script src="js/soft3d.js?v=029e3e525b"></script>
-<script src="js/render3d.js?v=029e3e525b"></script>
-<script src="js/main.js?v=029e3e525b"></script>
+<script src="js/radio.js?v=0f7a6b5222"></script>
+<script src="js/proctex.js?v=0f7a6b5222"></script>
+<script src="js/carmesh.js?v=0f7a6b5222"></script>
+<script src="js/render.js?v=0f7a6b5222"></script>
+<script src="js/soft3d.js?v=0f7a6b5222"></script>
+<script src="js/render3d.js?v=0f7a6b5222"></script>
+<script src="js/main.js?v=0f7a6b5222"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one

@@ -158,6 +158,95 @@ const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'hospital' ? 'hospital'
                     : t.shop === 'car_repair' ? 'repair' : null;
 
+/* ------------------- the name, in a script you can read -------------------
+
+   Street and district names came straight off the `name` tag, which is the
+   LOCAL name — so a Russian, German or Japanese player driving Belgrade got
+   Ђуре Даничића and Скадарлија, and a Serb driving Tokyo got 神宮前. The UI
+   around it was translated; the city was not.
+
+   WHAT OPENSTREETMAP ACTUALLY HAS, counted on the capture in
+   tests/fixtures/stari-grad rather than guessed at:
+
+       streets, 847 named        name:sr-Latn 847   int_name 845   name:en 5
+       arterials, 8302 named     name:sr-Latn 8302  int_name 8043  name:en 780
+
+   Per-language translations of street names barely exist and never will — a
+   street is a proper noun and nobody is translating eight thousand of them.
+   What DOES exist, everywhere, is the name written in another script. So this
+   does not translate anything: it picks the spelling the reader can actually
+   read, preferring their own language when somebody has written one down.
+
+   HENCE SCRIPT-MAJOR ORDER. Every candidate is gathered, then the first one in
+   the reader's own script wins, then the first in their fallback script. That
+   is why a Russian player gets Serbian Cyrillic rather than the Latin int_name
+   — Cyrillic is readable to them and the local name is the truer one — while a
+   German player gets the Latin form of the same street.
+
+   RESOLVED WHEN THE CITY IS PARSED, not when it is drawn. Keeping every
+   candidate for eight thousand roads to re-pick later would cost more memory
+   than the roads do, and it buys nothing: the language selector lives on the
+   title screen, and every route back to it goes through loading a city. */
+const NAME_SCRIPTS = {
+  en: ['latin'], sr: ['latin'], de: ['latin'], fr: ['latin'],
+  es: ['latin'], it: ['latin'], pt: ['latin'],
+  ru: ['cyrillic', 'latin'],
+  ja: ['cjk', 'latin'],
+  zh: ['cjk', 'latin']
+};
+const RE_CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+const RE_CYR = /[\u0400-\u04ff]/;
+const RE_LAT = /[A-Za-z\u00c0-\u024f\u1e00-\u1eff]/;
+/* CJK is tested first because Japanese writes half a sign in Latin anyway, and
+   a name that mixes the two belongs to the reader who can read the kanji. */
+function scriptOf(s) {
+  if (RE_CJK.test(s)) return 'cjk';
+  if (RE_CYR.test(s)) return 'cyrillic';
+  if (RE_LAT.test(s)) return 'latin';
+  return 'other';
+}
+/* The key that carried a romanisation last time, remembered across roads. It is
+   a HINT and never a decision — an absent or wrong-script value simply falls
+   through — and it is what keeps this cheap: these tag objects carry a hundred
+   and fifty name:* keys each and a city has eight thousand ways, so walking
+   them per road would be over a million string comparisons. One walk finds
+   `name:sr-Latn`, and every road after it is a single property read. */
+let LATN_HINT = '';
+function osmName(t) {
+  if (!t) return '';
+  const L = (typeof LANG === 'string' && LANG) || 'en';
+  const want = NAME_SCRIPTS[L] || ['latin'];
+  const ok = (v, sc) => typeof v === 'string' && !!v && scriptOf(v) === sc;
+  // the reader's own language, then the local name, then whatever romanisation
+  // this dataset was found to use
+  for (const sc of want) {
+    if (ok(t['name:' + L], sc)) return t['name:' + L];
+    if (ok(t.name, sc)) return t.name;
+    if (LATN_HINT && ok(t[LATN_HINT], sc)) return t[LATN_HINT];
+  }
+  /* BEFORE int_name, NOT AFTER IT, and the difference is visible: int_name for
+     Ђуре Даничића is "Djure Danicica" while name:sr-Latn is "Đure Daničića".
+     Both are Latin and only one of them is the street's actual name, so the
+     proper romanisation has to be looked for before the stripped one is
+     accepted. */
+  let latn = '';
+  for (const k in t) {
+    if (k.lastIndexOf('name:', 0) !== 0) continue;
+    const v = t[k];
+    if (typeof v !== 'string' || !v || want.indexOf(scriptOf(v)) < 0) continue;
+    // a regional spelling of the reader's own language: zh-Hans, pt-BR, sr-Latn
+    if (k.lastIndexOf('name:' + L + '-', 0) === 0) { LATN_HINT = k; return v; }
+    if (!latn && /-Latn$/.test(k)) { latn = v; LATN_HINT = k; }
+  }
+  if (latn) return latn;
+  // the international forms are the last readable resort, then the local name
+  for (const sc of want) {
+    if (ok(t.int_name, sc)) return t.int_name;
+    if (ok(t['name:en'], sc)) return t['name:en'];
+  }
+  return t.name || '';
+}
+
 /* ------------------------------ monuments ------------------------------ */
 /* A memorial is not a service, so it is not a POI — it is a THING THAT STANDS
    THERE, and the only way to put one in a city is to build it.
@@ -231,10 +320,10 @@ function parseOSM(els) {
     // place nodes give us neighbourhood / district names
     if (el.type === 'node') {
       if (t.place && t.name) {
-        places.push({ x: projX(el.lon), y: projY(el.lat), name: t.name, kind: t.place });
+        places.push({ x: projX(el.lon), y: projY(el.lat), name: osmName(t), kind: t.place });
       }
       const pk = POI_KIND(t);
-      if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: t.name || '', cool: 0 });
+      if (pk) pois.push({ x: projX(el.lon), y: projY(el.lat), kind: pk, name: osmName(t), cool: 0 });
       // a named shopfront: not a point of interest, just a name for a wall
       else if (t.name && (t.shop || t.amenity))
         shops.push({ x: projX(el.lon), y: projY(el.lat), name: t.name.slice(0, 34),
@@ -252,7 +341,7 @@ function parseOSM(els) {
     // A station or a hospital is usually a building too, so this records the
     // point of interest and then falls through to draw the building as normal.
     const pk = POI_KIND(t);
-    if (pk) { const c = centroid(pts); pois.push({ x: c.x, y: c.y, kind: pk, name: t.name || '', cool: 0 }); }
+    if (pk) { const c = centroid(pts); pois.push({ x: c.x, y: c.y, kind: pk, name: osmName(t), cool: 0 }); }
 
     if (t.highway) {
       const cls = ROADW[t.highway] ? t.highway : 'residential';
@@ -262,7 +351,7 @@ function parseOSM(els) {
       // the detailed centre already has, and a way lying on a tile seam comes with
       // both tiles.
       roads.push({ id: el.id, pts, cls, w: ROADW[cls], drive: DRIVABLE(cls), bb: bbox(pts),
-                   oneway: t.oneway === 'yes', name: t.name || t.ref || '',
+                   oneway: t.oneway === 'yes', name: osmName(t) || t.ref || '',
                    tunnel: !!t.tunnel && t.tunnel !== 'no', covered: t.covered === 'yes',
                    layer });
     } else if (MONU_KIND(t)) {
@@ -315,7 +404,7 @@ function parsePOIs(els) {
     const lat = el.lat != null ? el.lat : el.center && el.center.lat;
     const lon = el.lon != null ? el.lon : el.center && el.center.lon;
     if (lat == null || lon == null) continue;
-    out.push({ x: projX(lon), y: projY(lat), kind, name: (el.tags || {}).name || '', cool: 0 });
+    out.push({ x: projX(lon), y: projY(lat), kind, name: osmName(el.tags || {}), cool: 0 });
   }
   return out;
 }

@@ -499,8 +499,23 @@ async function geocode(q) {
   /* addressdetails, for the two letters the radio needs. Nominatim gives the
      country code in the structured address and nowhere else — display_name ends
      with the country's NAME, localised, which is not something to match on. */
-  const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=' +
-              encodeURIComponent(q);
+  /* AND THE CITY'S OWN NAME IN THE READER'S LANGUAGE. Nominatim answers in the
+     local language by default — "Београд" for a player whose entire UI is in
+     German — and accept-language is the documented way to ask otherwise. Where
+     it has nothing in that language it falls back to the local name by itself,
+     which is the same rule osmName() follows for the streets inside.
+
+     THE RADIO IS UNAFFECTED, and that is worth stating rather than assuming:
+     the country code it needs comes from the structured address above, not from
+     display_name — which is exactly why addressdetails is on. Localising the
+     prose cannot move a two-letter code.
+
+     In the query string rather than the header, so it is part of the URL the
+     log records and a saved log says which language produced its reply. */
+  const lang = (typeof LANG === 'string' && LANG) || 'en';
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1' +
+              '&accept-language=' + encodeURIComponent(lang) +
+              '&q=' + encodeURIComponent(q);
   const t0 = Date.now();
   const r = await fetchTimeout(url, { headers: { 'Accept': 'application/json' } }, 12000);
   if (!r.ok) throw new Error('geocoder ' + r.status);
