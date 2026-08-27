@@ -405,6 +405,7 @@ window.__radio = () => ({
   name: RADIO.list[RADIO.i] ? RADIO.list[RADIO.i].name : '',
   label: radioLabel(), err: RADIO.err,
   wanted: radioWanted(), pending: RADIO.pending,
+  dead: RADIO.dead.map(d => d.name), watching: !!RADIO.watch,
   action: $('radioN') ? $('radioN').getAttribute('aria-label') : '',
   src: RADIO.el ? RADIO.el.src : '', paused: RADIO.el ? RADIO.el.paused : null,
   list: RADIO.list.map(s => ({ name: s.name, km: s.km == null ? null : +s.km.toFixed(1) }))
@@ -416,6 +417,7 @@ window.__radioWake = () => radioWake();
 window.__radioWanted = v => radioWanted(v);
 window.__radioArm = () => radioArm();
 window.__radioGesture = () => radioGesture();
+window.__radioDrop = why => radioDrop(why || 'test');
 /* the two levels, and the panel that sets them */
 window.__mix = () => ({
   open: !$('mix').classList.contains('hide'),

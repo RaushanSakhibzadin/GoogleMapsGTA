@@ -139,8 +139,22 @@ async function open(opts = {}) {
     if (opts.many) return r.fulfill(json(MANY));
     return r.fulfill(json(STATIONS));
   });
-  // the streams themselves: never actually fetched over the wire in a test
-  await p.route('**/*.example/**', r => r.abort());
+  /* THE STREAMS THEMSELVES: a real, tiny, silent WAV rather than an abort.
+
+     They used to be aborted, on the reasoning that no test needs audio. That
+     stopped being harmless the moment a failed stream started taking its station
+     OFF the dial: the dial now arms itself when a city loads, so every fixture
+     station was played, aborted, and dropped — and the sections below found an
+     empty list. Which is the new behaviour working exactly as asked, on a mock
+     that was pretending to be a station that does not exist.
+
+     A 400-sample silence decodes, plays and ends, so nothing is dropped and the
+     stream URL is still checkable. Stations that are MEANT to be dead point at
+     dead.example, routed below. */
+  const WAV = Buffer.from('UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA', 'base64');
+  await p.route('**/*.example/**', r => r.fulfill({ contentType: 'audio/wav', body: WAV }));
+  // registered after, so it wins: the one host that is genuinely not there
+  await p.route('**/dead.example/**', r => r.abort());
   await p.goto(GAME);
   await p.waitForTimeout(400);
   await p.evaluate(() => window.__hideGLHelp && window.__hideGLHelp(false));
@@ -557,6 +571,88 @@ const out = {};
   await browser.close();
 }
 
+/* ---- 11. A STATION WITH DEAD AIR COMES OFF THE DIAL ----
+
+   Reported as: "if some radio has dead air it should not be shown as an
+   option". It used to say DEAD AIR and stop there, so the broken station stayed
+   in the list — you pressed past it every time you came round, and the random
+   draw could put you back on it.
+
+   TWO WAYS A STATION IS DEAD and only one of them is an error. A host that
+   refuses the connection fires `error` on the audio element. A host that accepts
+   the connection and then sends nothing fires NOTHING AT ALL — no error, no
+   stall, just a dial that says "loading" for ever — and that is the more common
+   one. So both are staged: the first through a real failed stream, the second by
+   letting the watchdog expire.
+
+   AND THE LIST HAS TO SHRINK, not merely skip. Removing is what makes this
+   terminate when every station in a country is dead, and it is the only thing
+   that stops the shuffle landing back on a station already known to be silent. */
+{
+  const { browser, p, errs } = await open({ many: true });
+  await p.waitForFunction(() => window.__radio().status !== 'finding', null, { timeout: 20000 })
+         .catch(() => {});
+  out.deadAir = await p.evaluate(async () => {
+    radioStop();
+    window.__radioStep(0);
+    const n0 = window.__radio().n;
+    const doomed = window.__radio().name;
+    /* THE STATION IS MADE DEAD, rather than hoping one of the fixtures is. Its
+       URL is repointed at the one host the test refuses to answer, so playing it
+       fails the way a station that has gone off air fails. */
+    RADIO.list[RADIO.i].url = 'https://dead.example/stream';
+    radioPlay();
+    await new Promise(r => setTimeout(r, 600));
+    const after = window.__radio();
+    return { n0, doomed, n1: after.n, now: after.name,
+             dead: after.dead, stillListed: after.list.some(s => s.name === doomed) };
+  });
+  out.aDeadStationLeavesTheList =
+    out.deadAir.n1 === out.deadAir.n0 - 1 &&
+    out.deadAir.stillListed === false &&
+    out.deadAir.dead.includes(out.deadAir.doomed) &&
+    out.deadAir.now !== out.deadAir.doomed;
+
+  /* ---- and the silent kind, which never errors at all ---- */
+  out.silent = await p.evaluate(async () => {
+    radioStop();
+    const before = window.__radio();
+    const doomed = before.name;
+    /* Staged rather than waited out: the real deadline is nine seconds and this
+       is about what the timer DOES, not how long it is. The element is held in a
+       state that never reaches `playing` — which is exactly the dead stream this
+       exists for — and the watchdog is asked to fire now. */
+    RADIO.on = true; RADIO.status = 'loading';
+    radioWatchOff();
+    const n0 = window.__radio().n;
+    radioDrop('no audio');
+    await new Promise(r => setTimeout(r, 200));
+    const after = window.__radio();
+    return { n0, doomed, n1: after.n, dead: after.dead,
+             stillListed: after.list.some(s => s.name === doomed) };
+  });
+  out.aSilentStationLeavesTooo =
+    out.silent.n1 === out.silent.n0 - 1 && out.silent.stillListed === false;
+
+  /* ---- and a country where every station is dead ends, rather than looping ----
+     The whole point of removing rather than skipping: the list runs out. */
+  out.allDead = await p.evaluate(async () => {
+    let guard = 0;
+    while (window.__radio().n > 0 && guard++ < 60) {
+      RADIO.on = false;
+      radioDrop('test');
+    }
+    const r = window.__radio();
+    return { guard, n: r.n, status: r.status, label: r.label, dropped: r.dead.length };
+  });
+  out.everyStationDeadTerminates =
+    out.allDead.n === 0 && out.allDead.guard < 60 &&
+    out.allDead.status === 'none' && /NO STATIONS/i.test(out.allDead.label);
+
+  out.deadErrs2 = errs.slice(0, 3);
+  await browser.close();
+}
+
 /* ---- 6. the directory is down: a dial that says so, and a game that plays ---- */
 {
   const { browser, p, errs } = await open({ down: true });
@@ -605,7 +701,7 @@ const out = {};
 }
 
 out.errs = [].concat(out.armedErrs, out.quietErrs, out.liveErrs, out.shuffleErrs,
-                     out.deadErrs, out.emptyErrs)
+                     out.deadErrs2, out.deadErrs, out.emptyErrs)
              .filter(Boolean);
 out.pass = out.comesOnByItself && out.offStaysOff && out.offSaysHowToStart &&
            out.aFallbackCityDoesNotThrow && out.tunesTheCityItActuallyBuilt &&
@@ -617,6 +713,8 @@ out.pass = out.comesOnByItself && out.offStaysOff && out.offSaysHowToStart &&
            out.showsTheWholeName &&
            out.randomButLocal && out.everyStartIsADraw && out.bothWereReallyHit &&
            out.aShuntLeavesItAlone && out.andSoDoThePolice &&
+           out.aDeadStationLeavesTheList && out.aSilentStationLeavesTooo &&
+           out.everyStationDeadTerminates &&
            out.saysSoAndCarriesOn && out.emptyReadsAsNone && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 process.exit(out.pass ? 0 : 1);

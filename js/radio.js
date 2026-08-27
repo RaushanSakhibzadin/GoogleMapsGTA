@@ -45,7 +45,9 @@ const RADIO = {
   /* Set when a station is tuned and ready but the browser would not let it start
      yet — see radioArm. The next real user gesture clears it. */
   pending: false,
-  told: false                // the one-time "tap the name to stop" hint
+  told: false,               // the one-time "tap the name to stop" hint
+  watch: null,               // the deadline a station has to make a sound by
+  dead: []                   // stations dropped for dead air, for the log
 };
 
 /* ON UNLESS YOU TURNED IT OFF, and it remembers which.
@@ -85,7 +87,8 @@ function radioAt(lat, lon, cc) {
   RADIO.at = (Number.isFinite(lat) && Number.isFinite(lon))
     ? { lat, lon, cc: cc || '' } : null;
   RADIO.list = []; RADIO.i = -1; RADIO.on = false;
-  RADIO.pending = false;
+  RADIO.pending = false; RADIO.dead = [];
+  radioWatchOff();
   RADIO.status = 'idle'; RADIO.err = '';
   radioPaint();
 }
@@ -178,6 +181,70 @@ function radioVolume(v) {
   return radioVol;
 }
 
+/* HOW LONG A STATION GETS TO MAKE A SOUND.
+
+   AND WHY A TIMER IS NEEDED AT ALL, when there is already an error handler: a
+   dead stream mostly does not error. The host resolves, the socket opens, and
+   then nothing arrives — for ever. No `error` event, no `stalled`, just a dial
+   that says the station is loading and never stops saying it. That is what dead
+   air actually looks like from in here, and the only way to catch it is to give
+   it a deadline.
+
+   Nine seconds is long enough for a slow mobile connection to open a stream that
+   is really there — the tuning request itself is given the same — and short
+   enough that walking down a list of four broken stations is not a minute of
+   silence. */
+const RADIO_DEAD_MS = 9000;
+
+function radioWatchOff() {
+  if (RADIO.watch) { clearTimeout(RADIO.watch); RADIO.watch = null; }
+}
+function radioWatchOn() {
+  radioWatchOff();
+  RADIO.watch = setTimeout(() => {
+    RADIO.watch = null;
+    // still not playing, after all that
+    if (RADIO.on && RADIO.status !== 'playing') radioDrop('no audio');
+  }, RADIO_DEAD_MS);
+}
+
+/* OFF THE DIAL, NOT SKIPPED PAST.
+
+   Removing it rather than marking it is what makes this terminate: every failure
+   shortens the list, so even a country where every station is dead walks the
+   whole list once and ends at "no stations here" instead of cycling for ever.
+   It also means the random draw cannot land back on it, which skipping would
+   not prevent — and the draw is what put people on the same broken station
+   twice in a session.
+
+   Kept for the log, because "which stations were dropped" is the first question
+   to ask when somebody reports that a city has no radio. */
+function radioDrop(why) {
+  const s = RADIO.list[RADIO.i];
+  if (!s) return false;
+  radioWatchOff();
+  RADIO.dead.push({ name: s.name, url: s.url, why });
+  RADIO.list.splice(RADIO.i, 1);
+  if (typeof LOG !== 'undefined' && LOG.note)
+    LOG.note('radio', 'dropped ' + s.name + ': ' + why);
+  if (!RADIO.list.length) {
+    RADIO.i = -1;
+    RADIO.on = false; RADIO.pending = false;
+    RADIO.status = 'none'; RADIO.err = why || '';
+    radioPaint();
+    return false;
+  }
+  if (RADIO.i >= RADIO.list.length) RADIO.i = 0;
+  /* Told, once, so the station changing under them is something that happened
+     rather than something wrong. The dial has already moved on by the time this
+     is read. */
+  if (typeof toast === 'function')
+    toast(s.name + ' · ' + txt('radio.deadAir'), 1600);
+  if (RADIO.on) return radioPlay();
+  radioPaint();
+  return true;
+}
+
 function radioEl() {
   if (RADIO.el) return RADIO.el;
   const a = document.createElement('audio');
@@ -185,17 +252,17 @@ function radioEl() {
   a.preload = 'none';
   a.crossOrigin = 'anonymous';
   a.volume = radioVolume();
-  /* A stream that dies mid-song is the normal case, not an exception: these are
-     volunteer transmitters and half of them drop a connection an hour. Saying so
-     on the dial and leaving the player to press for the next one is better than
-     silence they have to diagnose. */
+  /* A stream that dies is the normal case, not an exception: these are volunteer
+     transmitters and a good few of them are simply gone. It used to say DEAD AIR
+     on the dial and stop there, which leaves the player pressing ▶ past the same
+     broken station every time they come round the list — and the shuffle can put
+     them back on it. A station that will not play is not a station. */
   a.addEventListener('error', () => {
     if (!RADIO.on) return;
-    RADIO.status = 'error';
-    RADIO.err = 'stream failed';
-    radioPaint();
+    radioDrop('stream failed');
   });
   a.addEventListener('playing', () => {
+    radioWatchOff();                       // it works: stop counting against it
     RADIO.status = 'playing'; RADIO.err = ''; radioPaint();
     /* SAID ONCE, THE FIRST TIME SOUND ARRIVES. The dial turns itself on now, so
        the first thing a player wants to know is how to turn it off — and a
@@ -315,6 +382,7 @@ function radioPlay() {
   RADIO.on = true;
   RADIO.status = 'loading'; RADIO.err = '';
   if (a.src !== s.url) a.src = s.url;
+  radioWatchOn();
   const pr = a.play();
   if (pr && pr.catch) pr.catch(e => {
     if (!RADIO.on) return;
@@ -341,6 +409,7 @@ function radioPlay() {
 function radioStop() {
   RADIO.on = false;
   RADIO.pending = false;
+  radioWatchOff();
   const a = RADIO.el;
   if (a) { try { a.pause(); } catch (e) {} }
   RADIO.status = RADIO.list.length ? 'ready' : (RADIO.status === 'none' ? 'none' : 'idle');
