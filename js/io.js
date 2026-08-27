@@ -19,7 +19,7 @@ const typing = e => {
 function toggleTheme() {
   applyTheme(themeName === 'dusk' ? 'day' : 'dusk');
   $('tN').textContent = themeName === 'dusk' ? '☀' : '☾';
-  toast(themeName === 'day' ? 'DAYLIGHT' : 'DUSK', 1100);
+  toast(t(themeName === 'day' ? 'toast.daylight' : 'toast.dusk'), 1100);
 }
 
 addEventListener('keydown', e => {

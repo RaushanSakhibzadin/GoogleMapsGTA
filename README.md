@@ -33,6 +33,7 @@ data/belgrade.js  the bundled offline city — real Belgrade, around Autokomanda
 tools/buildcity.py  rebuilds that city from the captured map data
 tools/glb2car.py    bakes a glTF/GLB vehicle into js/carmodel.js
 tests/          the whole test suite, and the two captured sessions it replays
+js/i18n.js      every word in the UI, in ten languages, and the language pick
 js/util.js      utilities, palette, theme
 js/log.js       the session log: what the map servers said, and what went wrong
 js/geo.js       projection, Overpass, Nominatim — everything that talks to the network
@@ -80,6 +81,7 @@ pulls in the rest.
 | **♪** | top right — two levels, the game's and the radio's, set while you drive |
 | **⤓ LOG** | top right, on every screen — saves what the map servers sent and everything that went wrong |
 | **tap the radar** / **M** | pauses and opens the full city map — drag to pan, pinch to zoom |
+| language | the picker on the title screen — it starts in your system language |
 
 ## What's in it
 
@@ -133,6 +135,14 @@ pulls in the rest.
   start is refused — Safari only begins audio from a real gesture, and the tap that started the
   game is long over by the time a station list arrives — so the dial waits and the first touch
   of a pad starts it.
+- **Ten languages, and it starts in yours.** English, Serbian, Russian, German, French, Spanish,
+  Italian, Portuguese, Japanese and Chinese. The language is taken from the browser's own
+  preference list, in the order its owner put them — and matched on the base tag, so `sr-Latn-RS`,
+  `pt-BR` and `zh-Hans-CN` land on Serbian, Portuguese and Chinese rather than falling through to
+  English. A picker on the title screen overrides it and is remembered; switching mid-game re-says
+  everything already on screen, including the objective line and the HUD labels that the game
+  wrote itself rather than reading from the markup. Adding a language is one table in
+  `js/i18n.js` — `tests/i18n.mjs` fails the build if any locale is missing a key.
 - **Street and district names, GTA style.** Turn onto a new road and its name appears by the
   radar, then fades. Cross into a new neighbourhood and the district name flashes up bottom-right
   and stays, the way Vice City announces its zones. Deliveries name their destination street too.

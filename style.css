@@ -168,6 +168,24 @@ button.tgl[aria-pressed=true] .dot{background:var(--gold);border-color:var(--gol
   text-shadow:2px 2px 0 rgba(0,0,0,.8),0 0 14px rgba(255,227,106,.8);pointer-events:none}
 #ghostTag.on{display:block}
 
+/* ---------- the language picker ----------
+   A native <select>, on purpose. Every platform already knows how to render a
+   list of ten choices in a way its owner can drive — the iOS wheel, the Android
+   sheet, a desktop dropdown — and a hand-rolled one would be a worse version of
+   all three at once. The 16px font is not a style choice either: Safari zooms
+   the whole page in on focus for anything smaller, and a zoomed title screen
+   with no way back is a trap. */
+.langRow{display:flex;align-items:center;gap:9px;margin-top:18px;
+  font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  color:rgba(255,255,255,.55)}
+#lang{font-family:var(--ui);font-size:16px;font-weight:600;color:#fff;cursor:pointer;
+  padding:8px 12px;border-radius:9px;box-shadow:none;
+  background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.24)}
+#lang:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(51,230,255,.18)}
+/* the popup itself is drawn by the platform, which does not inherit the page's
+   colours — so the options get a background that is not the page's dark violet */
+#lang option{background:#1b1030;color:#fff}
+
 .hint{margin-top:24px;font-size:12.5px;line-height:1.85;color:rgba(255,255,255,.62);max-width:640px}
 .hint b{color:var(--cyan);font-weight:700}
 kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600 11px var(--ui);

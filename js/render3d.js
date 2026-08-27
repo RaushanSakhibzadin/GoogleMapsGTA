@@ -2864,8 +2864,7 @@ function setMode3D(on) {
       SOFT3D = true;
       const none = typeof WebGL2RenderingContext === 'undefined' &&
                    typeof WebGLRenderingContext === 'undefined';
-      toast(none ? 'NO WEBGL HERE — DRAWING 3D THE SLOW WAY'
-                 : '3D WITHOUT A GPU — THE SLOW WAY', 3000);
+      toast(t(none ? 'toast.noWebgl' : 'toast.slowWay'), 3000);
     }
   }
   MODE3D = !!on;
@@ -2877,7 +2876,7 @@ function setMode3D(on) {
   terrainSeed();
   $('gl').classList.toggle('on', MODE3D && !SOFT3D);
   $('modeN').textContent = MODE3D ? '2D' : '3D';
-  $('modeBtn').title = MODE3D ? 'Switch to the top-down view' : 'Switch to the chase view';
+  $('modeBtn').title = t(MODE3D ? 'btn.to2d' : 'btn.to3d');
   document.body.classList.toggle('mode-3d', MODE3D);
   /* The car has no height until the ground under it has one, and the first
      ground step reads an undefined z as "place me". Clearing it on the way in

@@ -267,7 +267,7 @@ function landCar(c, gz) {
   if (drop > LAND_HARD) damageCar(c, (drop - LAND_HARD) * 1.6);
   if (c.kind === 'player') {
     if (drop > 5) cam.shake = Math.min(1, cam.shake + clamp(drop / 26, 0, .7));
-    if (c.flip > 0) toast('FLIPPED', 1400);
+    if (c.flip > 0) toast(t('toast.flipped'), 1400);
   }
 }
 

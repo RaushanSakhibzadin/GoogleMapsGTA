@@ -589,7 +589,7 @@ function drawHUD() {
   if (CHUNK.note) { ch.textContent = CHUNK.note; ch.classList.add('on'); }
   else ch.classList.remove('on');
   if (MISSION.state === 'deliver') {
-    $('timer').textContent = Math.max(0, Math.ceil(MISSION.time)) + 's';
+    $('timer').textContent = t('hud.secs', { n: Math.max(0, Math.ceil(MISSION.time)) });
   } else $('timer').textContent = '';
 }
 

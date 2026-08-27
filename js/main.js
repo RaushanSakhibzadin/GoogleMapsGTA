@@ -43,10 +43,12 @@ function togglePause() {
   if (state === 'play') {
     state = 'pause'; $('pause').classList.remove('hide');
     $('pauseStats').innerHTML =
-      `${W.name}<br>Deliveries: <b>${MISSION.done}</b> · Bank: <b>$${P.cash.toLocaleString()}</b>` +
+      `${esc(W.name)}<br>${t('pause.deliveries')}: <b>${MISSION.done}</b> · ` +
+      `${t('pause.bank')}: <b>$${P.cash.toLocaleString()}</b>` +
       // still answering "why am I here?" ten minutes after the toast has gone
-      (FELLBACK ? `<div class="whyHere">Couldn’t load <b>${esc(FELLBACK.asked)}</b> — ` +
-                  `${esc(FELLBACK.why)}. This is the offline city.</div>` : '');
+      (FELLBACK ? '<div class="whyHere">' +
+                  t('pause.whyHere', { asked: esc(FELLBACK.asked), why: esc(FELLBACK.why) }) +
+                  '</div>' : '');
     SFX.engine(0, 0); SFX.siren(false, 0);
   } else if (state === 'pause') {
     state = 'play'; $('pause').classList.add('hide'); lastT = performance.now();
@@ -155,28 +157,19 @@ function hasWebGL2() {
 }
 function glHelpSteps() {
   const ios = iOSish();
-  const li = h => '<li>' + h + '</li>';
+  const li = key => '<li>' + t(key) + '</li>';
   /* KEPT SHORT ENOUGH TO FIT A PHONE. The first version ran to 693 px of card on
      a 664 px iPhone screen and 891 px on a 320-wide one, which puts GOT IT below
      the fold — a card explaining a problem that you cannot dismiss. The steps
-     are the same steps; there are just fewer words between them. */
-  if (!ios) {
-    return '<ol>' +
-      li('Turn on <b>hardware acceleration</b> in your browser’s settings.') +
-      li('Update the graphics driver, then restart the browser.') +
-      '</ol>';
-  }
-  return '<ol>' +
-    li('<span class="path">Settings → Privacy &amp; Security → Lockdown Mode</span> — ' +
-       'turn it off if it is on. It blocks WebGL on every site, and it is the ' +
-       'usual reason for this.') +
-    li('<span class="path">Settings → Safari → Advanced → Feature Flags</span> ' +
-       '(<span class="path">Experimental Features</span> on older iOS).') +
-    li('Find <b>WebGL</b> in the list and switch it on.') +
-    li('Close the browser from the app switcher, then open it again.') +
-    '</ol><p class="aside">Chrome, Firefox and Edge on iPhone all use Safari’s ' +
-    'engine, so this covers them too. WebGPU in the same list is a different ' +
-    'feature and does not affect this.</p>';
+     are the same steps; there are just fewer words between them.
+
+     The menu paths inside them are translated too, and that is the point of the
+     card: somebody reading a German phone is looking for "Einstellungen", not
+     for "Settings", and a step naming a menu item that is not on their screen is
+     worse than no step at all. */
+  if (!ios) return '<ol>' + li('gl.desk1') + li('gl.desk2') + '</ol>';
+  return '<ol>' + li('gl.ios1') + li('gl.ios2') + li('gl.ios3') + li('gl.ios4') +
+         '</ol><p class="aside">' + t('gl.iosAside') + '</p>';
 }
 function showGLHelp(force) {
   if (!force) {
@@ -193,6 +186,46 @@ function hideGLHelp(never) {
 }
 $('glOk').onclick = () => hideGLHelp(false);
 $('glNever').onclick = () => hideGLHelp(true);
+
+/* ---- the language ----
+
+   The list is built from LANGS rather than written into the markup, so adding a
+   language is one table in js/i18n.js and nothing else. Each option is labelled
+   in ITS OWN language — Deutsch, 日本語, Русский — because somebody looking for
+   their language is looking for the word they call it, not for the English name
+   of it, and a picker that says "German" is no help to a person who does not
+   read English.
+
+   The markup is translated here rather than on DOMContentLoaded: this file is
+   the last script and the document is already parsed by the time it runs, so
+   this IS the first paint's content. */
+function langPaint() {
+  const sel = $('lang');
+  if (!sel) return;
+  if (!sel.options.length) {
+    for (const l of LANGS) {
+      const o = document.createElement('option');
+      o.value = l.code; o.textContent = l.name;
+      sel.appendChild(o);
+    }
+  }
+  sel.value = LANG;
+}
+/* What setLang calls once the table has changed: everything the game wrote into
+   the page itself, rather than through data-i18n. */
+function i18nRepaint() {
+  langPaint();
+  if (typeof MODE3D !== 'undefined')
+    $('modeBtn').setAttribute('title', t(MODE3D ? 'btn.to2d' : 'btn.to3d'));
+  /* The objective line is the one HUD string with two versions — a translated
+     label while free-roaming, and a street name mid-delivery, which is a proper
+     noun and stays as the map spells it. setObjective knows which. */
+  if (typeof MISSION !== 'undefined' && typeof refreshObjective === 'function')
+    refreshObjective();
+}
+i18nApply(document);
+langPaint();
+$('lang').onchange = e => setLang(e.target.value);
 
 /* ---- the radio ----
    Three buttons rather than one, because a station you do not like has to be
@@ -628,7 +661,7 @@ function checkBuild() {
       v = (v || '').trim();
       if (!/^[0-9a-f]{6,12}$/.test(v) || v === window.BUILD) return;
       if (state === 'menu' || state === 'dead') location.reload();
-      else if (typeof toast === 'function') toast('A NEWER VERSION IS OUT\nRELOAD WHEN YOU LIKE', 4200);
+      else if (typeof toast === 'function') toast(t('toast.newVersion'), 4200);
     })
     .catch(() => {});                             // offline is not an update
 }

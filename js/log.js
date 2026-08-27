@@ -179,7 +179,7 @@ function saveLog() {
   try {
     blob = new Blob([JSON.stringify(LOG.build())], { type: 'application/json' });
   } catch (e) {
-    toast('LOG TOO BIG TO SAVE', 2200);
+    toast(t('toast.logTooBig'), 2200);
     return { ok: false, how: 'failed', error: String(e && e.message || e) };
   }
 
@@ -189,7 +189,7 @@ function saveLog() {
 
   if (file && navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
     navigator.share({ files: [file], title: name })
-      .then(() => toast('LOG SAVED', 1600))
+      .then(() => toast(t('toast.logSaved'), 1600))
       // a cancelled share is not a failure; anything else falls back to a download
       .catch(err => { if (!err || err.name !== 'AbortError') download(blob, name); });
     return { ok: true, how: 'share', name, bytes: blob.size };
@@ -207,5 +207,5 @@ function download(blob, name) {
   a.remove();
   // long enough for the download to start; revoking immediately kills it on Safari
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  toast('LOG SAVED', 1600);
+  toast(t('toast.logSaved'), 1600);
 }

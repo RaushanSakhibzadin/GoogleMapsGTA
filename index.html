@@ -30,7 +30,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=87767049d7">
+<link rel="stylesheet" href="style.css?v=c937ca9d68">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -38,7 +38,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='87767049d7';</script>
+<script>window.BUILD='c937ca9d68';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -96,13 +96,13 @@
 <!-- Above every screen on purpose: the log worth having most is the one from a
      load that failed, and by then the HUD has never appeared. -->
 <div id="topBtns">
-  <button id="modeBtn" title="Switch to the chase view"><span id="modeN">3D</span></button>
+  <button id="modeBtn" data-i18n-title="btn.to3d" title="Switch to the chase view"><span id="modeN">3D</span></button>
   <!-- ITS OWN BUTTON RATHER THAN A LINE IN THE PAUSE CARD, because the pause
        card is reachable only with Esc and there is no Esc on a phone. Anything
        parked in there is, on the platform this game is mostly played on,
        unreachable. -->
-  <button id="mixBtn" title="Volume" aria-expanded="false">♪</button>
-  <button id="logBtn" title="Save the session log">⤓ LOG</button>
+  <button id="mixBtn" data-i18n-title="btn.volume" title="Volume" aria-expanded="false">♪</button>
+  <button id="logBtn" data-i18n-title="btn.log" title="Save the session log">⤓ LOG</button>
 </div>
 
 <!-- ===================== the mixer =====================
@@ -110,34 +110,34 @@
      under a conversation and a song you want over it. It does NOT pause the
      game — you cannot set an engine's level against silence, and the whole
      point of moving the slider is hearing what it does. -->
-<div id="mix" class="hide" role="dialog" aria-label="Volume">
+<div id="mix" class="hide" role="dialog" data-i18n-aria="btn.volume" aria-label="Volume">
   <label class="mixRow">
-    <span>GAME</span>
-    <input id="mixSfx" type="range" min="0" max="100" step="1" aria-label="Sound effects volume">
+    <span data-i18n="mix.game">GAME</span>
+    <input id="mixSfx" type="range" min="0" max="100" step="1" data-i18n-aria="mix.sfxAria" aria-label="Sound effects volume">
     <b id="mixSfxN">80</b>
   </label>
   <label class="mixRow">
-    <span>RADIO</span>
-    <input id="mixRadio" type="range" min="0" max="100" step="1" aria-label="Radio volume">
+    <span data-i18n="mix.radio">RADIO</span>
+    <input id="mixRadio" type="range" min="0" max="100" step="1" data-i18n-aria="mix.radioAria" aria-label="Radio volume">
     <b id="mixRadioN">55</b>
   </label>
-  <button id="mixDone" class="ghost">DONE</button>
+  <button id="mixDone" class="ghost" data-i18n="mix.done">DONE</button>
 </div>
 
 <!-- ===================== HUD ===================== -->
 <div id="hud">
   <!-- one stacked column, so nothing has to guess anyone else's height -->
   <div id="hudTL">
-    <div id="obj" class="hudTxt"><small>Objective</small><span id="objT">Free roam</span> <span id="timer"></span></div>
+    <div id="obj" class="hudTxt"><small data-i18n="hud.objective">Objective</small><span id="objT" data-i18n="hud.freeRoam">Free roam</span> <span id="timer"></span></div>
     <canvas id="mini"></canvas>
     <div id="street"></div>
   </div>
   <div id="cash" class="hudTxt">$0</div>
   <div id="stars"></div>
-  <div id="hpWrap"><div id="hpLbl">ARMOR</div><div id="hpBar"><div id="hpIn"></div></div></div>
+  <div id="hpWrap"><div id="hpLbl" data-i18n="hud.armor">ARMOR</div><div id="hpBar"><div id="hpIn"></div></div></div>
   <div id="chunk"></div>
   <div id="zone" class="hudTxt"></div>
-  <div id="speed"><div id="spdN">0</div><div id="spdU">KM/H</div></div>
+  <div id="speed"><div id="spdN">0</div><div id="spdU" data-i18n="hud.kmh">KM/H</div></div>
   <div id="toast" class="hudTxt"></div>
 </div>
 
@@ -151,16 +151,16 @@
      Everything else anchored to the bottom lifts by --radioBar to make room;
      see the stylesheet. -->
 <div id="radio">
-  <button id="radioP" aria-label="Previous station">◀</button>
+  <button id="radioP" data-i18n-aria="radio.prev" aria-label="Previous station">◀</button>
   <button id="radioN" aria-label="Station — tap to play or stop">RADIO</button>
-  <button id="radioX" aria-label="Next station">▶</button>
+  <button id="radioX" data-i18n-aria="radio.next" aria-label="Next station">▶</button>
 </div>
 
 <!-- ===================== touch ===================== -->
 <div id="touch">
   <div class="pad" id="tL">◀</div><div class="pad" id="tR">▶</div>
   <div class="pad" id="tB">▼</div><div class="pad" id="tA">▲</div>
-  <div class="pad" id="tH">DRIFT</div>
+  <div class="pad" id="tH" data-i18n="hud.drift">DRIFT</div>
   <div class="pad" id="tN">☀</div>
 </div>
 
@@ -169,12 +169,13 @@
   <!-- The one h1 in the document. The other two .logo uses — LOADING and PAUSED
        — stay divs: they are states of this screen, not headings of their own. -->
   <h1 class="logo">VICE&nbsp;MAPS</h1>
-  <div class="tag">Any city on Earth · 1986</div>
+  <div class="tag" data-i18n="menu.tag">Any city on Earth · 1986</div>
   <div class="rule"></div>
   <div class="row">
     <input type="text" id="q" placeholder="Miami Beach, Florida…" autocomplete="off" spellcheck="false"
+           data-i18n-ph="menu.ph" data-i18n-aria="menu.qAria"
            aria-label="Type any place on Earth to drive there">
-    <button id="go" class="pink">DRIVE</button>
+    <button id="go" class="pink" data-i18n="menu.drive">DRIVE</button>
   </div>
   <!-- WRITTEN OUT, NOT BUILT BY SCRIPT. These were created in a loop from a
        PRESETS array, which meant the only city names on the page were invisible
@@ -191,36 +192,53 @@
     <button class="chip" data-q="Arc de Triomphe, Paris" data-lat="48.8738" data-lon="2.2950">Paris</button>
     <button class="chip" data-q="Vinewood, Los Angeles" data-lat="34.1016" data-lon="-118.3269">Los Santos</button>
     <button class="chip" data-q="Piazza San Marco, Venice" data-lat="45.4341" data-lon="12.3388">Venice 🚤</button>
-    <button class="chip" data-q="@geo">📍 My location</button>
+    <button class="chip" data-q="@geo" data-i18n="menu.myLocation">📍 My location</button>
   </div>
   <div id="menuErr"></div>
+  <!-- THE HINT IS TWO STRINGS, NOT ONE, because the first is a key map with
+       <b> and <kbd> in it and the second is a sentence. Split so a translator
+       can move the words around the markup rather than around a line break. -->
   <p class="hint">
-    <b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>N</kbd> day/night · <kbd>Esc</kbd> pause<br>
-    Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
-    ram a cop and find out what five stars feels like.
+    <span data-i18n-html="menu.keys"><b>WASD</b> / <b>arrows</b> to drive · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>N</kbd> day/night · <kbd>Esc</kbd> pause</span><br>
+    <span data-i18n="menu.blurb">Real streets and buildings, pulled live from OpenStreetMap. Deliver packages for cash,
+    ram a cop and find out what five stars feels like.</span>
   </p>
+
+  <!-- ON THE TITLE SCREEN, not buried in the pause card. The pause card needs
+       Esc to reach and there is no Esc on a phone, which is where this game is
+       mostly played — the volume button was moved out of there for exactly the
+       same reason. The list is built by script from LANGS, so adding a language
+       is one table in one file. -->
+  <div class="langRow">
+    <label for="lang" data-i18n="menu.lang">Language</label>
+    <select id="lang"></select>
+  </div>
 
   <!-- supporter perk: a switch and an ask, side by side -->
   <div class="perk" id="perkM">
     <button class="ghost tgl" id="ghostM" aria-pressed="false">
-      <span class="dot"></span><span>GHOST MODE — drive anywhere, through buildings</span>
+      <span class="dot"></span><span data-i18n="menu.ghost">GHOST MODE — drive anywhere, through buildings</span>
     </button>
-    <a class="pat" id="patM" target="_blank" rel="noopener">Back it on Patreon · $10</a>
+    <a class="pat" id="patM" target="_blank" rel="noopener" data-i18n="menu.patreon">Back it on Patreon · $10</a>
   </div>
 
-  <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · a parody tribute, not affiliated with Rockstar Games</div>
+  <!-- data-osm carries the anchor, so the translation can put "OpenStreetMap"
+       wherever that language wants it rather than being cut in three around a
+       link that has to stay in the middle. -->
+  <div class="credit" data-i18n-html="menu.credit"
+       data-osm="&lt;a href=&quot;https://www.openstreetmap.org/copyright&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;&gt;OpenStreetMap&lt;/a&gt;">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · a parody tribute, not affiliated with Rockstar Games</div>
 </div>
 
 <!-- ===================== loading ===================== -->
 <div class="screen hide" id="load">
-  <div class="logo">LOADING</div>
+  <div class="logo" data-i18n="load.title">LOADING</div>
   <div class="tag" id="loadCity">&nbsp;</div>
   <div id="bar"><div id="barIn"></div></div>
-  <div id="loadMsg">Waking the satellites…</div>
+  <div id="loadMsg" data-i18n="load.waking">Waking the satellites…</div>
   <div id="loadSub"></div>
-  <button id="skip" class="ghost">PLAY THE OFFLINE CITY</button>
+  <button id="skip" class="ghost" data-i18n="load.offlineCity">PLAY THE OFFLINE CITY</button>
   <!-- the one screen where people genuinely sit and wait -->
-  <a class="pat" id="patL" target="_blank" rel="noopener">Enjoying this? Back it on Patreon</a>
+  <a class="pat" id="patL" target="_blank" rel="noopener" data-i18n="load.patreon">Enjoying this? Back it on Patreon</a>
 </div>
 
 <!-- ===================== the big map ===================== -->
@@ -231,12 +249,12 @@
     <button id="mapClose">✕</button>
   </div>
   <div id="mapKey">
-    <span><i style="background:#48ff9e"></i>repairs</span>
-    <span><i style="background:#ff4f6d"></i>hospital</span>
-    <span><i style="background:#3fa2ff"></i>police</span>
-    <span><i style="background:#ff4fd8"></i>job</span>
+    <span><i style="background:#48ff9e"></i><b data-i18n="map.repairs">repairs</b></span>
+    <span><i style="background:#ff4f6d"></i><b data-i18n="map.hospital">hospital</b></span>
+    <span><i style="background:#3fa2ff"></i><b data-i18n="map.police">police</b></span>
+    <span><i style="background:#ff4fd8"></i><b data-i18n="map.job">job</b></span>
   </div>
-  <div id="mapHint">drag to pan · pinch to zoom</div>
+  <div id="mapHint" data-i18n="map.hint">drag to pan · pinch to zoom</div>
 </div>
 
 <!-- ===================== pause ===================== -->
@@ -247,35 +265,35 @@
      it can be dismissed for good. -->
 <div class="screen hide" id="glhelp">
   <div class="card">
-    <div class="logo" style="font-size:clamp(26px,7vw,46px)">3D THE SLOW WAY</div>
-    <p id="glWhy">This browser has <b>WebGL</b> switched off, so the chase view is
+    <div class="logo" style="font-size:clamp(26px,7vw,46px)" data-i18n="gl.title">3D THE SLOW WAY</div>
+    <p id="glWhy" data-i18n-html="gl.why">This browser has <b>WebGL</b> switched off, so the chase view is
       drawn by the processor rather than the graphics chip. It still works — it is
       just slower and plainer.</p>
     <div id="glSteps"></div>
-    <button id="glOk" class="pink">GOT IT</button>
-    <button id="glNever" class="ghost">DON’T SHOW THIS AGAIN</button>
+    <button id="glOk" class="pink" data-i18n="gl.ok">GOT IT</button>
+    <button id="glNever" class="ghost" data-i18n="gl.never">DON’T SHOW THIS AGAIN</button>
   </div>
 </div>
 
 <div class="screen hide" id="pause">
   <div class="card">
-    <div class="logo" style="font-size:clamp(34px,8vw,64px)">PAUSED</div>
+    <div class="logo" style="font-size:clamp(34px,8vw,64px)" data-i18n="pause.title">PAUSED</div>
     <div id="pauseStats" style="margin:6px 0 14px;font-size:13.5px;color:rgba(255,255,255,.75)"></div>
-    <button id="resume" class="pink">RESUME</button>
-    <button id="newLoc" class="ghost">CHANGE CITY</button>
+    <button id="resume" class="pink" data-i18n="pause.resume">RESUME</button>
+    <button id="newLoc" class="ghost" data-i18n="pause.change">CHANGE CITY</button>
     <div class="perk" id="perkP">
       <button class="ghost tgl" id="ghostP" aria-pressed="false">
-        <span class="dot"></span><span>GHOST MODE</span>
+        <span class="dot"></span><span data-i18n="pause.ghost">GHOST MODE</span>
       </button>
-      <a class="pat" id="patP" target="_blank" rel="noopener">Back it on Patreon · $10</a>
+      <a class="pat" id="patP" target="_blank" rel="noopener" data-i18n="menu.patreon">Back it on Patreon · $10</a>
     </div>
   </div>
 </div>
 
-<div id="ghostTag">GHOST MODE</div>
+<div id="ghostTag" data-i18n="pause.ghost">GHOST MODE</div>
 
 <!-- ===================== wasted / busted ===================== -->
-<div id="big"><div id="bigT" class="hudTxt">WASTED</div><div id="bigS">respawning…</div></div>
+<div id="big"><div id="bigT" class="hudTxt" data-i18n="big.wasted">WASTED</div><div id="bigS" data-i18n="big.respawning">respawning…</div></div>
 
 <!-- ONE DROPPED REQUEST MUST NOT BRICK THE GAME.
 
@@ -299,21 +317,25 @@ addEventListener('error', function (e) {
   if (el && el.tagName === 'SCRIPT' && el.src) window.__lost.push(el.src);
 }, true);
 </script>
-<script src="js/util.js?v=87767049d7"></script>
-<script src="js/log.js?v=87767049d7"></script>
-<script src="js/geo.js?v=87767049d7"></script>
-<script src="js/world.js?v=87767049d7"></script>
+<!-- FIRST, ahead of everything. Every other file may want a string, and the
+     markup is translated before the first paint rather than after it — a
+     flash of English on a Japanese phone is a bug you cannot un-see. -->
+<script src="js/i18n.js?v=c937ca9d68"></script>
+<script src="js/util.js?v=c937ca9d68"></script>
+<script src="js/log.js?v=c937ca9d68"></script>
+<script src="js/geo.js?v=c937ca9d68"></script>
+<script src="js/world.js?v=c937ca9d68"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=87767049d7"></script>
-<script src="js/body3d.js?v=87767049d7"></script>
-<script src="js/entities.js?v=87767049d7"></script>
-<script src="js/io.js?v=87767049d7"></script>
-<script src="js/game.js?v=87767049d7"></script>
+<script src="js/terrain.js?v=c937ca9d68"></script>
+<script src="js/body3d.js?v=c937ca9d68"></script>
+<script src="js/entities.js?v=c937ca9d68"></script>
+<script src="js/io.js?v=c937ca9d68"></script>
+<script src="js/game.js?v=c937ca9d68"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=87767049d7"></script>
+<script src="js/gl.js?v=c937ca9d68"></script>
 <!-- Every texture in the game, grown out of arithmetic at load: the trees after
      dark, the same trees in daylight, and the render on the walls. Must come
      before render3d.js, which is the only thing that asks it for anything.
@@ -323,13 +345,13 @@ addEventListener('error', function (e) {
      missing picture of a tree was survivable and render3d.js painted its own.
      This one is not: it is the only source of those textures now, so it is
      checked like the rest. -->
-<script src="js/radio.js?v=87767049d7"></script>
-<script src="js/proctex.js?v=87767049d7"></script>
-<script src="js/carmesh.js?v=87767049d7"></script>
-<script src="js/render.js?v=87767049d7"></script>
-<script src="js/soft3d.js?v=87767049d7"></script>
-<script src="js/render3d.js?v=87767049d7"></script>
-<script src="js/main.js?v=87767049d7"></script>
+<script src="js/radio.js?v=c937ca9d68"></script>
+<script src="js/proctex.js?v=c937ca9d68"></script>
+<script src="js/carmesh.js?v=c937ca9d68"></script>
+<script src="js/render.js?v=c937ca9d68"></script>
+<script src="js/soft3d.js?v=c937ca9d68"></script>
+<script src="js/render3d.js?v=c937ca9d68"></script>
+<script src="js/main.js?v=c937ca9d68"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one
