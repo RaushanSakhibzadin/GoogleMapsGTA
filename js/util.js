@@ -123,8 +123,28 @@ const THEMES = {
     wallT: c => mixc(mul(c, .17), [38, 26, 58], .50)
   },
   day: {
-    ground: '#cfc9bd',
-    park: '#9dbf86', parkEdge: '#7ba368', kerb: '#c2bcb1', case: '#8d887f',
+    /* THE GROUND BETWEEN THE ROADS: a dark sea-green, asked for as "sea, grass
+       and river at the same time".
+     *
+       Hue 170° sits almost exactly between green and cyan, which is what lets
+       one flat colour do all three jobs — far enough towards green to read as
+       grass, far enough towards blue to read as water. Kept dark on purpose: it
+       is the only thing on screen that is never lit, shaded or textured, so at
+       any lighter value it becomes the brightest surface in the frame and the
+       city sits on a glowing slab.
+     *
+       WORTH KNOWING BEFORE CHANGING IT: this exact string is what the ground
+       comes out as in all three renderers, not a starting point one of them
+       adjusts. The ground shader deliberately does not relight it (SH_GND_F in
+       js/render3d.js) — flat ground solves to k = 1.0 — so the top-down view,
+       the software 3D and WebGL all paint this value, and anything picked here
+       is seen as picked. */
+    ground: '#1c5249',
+    /* And the ring under the kerb goes with it. It is drawn wider than the
+       pavement to put a shadow under the road's edge, which only works while it
+       is DARKER than what surrounds it — at the old bone grey it would have been
+       a light halo widening every street instead. */
+    park: '#9dbf86', parkEdge: '#7ba368', kerb: '#c2bcb1', case: '#0e2b26',
     road: '#a6a29b', roadBig: '#b2aea6', line: 'rgba(250,240,190,.85)',
     mapBg: '#e8e3d8', mapPark: '#b7d0a2',
     mapRoad: '#ffffff', mapRoadBig: '#ffe9a8',

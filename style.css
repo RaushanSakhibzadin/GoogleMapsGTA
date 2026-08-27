@@ -609,11 +609,20 @@ body.theme-day #timer{color:#a3186f}
 body.theme-day #spdN{color:#241f2e}
 body.theme-day #zone{color:#7d4a00}
 body.theme-day #street{color:#07596b;text-shadow:0 2px 5px rgba(255,255,255,.95)}
-body.theme-day #hpLbl{color:rgba(0,0,0,.55)}
+/* the white backing the rest of the daylight text has: the ground behind this
+   corner is dark now, and a 55%-black label on it was a smudge */
+body.theme-day #hpLbl{color:rgba(0,0,0,.62);text-shadow:0 1px 3px rgba(255,255,255,.85)}
 body.theme-day #hpBar{background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.35)}
 body.theme-day #mini{border-color:rgba(60,45,85,.6);
   box-shadow:0 0 18px rgba(0,0,0,.18),inset 0 0 22px rgba(0,0,0,.15)}
-body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color:#22202a}
+/* A CONTROL HAS TO CARRY ITS OWN CONTRAST, whatever it is standing on.
+   These were a dark wash with a dark glyph, which worked while the daylight
+   ground was bone grey and every frame behind them was pale. It is a dark
+   sea-green now, and a dark button on it disappeared — DRIFT and the day/night
+   toggle read as empty outlines over open ground. Light fill, dark glyph, dark
+   rim: the disc is now brighter than the grass and darker than a sunlit
+   facade, so the same button reads over either. */
+body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,.45);color:#1a1522}
 
 .credit{position:fixed;left:0;right:0;top:var(--vh,100dvh);transform:translateY(calc(-100% - 8px));text-align:center;font-size:10.5px;
   color:rgba(255,255,255,.42);z-index:61}
