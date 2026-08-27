@@ -366,6 +366,13 @@ pulls in the rest.
   thousand was the wrong shape twice over: too much for a dent, so a lightly damaged car drove
   past, and the same price for a wreck, so limping in was never worth more than any other visit.
   Turn up short and they'll tell you the price and nothing else happens.
+- **Landmarks wear their own face.** Police stations, hospitals and repair shops are 🚓, 🏥 and
+  🔧 on the big map and in the world, with the delivery pickup and drop as 📦 and 🏁 — the
+  platform's own emoji, so nothing is downloaded and each phone draws them in its own style. The
+  coloured disc stays underneath: it is what makes one findable at a glance across a whole city,
+  and what still reads if a platform has no glyph for one of them. Not on the radar, which is 98
+  points across and draws its landmarks at three pixels — colour carries "something of that kind,
+  that way" at that size, and a face would be a smudge.
 - **Landmarks are drive-through.** Repair shops, police stations and hospitals go transparent and
   stop colliding, exactly like a building with a road under it — drive straight in, no damage, no
   wall. They're marked in green on the radar, police stations in blue and hospitals in red.

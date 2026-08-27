@@ -466,9 +466,25 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
   font-size:11.5px;color:rgba(255,255,255,.72);pointer-events:none}
 #mapKey span{display:inline-flex;align-items:center;gap:5px}
 #mapKey i{width:9px;height:9px;border-radius:50%;display:inline-block}
+/* The key now shows the same face the map draws, so it reads as "this glyph, in
+   this colour" rather than as a colour to memorise. font-style is reset because
+   an <em> is the right element for a symbol standing in for a word and the wrong
+   look for one. */
+#mapKey em{font-style:normal;font-size:13px;line-height:1}
 #mapHint{position:absolute;right:14px;bottom:calc(12px + env(safe-area-inset-bottom));
   font-size:11px;color:rgba(255,255,255,.4);pointer-events:none}
-@media (max-height:520px){ #mapHint{display:none} }
+/* THE HINT GOES WHEN THERE IS NO ROOM FOR IT, by width as well as by height.
+
+   The key and the hint share the bottom of the map, one anchored left and one
+   right, and on a 390 point phone they were already running through each other —
+   the key reached x=276 and the hint began at x=224 — which the emoji made worse
+   by widening the key to 334. Two lines of overlapping text at the bottom of a
+   map is worse than one line of key.
+
+   The key wins because it is the part you cannot guess: which colour and which
+   face mean what. Dragging a map to pan it and pinching it to zoom are the two
+   gestures every map on the phone already uses. */
+@media (max-height:520px),(max-width:560px){ #mapHint{display:none} }
 body.theme-day #mapWhere{color:#7d4a00;text-shadow:2px 2px 0 rgba(255,255,255,.85)}
 body.theme-day #mapKey{color:rgba(0,0,0,.7)}
 body.theme-day #mapHint{color:rgba(0,0,0,.45)}

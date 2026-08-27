@@ -112,6 +112,34 @@ function buildingColours(t, area, h, seed) {
 
 // police reuses the blue the cop blips already use, so the radar reads consistently
 const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e' };
+/* AND A FACE FOR EACH, because three coloured dots are three coloured dots.
+
+   The colours are the same three a player has to learn and then remember, and
+   they are learned from a key at the bottom of a map they opened to find one
+   specific thing. A picture of the thing needs no key at all — and these are the
+   glyphs every phone already has, so it costs nothing to download and renders in
+   whatever style that platform draws its own emoji in.
+
+   NOT ON THE RADAR, which is 98 points across and shows its landmarks at three
+   pixels. An emoji there would be a smudge, and the radar's job is "something of
+   that colour, that way" rather than "a hospital". Colour carries it at that
+   size; the face is for the big map and the world, where there is room to read
+   it. Deliberate, not an omission.
+
+   The mission markers are here too: the package you are going to collect and the
+   flag where it is going. */
+const POI_EMOJI = {
+  police: '🚓', hospital: '🏥', repair: '🔧',
+  pickup: '📦', drop: '🏁'
+};
+/* THE FONT CANVAS NEEDS TO BE TOLD, and it is not the HUD's font. Impact has no
+   emoji in it, and a canvas asked for a glyph its font does not have falls back
+   per-platform — sometimes to a colour emoji, sometimes to an outline, sometimes
+   to a box. Naming the emoji faces explicitly, with the platform ones first,
+   gets the colour glyph on every phone; the generic sans-serif at the end is for
+   a machine that has none of them. */
+const POI_FACE_FONT =
+  '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif';
 /* SOMEWHERE YOU EAT, which gets its name in yellow rather than blue.
 
    The set is the OSM amenity values for places that serve food and drink, plus

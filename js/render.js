@@ -145,10 +145,10 @@ function render2D() {
   // landmarks first, so a mission marker on top of one still reads
   for (const p of W.pois) {
     if (Math.abs(p.x - cam.x) > viewR || Math.abs(p.y - cam.y) > viewR) continue;
-    marker(p, POI_COL[p.kind]);
+    marker(p, POI_COL[p.kind], p.kind);
   }
-  if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8');
-  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, GOLD);
+  if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8', 'pickup');
+  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, GOLD, 'drop');
 
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
 
@@ -267,7 +267,7 @@ function drawBuilding(b) {
   ctx.globalAlpha = 1;
 }
 
-function marker(m, col) {
+function marker(m, col, kind) {
   const t = performance.now() / 1000;
   const r = 4.2 + Math.sin(t * 3) * .5;
   ctx.save(); ctx.translate(m.x, m.y);
@@ -277,6 +277,22 @@ function marker(m, col) {
   ctx.strokeStyle = col; ctx.lineWidth = .5;
   ctx.beginPath(); ctx.arc(0, 0, r * (.5 + (t % 1) * .5), 0, TAU); ctx.globalAlpha = 1 - (t % 1); ctx.stroke();
   ctx.globalAlpha = 1;
+  /* THE FACE, DRAWN UPRIGHT. Everything else in this pass is in world space and
+     the whole world is rotated to the car's heading — which would leave the
+     hospital sign upside down every time you drove north. So the rotation is
+     undone for the glyph alone, and the scale with it: a 5 metre emoji is a
+     different size on screen at every zoom, and this is a label rather than a
+     thing in the city. */
+  const e = kind && POI_EMOJI[kind];
+  if (e) {
+    ctx.rotate(-rot);
+    ctx.scale(1 / cam.s, 1 / cam.s);
+    ctx.font = '17px ' + POI_FACE_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)';
+    ctx.strokeText(e, 0, -1);
+    ctx.fillText(e, 0, -1);
+  }
   ctx.restore();
 }
 
@@ -533,9 +549,34 @@ function drawBigMap() {
     g.fillStyle = col; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.4 * DPR;
     g.beginPath(); g.arc(px, py, rad * DPR, 0, TAU); g.fill(); g.stroke();
   };
+  /* THE DOT STAYS UNDER THE FACE. The emoji says what it is; the coloured disc
+     under it is what makes it findable at a glance across a whole city, and it
+     is what still reads when the platform has no glyph for one of these and
+     draws a box. Belt and braces on purpose — this map is opened to find one
+     specific building. */
+  const face = (wx, wy, kind, px) => {
+    const [x, y] = toPx(wx, wy);
+    if (x < -20 || y < -20 || x > w + 20 || y > h + 20) return;
+    const e = POI_EMOJI[kind];
+    if (!e) return;
+    g.save();
+    g.font = (px * DPR) + 'px ' + POI_FACE_FONT;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    /* A dark rim, drawn as a stroke behind the glyph. Emoji are drawn by the
+       platform in their own colours and several of these are pale, which is
+       invisible against a pale daylight map. */
+    g.lineWidth = 3 * DPR; g.strokeStyle = 'rgba(0,0,0,.55)';
+    g.strokeText(e, x, y - px * .05 * DPR);
+    g.fillText(e, x, y - px * .05 * DPR);
+    g.restore();
+  };
   for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], 4.2);
   if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 6);
   if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, GOLD, 6);
+  // faces over the top of every dot, so one landmark never hides another's
+  for (const p of W.pois) face(p.x, p.y, p.kind, 15);
+  if (MISSION.state === 'pickup' && MISSION.pick) face(MISSION.pick.x, MISSION.pick.y, 'pickup', 18);
+  if (MISSION.state === 'deliver' && MISSION.drop) face(MISSION.drop.x, MISSION.drop.y, 'drop', 18);
 
   // the car, pointing where it is pointing
   const [cx, cy] = toPx(P.car.x, P.car.y);
