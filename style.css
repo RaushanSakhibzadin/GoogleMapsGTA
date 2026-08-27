@@ -3,13 +3,57 @@
 :root{
   --pink:#ff4fd8; --cyan:#33e6ff; --gold:#ffe36a; --violet:#8a5cff;
   --bg:#120a1e;
-  --hud:'Impact','Haettenschweiler','Arial Narrow Bold','Franklin Gothic Bold',sans-serif;
+  /* THE HUD FACE, AND WHAT ANDROID ACTUALLY HAS.
+
+     Impact is the look — heavy, condensed, the lettering the whole HUD is built
+     around. It ships on Windows and macOS and iOS, and it does NOT ship on
+     Android; neither does Haettenschweiler, Arial Narrow Bold or Franklin
+     Gothic. So every Android phone fell straight through to `sans-serif`, which
+     is Roboto: not condensed, much wider per character, and a completely
+     different look from the one on an iPhone. That is half of "the Android UI
+     is a different style" — the same markup, set in a face two thirds wider.
+
+     Roboto Condensed and Noto Sans Condensed are on essentially every Android,
+     and they are the closest thing it has to Impact. The two Linux names after
+     them are for the test machines and desktop Linux, which have neither. No
+     web font: this game runs from file:// with nothing installed, and a HUD that
+     needs a download is a HUD that is missing on the loading screen. */
+  --hud:'Impact','Haettenschweiler','Arial Narrow Bold','Franklin Gothic Bold',
+        'Roboto Condensed','Noto Sans Condensed','Liberation Sans Narrow',
+        'DejaVu Sans Condensed',sans-serif;
   --ui:'Segoe UI',Roboto,-apple-system,system-ui,sans-serif;
-  --pad:clamp(72px,17vw,104px);   /* touch button size, referenced by the HUD layout */
+  /* THE THUMB PADS ARE SIZED FROM THE ROOM THERE IS, not from a floor.
+
+     The bottom row is four circles — steer left, steer right, reverse,
+     accelerator — and the two halves are anchored to opposite edges: the
+     steering from the left, the pedal and reverse from the right. Nothing in
+     that arrangement stops them meeting in the middle, and on a narrow phone
+     they did. Measured, with the old clamp(72px,17vw,104px):
+
+         iPhone 13   390 wide   14px gap between them
+         Pixel 7     412 wide   fine
+         Galaxy S5   360 wide   16px OVERLAP
+         Galaxy S9+  320 wide   56px OVERLAP
+
+     — the reverse pad sitting on top of the right-steer pad, which is a game you
+     cannot steer. The floor of 72px was the culprit: below about 390 the vw term
+     stopped applying and the circles simply stayed too big for the screen.
+
+     So the size is solved for instead. The row needs edgeL + 3 pads + gas + 16px
+     of internal spacing + a 14px gap + edgeR, and gas is 1.34 pads, so 4.34 pads
+     is exactly whatever is left over. That makes the row fit any width by
+     construction, at any safe-area inset, rather than fitting the handsets
+     somebody happened to test on. On a 390pt iPhone it lands on 71.9 and 95.9 —
+     the same layout as before to within a pixel, which is the point: this is a
+     fix for narrow Androids, not a redesign for everyone else.
+
+     The 48px floor is the accessibility minimum for a touch target and only
+     applies below about 290pt, which no phone is. */
+  --pad:clamp(48px,calc((100vw - var(--edgeL) - var(--edgeR) - 30px) / 4.34),104px);
   /* The accelerator is held for basically the whole game, so it gets its own
      larger size. Everything on the right-hand side positions off THIS, not
      --pad, or the brake and DRIFT end up underneath it. */
-  --gas:clamp(96px,23vw,138px);
+  --gas:calc(var(--pad) * 1.34);
   /* KEEP THE THUMB PADS OFF THE EDGES. A phone reserves the outer strip of the
      screen for its own gestures — swipe-back down each side, home and app-switch
      along the bottom — and a touch that starts in there can be taken away from
@@ -561,7 +605,8 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      was none spare — a full-size steering pad pushed day/night up into the
      district name. --gas already sized this way for the same reason. */
   :root{--gas:clamp(84px,30dvh,116px);--pad:clamp(64px,22dvh,92px)}
-  #mini{width:min(25vw,18dvh);height:min(25vw,18dvh)}
+  :root{--miniS:min(25vw,18dvh)}
+  #mini{width:var(--miniS);height:var(--miniS)}
   /* the only case where the column is tall enough to matter, so this is the
      only case that has to be kept out of the car's screen column */
   #hudTL{gap:6px;max-width:calc(50vw - 56px)}
@@ -583,7 +628,19 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
      clears the pedal, the speedo tucks under the star row, and the district
      name moves to the left column beneath the street name, which is the same
      kind of information and where the space actually is. */
-  #tH{bottom:calc(var(--edgeB) + 24px + var(--gas))}
+  /* DRIFT JOINS THE BOTTOM ROW instead of stacking above the pedal.
+
+     Stacked, it sat at 101–145 down a 342 point screen and the speedo sat at
+     91–146, so the two occupied the same 67×44 rectangle — measured, not
+     guessed. There is no row to give it: that column is the cash, the stars, the
+     speedo and DRIFT, and the speedo already ends where DRIFT began.
+
+     But a landscape phone is 750 points WIDE, and the bottom row uses only the
+     two ends of it. So DRIFT goes where the room actually is — inboard of the
+     reverse pad, centred in the same row — and the vertical stack loses a floor
+     entirely. */
+  #tH{right:calc(var(--edgeR) + var(--gas) + 6px + var(--pad) + 14px);
+      bottom:calc(var(--edgeB) + (var(--pad) - 44px) / 2)}
   /* The log button moves to the top CENTRE here, and the right-hand column goes
      back to starting at 12px. On a 342px-tall screen that column is cash, stars,
      the speedo and DRIFT with nothing between them — the speedo already ends
@@ -593,6 +650,21 @@ body.theme-day .pad{background:rgba(0,0,0,.16);border-color:rgba(0,0,0,.3);color
   :root{--hudTop:12px}
   #topBtns{left:50%;right:auto;transform:translateX(-50%)}
   #speed{top:calc(16px + 22dvh);right:14px;bottom:auto}
-  #zone{left:14px;right:auto;top:calc(14px + 40dvh);bottom:auto;
-    text-align:left;max-width:38vw;font-size:clamp(15px,3.6dvh,20px)}
+  /* THE DISTRICT NAME GOES BESIDE THE RADAR, which is the one part of a
+     landscape phone with nothing in it.
+
+     It was put in the left column under the street name, which is the right
+     idea — same kind of information — and there is no room for it there: that
+     column is the objective, the radar and the street name in 342 points of
+     height, with the day/night button and the armor bar under it. Every
+     placement measured up from the bottom hit the button, and every one
+     measured down from the top hit the street name; the band between them is
+     three points tall.
+
+     To the right of the radar is 270 points of empty screen from x=90 to the
+     star row at 600. Anchored to the radar's own size, so it stays clear of it
+     whatever the short axis turns out to be. */
+  #zone{left:calc(28px + var(--miniS));right:auto;top:56px;bottom:auto;
+    text-align:left;max-width:calc(50vw - var(--miniS) - 40px);
+    font-size:clamp(15px,3.6dvh,20px)}
 }

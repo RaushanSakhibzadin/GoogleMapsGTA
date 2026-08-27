@@ -32,13 +32,25 @@ const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars'
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = [];
 
-// Landscape phone is the tightest of these — least height for the left-hand column.
+/* Landscape phone is the tightest of these for HEIGHT — least room for the
+   left-hand column. The Android pair is the tightest for WIDTH, and they were
+   not here, which is how the thumb pads shipped overlapping on Android for
+   months while this test passed on every run.
+
+   Every case here used to be an Apple one, and the narrowest of them is the
+   iPhone at 390 points — which is, to within fourteen pixels, exactly wide
+   enough for the bottom row. At 360 the reverse pad overlapped the right-steer
+   pad by 16 points and at 320 by 56, i.e. most of a button, and nothing in the
+   suite was looking. A test that only owns the hardware the author owns is a
+   test that certifies the author's phone. */
 const CASES = [
-  ['desktop',         { viewport: { width: 1280, height: 800 } }],
-  ['phone-portrait',  { ...devices['iPhone 13'] }],
-  ['phone-landscape', { ...devices['iPhone 13 landscape'] }],
-  ['ipad-portrait',   { ...devices['iPad (gen 7)'] }],
-  ['ipad-landscape',  { ...devices['iPad (gen 7) landscape'] }],
+  ['desktop',          { viewport: { width: 1280, height: 800 } }],
+  ['phone-portrait',   { ...devices['iPhone 13'] }],
+  ['phone-landscape',  { ...devices['iPhone 13 landscape'] }],
+  ['android-wide',     { ...devices['Pixel 7'] }],            // 412
+  ['android-narrow',   { ...devices['Galaxy S9+'] }],         // 320 — the tightest sold
+  ['ipad-portrait',    { ...devices['iPad (gen 7)'] }],
+  ['ipad-landscape',   { ...devices['iPad (gen 7) landscape'] }],
 ];
 
 for (const [label, ctxOpts] of CASES) {
@@ -118,5 +130,20 @@ for (const [label, ctxOpts] of CASES) {
   out.push({ label, vw: geo.vw, vh: geo.vh, where, clashes, onCar, nearest, arrowOk, errs });
   await p.close(); await ctx.close();
 }
-console.log(JSON.stringify(out, null, 1));
+/* AND A VERDICT, which this did not have.
+
+   For its whole life this printed a report and exited zero, so tests/run.mjs
+   recorded it as a pass on every run no matter what it found — including the run
+   where it correctly listed three overlapping HUD elements on a landscape phone,
+   and every run after the thumb pads started overlapping on Android. A check
+   nobody fails is a check nobody reads.
+
+   HUD-ON-CAR IS NOT A CLASH and stays out of the verdict: the car is in the
+   middle of the screen and the HUD is around the edges of it, so a wide car at
+   speed brushing the armor bar is the layout working. Two HUD elements on top of
+   each other is not. */
+const bad = out.filter(c => c.clashes.length || c.errs.length);
+const pass = bad.length === 0;
+console.log(JSON.stringify({ cases: out, failing: bad.map(c => c.label), pass }, null, 1));
 await browser.close();
+process.exit(pass ? 0 : 1);
