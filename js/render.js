@@ -614,6 +614,69 @@ function drawBigMap() {
 
   drawMapScale(g, w, h, s);
 }
+
+/* ------------------------- the objective's ping ------------------------- */
+/* WHERE THE JOB IS, AS ONE ANSWER. Three places were each asking the question
+   their own way — the big map's dot, the big map's face, the radar's blip — and
+   a fourth about to. The colour is part of the answer: the pickup is the pink
+   the arrow uses and the drop-off is GOLD, and getting that pair wrong in one
+   of the four is precisely the kind of thing nobody notices for a month. */
+function missionGoal() {
+  if (MISSION.state === 'pickup' && MISSION.pick) return { at: MISSION.pick, col: '#ff4fd8' };
+  if (MISSION.state === 'deliver' && MISSION.drop) return { at: MISSION.drop, col: GOLD };
+  return null;
+}
+
+/* THE PING IS ON THE WALL CLOCK, not on the simulated one.
+   SIMT stops while the map is open — the loop does not step a paused world — and
+   below twelve frames a second it runs slow even while driving, so a pulse tied
+   to it would freeze on the map and stutter on a struggling phone. This is
+   decoration; it should breathe at the same rate whatever the game is doing. */
+const PULSE_MS = 1500;
+const pulseAt = now => (((now == null ? performance.now() : now) % PULSE_MS) / PULSE_MS);
+/* TWO RINGS, HALF A PERIOD APART, and that is not decoration on the decoration.
+   One ring leaves a dead beat every cycle where the old ping has faded out and
+   the new one has not yet grown enough to see, which reads as a stutter rather
+   than as a pulse. With a second ring offset by half a cycle there is always one
+   on the way out and one on the way in. */
+const PULSE_RINGS = [0, .5];
+/* Drawn from the marker's own size out to three and a half times it, so the ping
+   scales with the zoom exactly as the emoji and its dot now do. */
+function pulseRing(g, x, y, base, col, k) {
+  const r = base * (.55 + 2.9 * k);
+  const a = Math.pow(1 - k, 1.7);
+  if (a <= .02) return;
+  g.save();
+  g.globalAlpha = a * .9;
+  g.strokeStyle = col;
+  g.lineWidth = Math.max(1.5, base * .22) * (1 - k * .55);
+  g.beginPath(); g.arc(x, y, r, 0, TAU); g.stroke();
+  g.restore();
+}
+
+/* The big map's ping, on its own layer above the drawn city. Returns whether it
+   found anything to draw, which is what the test asks it. */
+function drawMapPulse(now) {
+  const cv = $('bigmapFX');
+  if (!cv) return false;
+  const g = cv.getContext('2d');
+  const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const goal = missionGoal();
+  if (!goal || !MAPV.s) return false;
+  const s = MAPV.s * DPR;
+  const x = w / 2 + (goal.at.x - MAPV.cx) * s;
+  const y = h / 2 + (goal.at.y - MAPV.cy) * s;
+  const base = mapFaceSize(MAPV.s) * DPR;
+  // the ping reaches well past the marker, so the cull has to allow for it
+  const pad = base * 3.6;
+  if (x < -pad || y < -pad || x > w + pad || y > h + pad) return false;
+  const k0 = pulseAt(now);
+  for (const off of PULSE_RINGS) pulseRing(g, x, y, base, goal.col, (k0 + off) % 1);
+  return true;
+}
 /* A scale bar, because "is that garage worth driving to" is a question about
    distance and the zoom moves. Picks a round number of metres that lands near a
    fifth of the screen. */
@@ -726,8 +789,31 @@ function drawMini() {
   }
 
   for (const k of cops) blip(k.x, k.y, '#3fa2ff', 2.8);
-  if (MISSION.state === 'pickup' && MISSION.pick) blip(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', 3.4);
-  if (MISSION.state === 'deliver' && MISSION.drop) blip(MISSION.drop.x, MISSION.drop.y, GOLD, 3.4);
+  /* THE OBJECTIVE PINGS HERE TOO, in step with the big map's — same clock, same
+     period, so opening the map does not restart it or catch it out of phase.
+     This is the surface you actually look at while driving; a job blip that
+     breathes is findable among two dozen static dots in a way a slightly bigger
+     one is not.
+
+     CLIPPED TO THE DISC, unlike the blips. A blip is culled by its centre, which
+     is enough for a dot and not enough for a ring three times its width: near
+     the rim the ping would spill onto the HUD. The CSS rounds the canvas off and
+     would hide it on screen, which is exactly what makes this worth doing in the
+     canvas — a test reads the pixels, not the border-radius. */
+  const goal = missionGoal();
+  if (goal) {
+    blip(goal.at.x, goal.at.y, goal.col, 3.4);
+    const dx = goal.at.x - P.car.x, dy = goal.at.y - P.car.y;
+    const px = r + (dx * cs - dy * sn) * (r / showM);
+    const py = r + (dx * sn + dy * cs) * (r / showM);
+    if (dist2(px, py, r, r) <= r * r) {
+      mctx.save();
+      mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
+      const k0 = pulseAt();
+      for (const off of PULSE_RINGS) pulseRing(mctx, px, py, 3.4 * DPR, goal.col, (k0 + off) % 1);
+      mctx.restore();
+    }
+  }
 
   /* ON THE RIM, for the things worth driving to that are further off than the
      radar reaches. Everything above this only exists inside 230 m, which is

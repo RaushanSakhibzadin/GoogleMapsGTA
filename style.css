@@ -455,6 +455,8 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
 #bigmap{position:fixed;inset:0;height:var(--vh,100dvh);z-index:65;background:var(--bg);touch-action:none}
 #bigmap.hide{display:none}
 #bigmapC{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* the objective's ping, on top of the map and out of the way of the gestures */
+#bigmapFX{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 /* BELOW THE CORNER BUTTONS, NOT BESIDE THEM. This used to clear the LOG button
    with a hand-measured margin on the close button, and that broke the day LOG
    gained a neighbour: the row got wider, reached further left, and came to rest

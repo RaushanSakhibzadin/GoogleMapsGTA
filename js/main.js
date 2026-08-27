@@ -70,12 +70,40 @@ function openMap() {
   $('bigmap').classList.remove('hide');
   mapFit(true);                               // keep the zoom, re-centre on the car
   drawBigMap();
+  mapPulseOn();
 }
 function closeMap() {
   if (state !== 'map') return;
+  mapPulseOff();
   $('bigmap').classList.add('hide');
   state = 'play';
   lastT = performance.now(); acc = 0;         // don't hand the physics the pause
+}
+
+/* THE ONLY THING THAT ANIMATES ON A STOPPED GAME.
+   loop() returns at once unless state is 'play', which is how opening the map
+   pauses the world — so the objective's ping needs a frame source of its own,
+   and it gets one that exists only while the map is open. One clear and two
+   strokes a frame on a layer with nothing else on it; the city underneath is not
+   redrawn and does not need to be.
+
+   Guarded on state rather than on a flag, so anything that leaves 'map' by a
+   route this does not know about still stops it on the next frame. */
+let mapFXid = 0;
+function mapPulseFrame() {
+  if (state !== 'map') { mapFXid = 0; return; }
+  drawMapPulse();
+  mapFXid = requestAnimationFrame(mapPulseFrame);
+}
+function mapPulseOn() {
+  if (!mapFXid) mapFXid = requestAnimationFrame(mapPulseFrame);
+}
+function mapPulseOff() {
+  if (mapFXid) cancelAnimationFrame(mapFXid);
+  mapFXid = 0;
+  // and wipe it, so a stale ring is not sitting there when the map reopens
+  const cv = $('bigmapFX');
+  if (cv && cv.width) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
 }
 $('mini').onclick = openMap;
 $('mapClose').onclick = closeMap;
@@ -685,6 +713,13 @@ window.__clearEdge = () => { P.edgeCd = 0; P.edgeHits = 0; };
 window.__mapView = () => ({ cx: +MAPV.cx.toFixed(1), cy: +MAPV.cy.toFixed(1), s: +MAPV.s.toFixed(5) });
 window.__mapPan = (dx, dy) => { MAPV.cx += dx; MAPV.cy += dy; mapClamp(); drawBigMap(); };
 window.__mapZoom = k => { MAPV.s *= k; mapClamp(); drawBigMap(); };
+/* The ping, drawn at a phase the caller names. The animation is on the wall
+   clock, which is right for a decoration and useless for a test: sampling it
+   twice gets two arbitrary moments and no way to say what should have changed
+   between them. With the clock passed in, a test asks for the same frame twice
+   and for two known-different ones. */
+window.__mapPulse = ms => drawMapPulse(ms);
+window.__pulseMs = () => PULSE_MS;
 window.__missingKinds = () => missingKinds();
 window.__wideSearch = () => widenLandmarkSearch();
 window.__sweepLandmarks = () => sweepLandmarks();
