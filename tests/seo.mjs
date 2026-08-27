@@ -196,7 +196,7 @@ out.rendered = await p.evaluate(() => {
            chips: document.querySelectorAll('#presets .chip').length };
 });
 need(out.rendered.h1 === 1 && !!out.rendered.h1Text, 'rendered document has no single non-empty h1');
-need(out.rendered.chips === 9, `${out.rendered.chips} chips rendered, want 9`);
+need(out.rendered.chips === 10, `${out.rendered.chips} chips rendered, want 10`);
 // the binding survived being moved out of the loop that used to create them
 await p.click('#presets .chip:nth-child(4)');          // Tokyo
 out.chipStartsAGame = await p.waitForFunction(() => window.__s() !== 'menu', null, { timeout: 15000 })

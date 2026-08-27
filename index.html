@@ -206,6 +206,12 @@
     <button class="chip" data-q="Arc de Triomphe, Paris" data-lat="48.8738" data-lon="2.2950">Paris</button>
     <button class="chip" data-q="Vinewood, Los Angeles" data-lat="34.1016" data-lon="-118.3269">Los Santos</button>
     <button class="chip" data-q="Piazza San Marco, Venice" data-lat="45.4341" data-lon="12.3388">Venice 🚤</button>
+    <!-- BELGRADE IS THE ONE THAT ALWAYS WORKS. These are the exact coordinates of
+         the bundled offline city — data/belgrade.js, captured around Autokomanda —
+         so if the map servers cannot be reached this chip falls back to the same
+         place it was asking for, and a failed load is invisible rather than being
+         an apology and a different city. -->
+    <button class="chip" data-q="Autokomanda, Beograd" data-lat="44.8099" data-lon="20.4762">Belgrade</button>
     <button class="chip" data-q="@geo" data-i18n="menu.myLocation">📍 My location</button>
   </div>
   <div id="menuErr"></div>
