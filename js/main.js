@@ -43,11 +43,11 @@ function togglePause() {
   if (state === 'play') {
     state = 'pause'; $('pause').classList.remove('hide');
     $('pauseStats').innerHTML =
-      `${esc(W.name)}<br>${t('pause.deliveries')}: <b>${MISSION.done}</b> · ` +
-      `${t('pause.bank')}: <b>$${P.cash.toLocaleString()}</b>` +
+      `${esc(W.name)}<br>${txt('pause.deliveries')}: <b>${MISSION.done}</b> · ` +
+      `${txt('pause.bank')}: <b>$${P.cash.toLocaleString()}</b>` +
       // still answering "why am I here?" ten minutes after the toast has gone
       (FELLBACK ? '<div class="whyHere">' +
-                  t('pause.whyHere', { asked: esc(FELLBACK.asked), why: esc(FELLBACK.why) }) +
+                  txt('pause.whyHere', { asked: esc(FELLBACK.asked), why: esc(FELLBACK.why) }) +
                   '</div>' : '');
     SFX.engine(0, 0); SFX.siren(false, 0);
   } else if (state === 'pause') {
@@ -157,7 +157,7 @@ function hasWebGL2() {
 }
 function glHelpSteps() {
   const ios = iOSish();
-  const li = key => '<li>' + t(key) + '</li>';
+  const li = key => '<li>' + txt(key) + '</li>';
   /* KEPT SHORT ENOUGH TO FIT A PHONE. The first version ran to 693 px of card on
      a 664 px iPhone screen and 891 px on a 320-wide one, which puts GOT IT below
      the fold — a card explaining a problem that you cannot dismiss. The steps
@@ -169,7 +169,7 @@ function glHelpSteps() {
      worse than no step at all. */
   if (!ios) return '<ol>' + li('gl.desk1') + li('gl.desk2') + '</ol>';
   return '<ol>' + li('gl.ios1') + li('gl.ios2') + li('gl.ios3') + li('gl.ios4') +
-         '</ol><p class="aside">' + t('gl.iosAside') + '</p>';
+         '</ol><p class="aside">' + txt('gl.iosAside') + '</p>';
 }
 function showGLHelp(force) {
   if (!force) {
@@ -216,7 +216,7 @@ function langPaint() {
 function i18nRepaint() {
   langPaint();
   if (typeof MODE3D !== 'undefined')
-    $('modeBtn').setAttribute('title', t(MODE3D ? 'btn.to2d' : 'btn.to3d'));
+    $('modeBtn').setAttribute('title', txt(MODE3D ? 'btn.to2d' : 'btn.to3d'));
   /* The objective line is the one HUD string with two versions — a translated
      label while free-roaming, and a street name mid-delivery, which is a proper
      noun and stays as the map spells it. setObjective knows which. */
@@ -661,7 +661,7 @@ function checkBuild() {
       v = (v || '').trim();
       if (!/^[0-9a-f]{6,12}$/.test(v) || v === window.BUILD) return;
       if (state === 'menu' || state === 'dead') location.reload();
-      else if (typeof toast === 'function') toast(t('toast.newVersion'), 4200);
+      else if (typeof toast === 'function') toast(txt('toast.newVersion'), 4200);
     })
     .catch(() => {});                             // offline is not an update
 }

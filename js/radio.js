@@ -204,7 +204,7 @@ function radioEl() {
        question occurs to them. */
     if (RADIO.told) return;
     RADIO.told = true;
-    if (typeof toast === 'function') toast(t('toast.radioOn'), 2800);
+    if (typeof toast === 'function') toast(txt('toast.radioOn'), 2800);
   });
   a.addEventListener('stalled', () => { if (RADIO.on) radioPaint(); });
   document.body.appendChild(a);
@@ -392,16 +392,16 @@ function radioStep(d) {
 const radioGlyph = () => (RADIO.on ? '■ ' : '▶ ');
 function radioLabel() {
   const s = RADIO.list[RADIO.i];
-  if (RADIO.status === 'idle') return radioWanted() ? t('radio.idle') : '▶ ' + t('radio.idle');
-  if (RADIO.status === 'finding') return t('radio.tuning');
-  if (RADIO.status === 'none') return t('radio.none');
-  if (!s) return t('radio.off');
-  if (RADIO.status === 'error') return radioGlyph() + s.name + ' · ' + t('radio.deadAir');
+  if (RADIO.status === 'idle') return radioWanted() ? txt('radio.idle') : '▶ ' + txt('radio.idle');
+  if (RADIO.status === 'finding') return txt('radio.tuning');
+  if (RADIO.status === 'none') return txt('radio.none');
+  if (!s) return txt('radio.off');
+  if (RADIO.status === 'error') return radioGlyph() + s.name + ' · ' + txt('radio.deadAir');
   if (RADIO.status === 'loading') return radioGlyph() + s.name + ' …';
   return radioGlyph() + s.name;
 }
 // what pressing the name will do, for a screen reader and for the tooltip
-const radioAction = () => t(RADIO.on ? 'radio.stop' :
+const radioAction = () => txt(RADIO.on ? 'radio.stop' :
                             RADIO.list.length ? 'radio.play' : 'radio.turnOn');
 
 /* THE LAST RESORT, for a name too long even for two lines.

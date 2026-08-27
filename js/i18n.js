@@ -17,14 +17,14 @@
    language in two alphabets, and this table is written in Latin script because
    that is what Belgrade street signs and most Serbian websites use.
 
-   EVERY KEY EXISTS IN ENGLISH, and t() falls back to it. A missing translation
+   EVERY KEY EXISTS IN ENGLISH, and txt() falls back to it. A missing translation
    is then a word in the wrong language, which is survivable; a missing key would
    be the literal string `menu.drive` on a button, which is not. tests/i18n.mjs
    asserts no locale is missing any key, so the fallback is a safety net rather
    than a plan.
 
    NOT MARKED UP BY HAND AT RUNTIME. Static text carries data-i18n in
-   index.html and i18nApply walks it; anything built in script calls t(). */
+   index.html and i18nApply walks it; anything built in script calls txt(). */
 
 const LANGS = [
   { code: 'en', name: 'English' },
@@ -45,7 +45,7 @@ const STR = {
    The reference. Every other table is this one, translated — and every key
    here has to exist there, which is what tests/i18n.mjs checks.
 
-   {braces} are substituted by t(). \n inside a toast is a real line break;
+   {braces} are substituted by txt(). \n inside a toast is a real line break;
    the toast element renders it, and translations must keep it. */
 en: {
   // --- the menu
@@ -1300,8 +1300,20 @@ let LANG = langPick();
 
 /* One string. Missing keys fall back to English, then to the key itself — a key
    on screen is ugly but it is also unmistakable, which is what you want from the
-   case that is not supposed to happen. */
-function t(key, vars) {
+   case that is not supposed to happen.
+
+   AND IT IS CALLED txt RATHER THAN t, which is the conventional name and was the
+   first one used here. `t` is bound as a local or a parameter in ninety-six
+   places in this codebase — a timestamp in the loop, a traffic car, a building's
+   tags, an interpolation factor, the ground attitude under a landing car — and
+   every one of them shadows a global of the same name inside its own function.
+   It cost one real crash: landCar in js/body3d.js does
+   `const t = groundAttitude(...)` eleven lines above a toast, so a car finishing
+   a jump on its roof called the attitude object as a function and took the whole
+   frame down with it. Nothing warned; the file parses, and the shadow only bites
+   on the path that lands upside down. A name that is free everywhere is worth
+   more than a name that is short. */
+function txt(key, vars) {
   const table = STR[LANG] || STR.en;
   let s = table[key];
   if (s == null) s = STR.en[key];
@@ -1321,15 +1333,15 @@ function t(key, vars) {
 function i18nApply(root) {
   const r = root || document;
   for (const el of r.querySelectorAll('[data-i18n]'))
-    el.textContent = t(el.getAttribute('data-i18n'));
+    el.textContent = txt(el.getAttribute('data-i18n'));
   for (const el of r.querySelectorAll('[data-i18n-html]'))
-    el.innerHTML = t(el.getAttribute('data-i18n-html'), { osm: el.dataset.osm || '' });
+    el.innerHTML = txt(el.getAttribute('data-i18n-html'), { osm: el.dataset.osm || '' });
   for (const el of r.querySelectorAll('[data-i18n-aria]'))
-    el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria')));
+    el.setAttribute('aria-label', txt(el.getAttribute('data-i18n-aria')));
   for (const el of r.querySelectorAll('[data-i18n-title]'))
-    el.setAttribute('title', t(el.getAttribute('data-i18n-title')));
+    el.setAttribute('title', txt(el.getAttribute('data-i18n-title')));
   for (const el of r.querySelectorAll('[data-i18n-ph]'))
-    el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
+    el.setAttribute('placeholder', txt(el.getAttribute('data-i18n-ph')));
   if (r === document || r === document.documentElement)
     document.documentElement.setAttribute('lang', LANG);
 }

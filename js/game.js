@@ -58,7 +58,7 @@ function wirePatreon(url) {
 for (const id of ['ghostM', 'ghostP'])
   $(id).onclick = () => {
     setGhost(!GHOST);
-    if (state === 'play') toast(t(GHOST ? 'toast.ghostOn' : 'toast.ghostOff'), 1400);
+    if (state === 'play') toast(txt(GHOST ? 'toast.ghostOn' : 'toast.ghostOff'), 1400);
   };
 wirePatreon();
 syncGhostUI();
@@ -80,7 +80,7 @@ syncGhostUI();
 
 function useGeo() {
   if (!navigator.geolocation) { startGame('Miami Beach, Florida'); return; }
-  showLoad(t('load.finding'), t('load.gps'));
+  showLoad(txt('load.finding'), txt('load.gps'));
   navigator.geolocation.getCurrentPosition(
     p => startGame(null, p.coords.latitude, p.coords.longitude, 'Your neighbourhood'),
     () => startGame('Miami Beach, Florida'),
@@ -172,7 +172,7 @@ async function startGame(query, lat, lon, label) {
   RETRY.city = null; RETRY.at = 0; RETRY.n = 0;
   audioStart();
   $('menuErr').classList.remove('on');
-  showLoad(t('load.locating'), query || label || '');
+  showLoad(txt('load.locating'), query || label || '');
   prog(.08);
   let name = label || query || 'Somewhere';
   let procedural = false, data = null, why = '', geoFailed = false, openingMs = 0;
@@ -195,7 +195,7 @@ async function startGame(query, lat, lon, label) {
       // but dead-ending an offline player helps nobody, so fall through and build
       // the offline city with the reason on the label.
       if (/no such place/i.test(err.message)) {
-        return backToMenu(t('err.notFound', { q: query }));
+        return backToMenu(txt('err.notFound', { q: query }));
       }
       geoFailed = true;
     }
@@ -207,7 +207,7 @@ async function startGame(query, lat, lon, label) {
     if (geoFailed) throw new Error('place search unreachable');
     setOrigin(lat, lon);
     $('loadCity').textContent = name;
-    prog(.25, t('load.streets'), t('load.streetsAround', { city: name.split(',')[0] }));
+    prog(.25, txt('load.streets'), txt('load.streetsAround', { city: name.split(',')[0] }));
     const els = await fetchStreets(lat, lon,
       m => { $('loadMsg').textContent = m; },
       b => { LOAD.bytes = b; });
@@ -218,7 +218,7 @@ async function startGame(query, lat, lon, label) {
        unreachable or too slow before a good one answered. In the session that
        exposed it the streets came back in 5.5 s and that expression read 12 s. */
     openingMs = LOAD.replyMs || (Date.now() - LOAD.t0);
-    prog(.62, t('load.concrete'), t('load.features', { n: els.length.toLocaleString() }));
+    prog(.62, txt('load.concrete'), txt('load.features', { n: els.length.toLocaleString() }));
     data = parseOSM(els);
     // a quiet village is still a real place — only fall back if there's nothing
     if (!data.roads.length) {
@@ -260,7 +260,7 @@ async function startGame(query, lat, lon, label) {
   endLoad();
 
   $('loadCity').textContent = name;
-  prog(.82, t('load.neon'), fellBack ? why : '');
+  prog(.82, txt('load.neon'), fellBack ? why : '');
   await new Promise(r => setTimeout(r, 40));
   buildWorld(data, name, procedural);
   if (offline) {
@@ -285,7 +285,7 @@ async function startGame(query, lat, lon, label) {
        later: everything downstream of it — the grid, the fence, the radar window
        — is sized from its rectangle, and growing all of that mid-drive is a
        stutter. The ring is detail, and takes whatever budget is left. */
-    prog(.86, t('load.wholeCity'), t('load.roadsOut', { km: SKELETON_RADII[0] / 1000 }));
+    prog(.86, txt('load.wholeCity'), txt('load.roadsOut', { km: SKELETON_RADII[0] / 1000 }));
     const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
     if (gen !== loadGen) return;
     // Note, don't act on it: the ring that follows is full street detail and still
@@ -293,7 +293,7 @@ async function startGame(query, lat, lon, label) {
     // "0 more roads across 18 km" is a real outcome — a small town whose trunk
     // roads the detailed centre already had — but it reads like a failure, so say
     // how big the city is instead of how little the last request added to it.
-    if (skel) prog(.88, t('load.neon'),
+    if (skel) prog(.88, txt('load.neon'),
                    skel.roads ? skel.roads.toLocaleString() + ' more roads across ' +
                                 Math.round(skel.radius / 1000) + ' km'
                               : Math.round(skel.radius / 1000) + ' km of city');
@@ -330,7 +330,7 @@ async function startGame(query, lat, lon, label) {
     sweep.catch(() => {});
   }
 
-  prog(.95, t('load.engine'));
+  prog(.95, txt('load.engine'));
   await new Promise(r => setTimeout(r, 60));
   // The wide map is in, so recycling a district may drop its scenery and keep its
   // roads. Tiles go on carrying streets either way: the skeleton is arterials, and
@@ -338,7 +338,7 @@ async function startGame(query, lat, lon, label) {
   WIDE_MAP = !!W.skelRect;
   resetRun();
 
-  prog(1, t('load.ready'));
+  prog(1, txt('load.ready'));
   await new Promise(r => setTimeout(r, 180));
   $('load').classList.add('hide');
   $('hud').classList.add('on');
@@ -379,7 +379,7 @@ async function startGame(query, lat, lon, label) {
      long enough to read. */
   if (fellBack) {
     const place = askedFor ? askedFor.split(',')[0] : 'that place';
-    toast(t('toast.couldntLoad', { city: place.toUpperCase(), why,
+    toast(txt('toast.couldntLoad', { city: place.toUpperCase(), why,
                                    alt: name.split(',')[0].toUpperCase() }), 7000);
     // and it stays on the pause card for the rest of the session, so it is still
     // answerable ten minutes later when you wonder why you are in Belgrade
@@ -391,7 +391,7 @@ async function startGame(query, lat, lon, label) {
     retryLater({ city: want });
   } else {
     FELLBACK = null;
-    toast(t('toast.welcome', { city: name.toUpperCase() }), 2600);
+    toast(txt('toast.welcome', { city: name.toUpperCase() }), 2600);
   }
   /* Not only the fallback. A city can load perfectly and still be missing the
      wide map, or every garage and hospital, or all of its buildings — each of
@@ -460,7 +460,7 @@ async function runRetry(kind) {
     if (!skel || skel.bundled) return false;
     WIDE_MAP = true;
     prerenderMap();
-    toast(t('toast.mapExtended', { km: Math.round(skel.radius / 1000) }), 2600);
+    toast(txt('toast.mapExtended', { km: Math.round(skel.radius / 1000) }), 2600);
     return true;
   }
   if (kind === 'landmarks') {
@@ -470,7 +470,7 @@ async function runRetry(kind) {
     await sweepLandmarks();
     if (missingKinds().length >= before && W.pois.length <= had) return false;
     prerenderMap();
-    toast(t('toast.landmarks', { n: W.pois.length - had }), 2200);
+    toast(txt('toast.landmarks', { n: W.pois.length - had }), 2200);
     return true;
   }
   if (kind === 'buildings') {
@@ -513,7 +513,7 @@ async function retryCity() {
   resetRun();                       // cash is read back from storage, so it survives
   resize();
   FELLBACK = null; RETRY.city = null;
-  toast(t('toast.gotCity', { city: String(name).split(',')[0].toUpperCase() }), 5000);
+  toast(txt('toast.gotCity', { city: String(name).split(',')[0].toUpperCase() }), 5000);
 
   // and everything the opening load would have done next, behind the wheel
   loadOpeningBuildings(lat, lon, gen);
@@ -685,7 +685,7 @@ function startDelivery() {
   MISSION.time = clamp(dd / 13 + 18, 22, 150);   // cross-district runs need the room
   MISSION.reward = Math.round(120 + dd * 1.6 + MISSION.done * 45);
   SFX.pickup();
-  toast(t('toast.secured', { n: MISSION.reward }), 1800);
+  toast(txt('toast.secured', { n: MISSION.reward }), 1800);
   // the drop point already knows which way it sits on, so name it
   const where = d.road && d.road.name;
   setObjective(where ? 'hud.deliverTo' : 'hud.deliverPkg', { street: where });
@@ -695,13 +695,13 @@ function completeDelivery() {
   MISSION.done++;
   store.set('vm_cash', P.cash);
   SFX.cash();
-  toast(t('toast.delivered', { n: MISSION.reward }), 2000);
+  toast(txt('toast.delivered', { n: MISSION.reward }), 2000);
   MISSION.state = 'none';
   setTimeout(newMission, 900);
 }
 function failDelivery() {
   MISSION.state = 'none';
-  toast(t('toast.tooSlow'), 1800);
+  toast(txt('toast.tooSlow'), 1800);
   setObjective('hud.freeRoam');
   setTimeout(newMission, 1600);
 }
@@ -714,7 +714,7 @@ function failDelivery() {
    and stays exactly as the map spells it. */
 let OBJ = { key: 'hud.freeRoam', vars: null };
 function refreshObjective() {
-  $('objT').textContent = t(OBJ.key, OBJ.vars);
+  $('objT').textContent = txt(OBJ.key, OBJ.vars);
 }
 function setObjective(key, vars) {
   OBJ = { key, vars: vars || null };
@@ -730,7 +730,7 @@ function addWanted(n) {
   if (P.wanted > before) {
     SFX.star();
     stockCops(Math.round(P.wanted * 1.6));
-    if (before === 0) toast(t('toast.wanted'), 1200);
+    if (before === 0) toast(txt('toast.wanted'), 1200);
   }
 }
 /* A repair shop puts the armor back and resprays you on the way out. The new
@@ -738,7 +738,7 @@ function addWanted(n) {
 function repairAt(p) {
   if (P.cash < REPAIR_COST) {
     p.cool = 2;                                // just long enough not to spam the toast
-    toast(t('toast.repairsCost', { n: REPAIR_COST }), 1600);
+    toast(txt('toast.repairsCost', { n: REPAIR_COST }), 1600);
     return;
   }
   p.cool = 6;                                  // parked on it shouldn't re-fire
@@ -749,7 +749,7 @@ function repairAt(p) {
   P.car.color = pick(others.length ? others : PAL.carBody);
   SFX.pickup();
   toast((p.name ? p.name.toUpperCase() + ' · ' : '') +
-        t('toast.repaired', { n: REPAIR_COST }), 1800);
+        txt('toast.repaired', { n: REPAIR_COST }), 1800);
 }
 
 function busted() {
@@ -891,7 +891,7 @@ function update(dt) {
      of the world — say so the first time. */
   if (atEdge) P.edgeHits = (P.edgeHits || 0) + 1;
   if (atEdge && !P.dead && P.edgeCd <= 0) {
-    P.edgeCd = 6; toast(t('toast.edge'), 1700);
+    P.edgeCd = 6; toast(txt('toast.edge'), 1700);
   }
 
   /* WEDGED. Plenty of things can pin a car at a standstill — a civilian stopped
@@ -979,7 +979,7 @@ function update(dt) {
     walkPed(p, dt);
     if (dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
       p.dead = true; addWanted(1);
-      SFX.crash(8); toast(t('toast.watchIt'), 900);
+      SFX.crash(8); toast(txt('toast.watchIt'), 900);
       for (let i = 0; i < 5; i++) parts.push(sparks(p.x, p.y, '#ff4f6d'));
     }
   }
@@ -1016,7 +1016,7 @@ function update(dt) {
   if (P.wanted > 0) {
     if (!nearCop) {
       P.cool += dt;
-      if (P.cool > 8) { P.cool = 0; P.wanted = Math.max(0, P.wanted - 1); if (P.wanted === 0) { cops = []; toast(t('toast.lostThem'), 1400); } }
+      if (P.cool > 8) { P.cool = 0; P.wanted = Math.max(0, P.wanted - 1); if (P.wanted === 0) { cops = []; toast(txt('toast.lostThem'), 1400); } }
     } else P.cool = 0;
     // despawn units that fell hopelessly behind, then top the pursuit back up
     cops = cops.filter(k => !k.dead && dist(k.x, k.y, c.x, c.y) < 700);

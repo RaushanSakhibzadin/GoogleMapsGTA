@@ -24,8 +24,43 @@
  *   button whose text does not fit is a button you cannot read. Measured on a
  *   phone, against the elements that actually carry translated text.
  */
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { chromium, devices } from 'playwright';
-import { CHROME, GAME, stubRadio } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
+
+/* ---- 0. NOTHING SHADOWS THE TRANSLATION FUNCTION ----
+
+   Read off the source, before a browser is started, because it is the one
+   failure a running test can only find by accident.
+
+   These are plain <script> files sharing one global scope, so a local of the
+   same name silently replaces the global inside its own function — and the file
+   still parses, so nothing warns. The function was called `t` for exactly one
+   commit: `t` is bound as a local or a parameter in ninety-six places here, and
+   landCar in js/body3d.js does `const t = groundAttitude(...)` eleven lines
+   above a toast. A car that finished a jump on its roof called the attitude
+   object as a function and took the frame down with it. Nothing but a landing
+   upside down reached that line, so the whole suite passed except the one test
+   that jumps a car.
+
+   Renaming it to `txt` fixed that instance. THIS is what stops the next one:
+   `txt` may be called and it may never be bound. */
+const JS = readdirSync(join(ROOT, 'js')).filter(f => f.endsWith('.js'));
+const shadows = [];
+for (const f of JS) {
+  const src = readFileSync(join(ROOT, 'js', f), 'utf8');
+  const lines = src.split('\n');
+  lines.forEach((l, i) => {
+    if (/^\s*(\/\/|\*|\/\*)/.test(l)) return;               // comments describe it
+    // a declaration, or a parameter position, named txt
+    if (/(?:const|let|var)\s+txt\b/.test(l) ||
+        /function\s+[A-Za-z_$]*\s*\([^)]*\btxt\s*[,)]/.test(l) ||
+        /\(\s*txt\s*[,)]\s*=>/.test(l))
+      if (!(f === 'i18n.js' && /function txt\(key, vars\)/.test(l)))
+        shadows.push(f + ':' + (i + 1) + ' ' + l.trim().slice(0, 60));
+  });
+}
 
 const LAT0 = 44.8125, LON0 = 20.4489;
 const json = o => ({ contentType: 'application/json', body: JSON.stringify(o) });
@@ -38,6 +73,8 @@ const streets = () => ({ elements: [
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = {};
+out.shadows = shadows;
+out.nothingShadowsTxt = shadows.length === 0;
 
 /* One page, in one system language. `languages` is overridden before any script
    runs — Playwright's own `locale` sets navigator.language but the game reads
@@ -303,7 +340,7 @@ out.nothingOverflows = Object.values(out.fit).every(f =>
   f.over.length === 0 && f.pageW <= f.vw);
 
 out.errs = [].concat(out.enErrs, out.ruErrs, out.switchErrs).filter(Boolean);
-out.pass = out.followsTheSystem && out.everyLocaleIsComplete && out.noKeysOnScreen &&
+out.pass = out.nothingShadowsTxt && out.followsTheSystem && out.everyLocaleIsComplete && out.noKeysOnScreen &&
            out.markupIsTranslated && out.theGameIsTranslated &&
            out.pickerChangesIt && out.choiceSurvivesReload &&
            out.switchingMidGameResays && out.nothingOverflows && !out.errs.length;
