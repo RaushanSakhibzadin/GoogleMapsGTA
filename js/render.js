@@ -603,12 +603,25 @@ function drawBigMap() {
   if (MISSION.state === 'pickup' && MISSION.pick) face(MISSION.pick.x, MISSION.pick.y, 'pickup', fpx * 1.2);
   if (MISSION.state === 'deliver' && MISSION.drop) face(MISSION.drop.x, MISSION.drop.y, 'drop', fpx * 1.2);
 
-  // the car, pointing where it is pointing
+  /* THE CAR, POINTING WHERE IT IS POINTING — and big enough to find.
+
+     Reported as not being able to find yourself on the map. It was a 16 by 13
+     device-pixel arrowhead, which on a phone at DPR 3 is five points across and
+     is competing with a city; at 26 by 21 it is the largest single thing on the
+     overlay, which is what it should be. The whole point of opening a map is to
+     find yourself on it.
+
+     IT DOES NOT SCALE WITH THE ZOOM, unlike the landmark faces beside it, and
+     that is deliberate rather than an oversight: the landmarks grow because
+     zooming in is asking to read the street they are on, while the car has to be
+     equally findable at every zoom — most of all at the far end, where the
+     reason to look is that you have lost track of where you are. */
+  const ME = 15 * DPR;
   const [cx, cy] = toPx(P.car.x, P.car.y);
   g.save(); g.translate(cx, cy); g.rotate(P.car.h + Math.PI / 2);
-  g.fillStyle = '#fff'; g.strokeStyle = '#12061d'; g.lineWidth = 1.6 * DPR;
+  g.fillStyle = '#fff'; g.strokeStyle = '#12061d'; g.lineWidth = 2.2 * DPR;
   g.beginPath();
-  g.moveTo(0, -9 * DPR); g.lineTo(6.4 * DPR, 7 * DPR); g.lineTo(0, 3.6 * DPR); g.lineTo(-6.4 * DPR, 7 * DPR);
+  g.moveTo(0, -ME); g.lineTo(ME * .71, ME * .78); g.lineTo(0, ME * .4); g.lineTo(-ME * .71, ME * .78);
   g.closePath(); g.fill(); g.stroke();
   g.restore();
 

@@ -534,6 +534,17 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    gesture strips by the same insets everything else uses. The key runs along the
    bottom LEFT, so the two do not meet — and the key stops short of it because
    its own max-width is well under the screen. */
+/* STACKED ABOVE THE CLOSE BUTTON, on the same edge and to the same size, so the
+   two read as one control column under the thumb rather than as two buttons
+   that happen to be near each other. Above rather than beside it because the
+   bottom-left of the map is the legend and the bottom-right corner is where the
+   close button has to stay — it is the one control a player looks for. */
+#mapMe{position:fixed;right:var(--edgeR);bottom:calc(var(--edgeB0) + 62px);z-index:66;
+  pointer-events:auto;font-family:var(--ui);font-size:23px;
+  line-height:1;min-width:52px;height:52px;padding:0;border-radius:14px;
+  color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  background:rgba(51,230,255,.20);border:1px solid var(--cyan);box-shadow:none}
+#mapMe:hover{background:rgba(51,230,255,.34)}
 #mapClose{position:fixed;right:var(--edgeR);bottom:var(--edgeB0);z-index:66;
   pointer-events:auto;font-family:var(--hud);font-size:20px;
   line-height:1;min-width:52px;height:52px;padding:0 14px;border-radius:14px;

@@ -107,6 +107,18 @@ function mapPulseOff() {
 }
 $('mini').onclick = openMap;
 $('mapClose').onclick = closeMap;
+/* PUT THE CAR BACK IN THE MIDDLE, and touch nothing else.
+   mapFit(true) is already exactly this — it re-centres and keeps the scale, and
+   the note above it explains why those two halves are split that way — so this
+   is a call to it rather than a second copy of the same two lines that could
+   later disagree with it about what "keep" means. */
+function centreMap() {
+  if (state !== 'map') return false;
+  mapFit(true);
+  drawBigMap();
+  return true;
+}
+$('mapMe').onclick = centreMap;
 
 /* Pan and pinch. Pointer events cover mouse, pen and touch in one path, and the
    pointers are tracked in a map so a second finger arriving mid-drag becomes a
@@ -719,6 +731,7 @@ window.__clearEdge = () => { P.edgeCd = 0; P.edgeHits = 0; };
 window.__mapView = () => ({ cx: +MAPV.cx.toFixed(1), cy: +MAPV.cy.toFixed(1), s: +MAPV.s.toFixed(5) });
 window.__mapPan = (dx, dy) => { MAPV.cx += dx; MAPV.cy += dy; mapClamp(); drawBigMap(); };
 window.__mapZoom = k => { MAPV.s *= k; mapClamp(); drawBigMap(); };
+window.__mapCentre = () => centreMap();
 /* The ping, drawn at a phase the caller names. The animation is on the wall
    clock, which is right for a decoration and useless for a test: sampling it
    twice gets two arbitrary moments and no way to say what should have changed

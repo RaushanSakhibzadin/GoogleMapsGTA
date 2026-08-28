@@ -44,7 +44,7 @@
 <link rel="alternate icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=37ce30e60c">
+<link rel="stylesheet" href="style.css?v=1c136455b1">
 
 <!-- The build's content hash, written by tools/stamp.mjs. Every script and
      stylesheet above carries it in its URL; this exposes it to the code as well,
@@ -52,7 +52,7 @@
      same treatment — a stamped world.js paired with a cached four-megabyte city
      from a different build is the one mixed pairing the URLs could not prevent
      on their own. -->
-<script>window.BUILD='37ce30e60c';</script>
+<script>window.BUILD='1c136455b1';</script>
 
 <!-- Deliberately no aggregateRating. There are no ratings to report, and
      inventing them is a Google guidelines violation with a manual action
@@ -293,6 +293,13 @@
     <div id="mapWhere"></div>
     <button id="mapClose">✕</button>
   </div>
+  <!-- FIND ME AGAIN. Panning is how you look around a 72 km city and it is also
+       how you lose yourself in one: two drags out and the arrow is somewhere off
+       the edge with nothing to say which edge. This puts the car back under the
+       middle of the screen and CHANGES NOTHING ELSE — the zoom you pinched to is
+       the reason you were panning in the first place. -->
+  <button id="mapMe" data-i18n-title="map.centre" title="Centre on me"
+          data-i18n-aria="map.centre" aria-label="Centre on me">◎</button>
   <div id="mapKey">
     <span><i style="background:#48ff9e"></i><em>🔧</em><b data-i18n="map.repairs">repairs</b></span>
     <span><i style="background:#ff4f6d"></i><em>🏥</em><b data-i18n="map.hospital">hospital</b></span>
@@ -375,22 +382,22 @@ addEventListener('error', function (e) {
 <!-- FIRST, ahead of everything. Every other file may want a string, and the
      markup is translated before the first paint rather than after it — a
      flash of English on a Japanese phone is a bug you cannot un-see. -->
-<script src="js/i18n.js?v=37ce30e60c"></script>
-<script src="js/util.js?v=37ce30e60c"></script>
-<script src="js/log.js?v=37ce30e60c"></script>
-<script src="js/geo.js?v=37ce30e60c"></script>
-<script src="js/world.js?v=37ce30e60c"></script>
+<script src="js/i18n.js?v=1c136455b1"></script>
+<script src="js/util.js?v=1c136455b1"></script>
+<script src="js/log.js?v=1c136455b1"></script>
+<script src="js/geo.js?v=1c136455b1"></script>
+<script src="js/world.js?v=1c136455b1"></script>
 <!-- terrain before body3d before entities: the driving physics reads the grade
      under the car, and the body that rides it is written in terms of both. -->
-<script src="js/terrain.js?v=37ce30e60c"></script>
-<script src="js/body3d.js?v=37ce30e60c"></script>
-<script src="js/entities.js?v=37ce30e60c"></script>
-<script src="js/io.js?v=37ce30e60c"></script>
-<script src="js/game.js?v=37ce30e60c"></script>
+<script src="js/terrain.js?v=1c136455b1"></script>
+<script src="js/body3d.js?v=1c136455b1"></script>
+<script src="js/entities.js?v=1c136455b1"></script>
+<script src="js/io.js?v=1c136455b1"></script>
+<script src="js/game.js?v=1c136455b1"></script>
 <!-- gl before render3d, and render3d last of the three: it is the file that owns
      the unqualified render() and toScreen() and dispatches to one view or the
      other. -->
-<script src="js/gl.js?v=37ce30e60c"></script>
+<script src="js/gl.js?v=1c136455b1"></script>
 <!-- Every texture in the game, grown out of arithmetic at load: the trees after
      dark, the same trees in daylight, and the render on the walls. Must come
      before render3d.js, which is the only thing that asks it for anything.
@@ -400,13 +407,13 @@ addEventListener('error', function (e) {
      missing picture of a tree was survivable and render3d.js painted its own.
      This one is not: it is the only source of those textures now, so it is
      checked like the rest. -->
-<script src="js/radio.js?v=37ce30e60c"></script>
-<script src="js/proctex.js?v=37ce30e60c"></script>
-<script src="js/carmesh.js?v=37ce30e60c"></script>
-<script src="js/render.js?v=37ce30e60c"></script>
-<script src="js/soft3d.js?v=37ce30e60c"></script>
-<script src="js/render3d.js?v=37ce30e60c"></script>
-<script src="js/main.js?v=37ce30e60c"></script>
+<script src="js/radio.js?v=1c136455b1"></script>
+<script src="js/proctex.js?v=1c136455b1"></script>
+<script src="js/carmesh.js?v=1c136455b1"></script>
+<script src="js/render.js?v=1c136455b1"></script>
+<script src="js/soft3d.js?v=1c136455b1"></script>
+<script src="js/render3d.js?v=1c136455b1"></script>
+<script src="js/main.js?v=1c136455b1"></script>
 
 <!-- Did all of that actually arrive? Asked of the CODE rather than of the
      network, because a script can 200 and still not have run — and because one

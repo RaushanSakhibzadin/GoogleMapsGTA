@@ -88,6 +88,105 @@ out.fresh = await p.evaluate(() => {
 });
 out.clearedOpensOnTheDefault = Math.abs(out.fresh.got - out.fresh.want) < 1e-4;
 
+/* ---- 3b. and there is a way back to yourself ---- */
+/* Reported as not being able to find yourself on the map. Panning is how you
+   look around a 72 km city and it is also how you lose yourself in one: two
+   drags out and the car is off the edge with nothing to say which edge.
+ *
+ * THE ZOOM IS THE HALF THAT MATTERS. Re-centring is easy; re-centring without
+ * throwing away the zoom you pinched to is the request, and a button that
+ * quietly called mapFit() with no argument would satisfy "the car is in the
+ * middle now" while undoing the reason you were panning. So the scale is
+ * asserted unchanged to five decimal places, and the drag before it is checked
+ * to have actually lost the car first — otherwise this passes on a map that
+ * never moved.
+ *
+ * DRIVEN THROUGH THE REAL BUTTON, because a control nobody can press is not a
+ * control: the handler could be bound to nothing, or the button could be under
+ * the close button, and every check on the function itself would still pass. */
+out.recentreBtn = await p.evaluate(async () => {
+  /* Parked in the middle of the world first. mapClamp will not let the edge of
+     the world inside the viewport, so a car sitting outside the pannable box
+     cannot be centred on by anything — which is correct behaviour and would
+     read here as the button doing nothing. */
+  window.__tp((W.minX + W.maxX) / 2, (W.minY + W.maxY) / 2, 0);
+  P.car.vx = P.car.vy = 0;
+  window.__openMap();
+  window.__mapZoom(6);                         // pinched right in
+  const zoom = window.__mapView().s;
+  window.__mapPan(2600, 2100);                 // and dragged away from the car
+  const lost = window.__mapView();
+  const off = Math.hypot(lost.cx - P.car.x, lost.cy - P.car.y);
+  const el = document.getElementById('mapMe');
+  const box = el.getBoundingClientRect();
+  const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  el.click();
+  const back = window.__mapView();
+  window.__closeMap();
+  return { zoom: +zoom.toFixed(5), lostBy: Math.round(off),
+           afterZoom: +back.s.toFixed(5),
+           afterOff: Math.round(Math.hypot(back.cx - P.car.x, back.cy - P.car.y)),
+           pressable: hit ? hit.id : null };
+});
+/* Half a kilometre away counts as lost; back under a hundred metres of the
+   middle counts as found. Not zero: mapClamp will not let the edge of the world
+   inside the viewport, so a car near a corner pins the centre short of itself —
+   the same reason section 2 asks for "close to" rather than "equal to". */
+out.centreFindsYou =
+  out.recentreBtn.pressable === 'mapMe' &&
+  out.recentreBtn.lostBy > 500 && out.recentreBtn.afterOff < 100 &&
+  out.recentreBtn.afterZoom === out.recentreBtn.zoom;
+
+/* ---- 3c. and the arrow is big enough to spot ---- */
+/* The other half of the same report. Measured as the white marker's footprint
+   on the drawn map, at two very different zooms: it must be large, and it must
+   be the SAME size at both — the landmark faces grow when you zoom in because
+   zooming in is asking to read a street, but the car has to be equally findable
+   at every zoom, most of all at the far end where the reason to look is that you
+   have lost track of where you are.
+ *
+ * The car is the only pure white thing on the overlay; the roads by daylight are
+ * #ffffff too, so this is read at dusk, where they are violet. */
+out.arrow = await p.evaluate(async () => {
+  applyTheme('dusk');
+  window.__openMap();
+  const cv = document.getElementById('bigmapC');
+  const g = cv.getContext('2d');
+  const measure = () => {
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0;
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+      const i = (y * cv.width + x) * 4;
+      if (d[i] < 250 || d[i + 1] < 250 || d[i + 2] < 250) continue;
+      n++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    return { n, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  };
+  window.__tp((W.minX + W.maxX) / 2, (W.minY + W.maxY) / 2, 0.6);
+  window.__mapCentre();
+  const far = measure();
+  window.__mapZoom(12);
+  window.__mapCentre();
+  const near = measure();
+  window.__closeMap();
+  return { far, near, dpr: DPR };
+});
+/* AREA, NOT THE BOUNDING BOX. The arrow is rotated by the car's heading, so its
+   width and height on screen are a fact about which way you were pointing —
+   the same arrow measures 18 by 15 one moment and 15 by 18 the next. The count
+   of white pixels does not care.
+
+   90 at DPR 1 is the floor. The drawn shape encloses about 224 device pixels
+   and the dark outline eats roughly 90 of them from the inside, which leaves
+   ~108 white and is what this measures; the arrow it replaced enclosed 81 and
+   left about 41, so the floor sits clear of both. Squared with the device ratio
+   because it is an area. */
+out.arrowIsFindable =
+  out.arrow.far.n >= 90 * out.arrow.dpr * out.arrow.dpr &&
+  Math.abs(out.arrow.far.n - out.arrow.near.n) <= 6;
+
 /* ---- 4. and a new city does not inherit the last one's zoom ---- */
 out.newCity = await p.evaluate(() => {
   window.__openMap();
@@ -150,6 +249,7 @@ out.markerFootprintGrows = out.ink.far > 40 && out.ink.near > out.ink.far * 2;
 out.errs = errs.slice(0, 3);
 out.pass = out.zoomTookEffect && out.zoomSurvivesClosing && out.followsTheCar &&
            out.newCityClearsTheZoom && out.clearedOpensOnTheDefault &&
+           out.centreFindsYou && out.arrowIsFindable &&
            out.faceHasAFloor && out.faceGrowsWithS && out.faceHasACeiling &&
            out.markerFootprintGrows && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
