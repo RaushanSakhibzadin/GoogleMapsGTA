@@ -137,43 +137,61 @@ out.fps = await p.evaluate(() => new Promise(res => {
   const tick = () => { n++; if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else res(Math.round(n / 1.5)); };
   requestAnimationFrame(tick);
 }));
-/* ---------- and it is the same gold-on-light-blue in both themes ---------- */
-/* Asked for in these words: yellow with a light blue border, because that reads
-   in daylight and at night. It used to be cyan by night and a dark teal by day
-   — two colours to keep right instead of one, and the daylight half had been
-   picked for a pale ground that is now dark sea-green, so it was heading for
-   teal on teal.
+/* ---------- gold, hard-edged, and the same in both themes ---------- */
+/* Asked for in three goes, and the third is the one this encodes: yellow text,
+   no blue aura, clear edges. The light blue ring the second go added did read
+   as a haze at thirteen pixels rather than as an outline, and turned the word
+   blue-green.
  *
- * HELD AGAINST THE STYLESHEET'S OWN VARIABLES rather than against hexes typed in
- * here, which would only be a third copy of them — the same reason daynight.mjs
- * holds the stars against --gold instead of against a number. */
+ * WHAT IS ASSERTED IS THE SHAPE OF THE RULE, not the hex. The fill is held
+ * against --gold, which is the stylesheet's own constant — the same reason
+ * daynight.mjs holds the stars against it instead of a number. The edge is held
+ * to being DARK and REPEATED, which is what makes an outline rather than a
+ * drop; to being UNBLURRED, which is what "clear edges" means and is the one
+ * property a screenshot would not tell you apart from a soft one; and to
+ * carrying no blue, which is the thing that was asked to go. */
 const banner = () => p.evaluate(() => {
   const cs = getComputedStyle(document.getElementById('street'));
   const root = getComputedStyle(document.documentElement);
-  return { color: cs.color, shadow: cs.textShadow,
-           gold: root.getPropertyValue('--gold').trim(),
-           cyan: root.getPropertyValue('--cyan').trim() };
+  return { color: cs.color, shadow: cs.textShadow, size: cs.fontSize,
+           gold: root.getPropertyValue('--gold').trim() };
 });
 const asRGB = hex => { const n = parseInt(hex.replace('#', ''), 16);
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
-const count = (hay, needle) => hay.split(needle).length - 1;
-const reads = b => ({
-  gold: b.color === asRGB(b.gold),
-  // eight offsets make the ring; four surviving is still a ring and not a smear
-  ring: count(b.shadow, asRGB(b.cyan)) >= 4,
-  /* AND A DARK DROP UNDERNEATH. The ring is light, and light on light is the
-     one case a light ring cannot rescue — a sunlit white facade. */
-  dark: /rgba\(0,\s*0,\s*0,[^)]*\)[^,]*\d+px/.test(b.shadow) || /rgba\(0,\s*0,\s*0/.test(b.shadow)
-});
+/* Split on the commas BETWEEN entries, not the ones inside rgb(...). */
+const layers = sh => String(sh).split(/,(?![^(]*\))/).map(t => t.trim()).filter(Boolean)
+  .map(t => {
+    const col = (/rgba?\([^)]*\)|#[0-9a-f]+/i.exec(t) || [''])[0];
+    const n = (col.match(/[\d.]+/g) || []).map(Number);
+    const px = (t.replace(col, '').match(/-?[\d.]+px/g) || []).map(parseFloat);
+    return { r: n[0] || 0, g: n[1] || 0, b: n[2] || 0, blur: px.length > 2 ? px[2] : 0 };
+  });
+const reads = b => {
+  const L = layers(b.shadow);
+  const dark = L.filter(l => 0.2126 * l.r + 0.7152 * l.g + 0.0722 * l.b < 40);
+  return {
+    n: L.length,
+    gold: b.color === asRGB(b.gold),
+    // an outline is the same dark colour repeated round the glyph, not one drop
+    outline: dark.length >= 4,
+    // every layer hard: no halo, no glow, no soft drop
+    crisp: L.every(l => l.blur === 0),
+    // and nothing blue-leading anywhere in it
+    noBlue: L.every(l => l.b <= Math.max(l.r, l.g) + 12),
+    // big enough to read at a glance from the corner of the eye
+    big: parseFloat(b.size) >= 15
+  };
+};
 await p.evaluate(() => applyTheme('dusk'));
 out.bannerDusk = await banner();
 await p.evaluate(() => applyTheme('day'));
 out.bannerDay = await banner();
 out.readsDusk = reads(out.bannerDusk);
 out.readsDay = reads(out.bannerDay);
-out.bannerIsGoldOnLightBlue =
-  Object.values(out.readsDusk).every(Boolean) && Object.values(out.readsDay).every(Boolean);
-// one treatment, not two: the whole point of the pair is that it needs no theme
+out.bannerIsGoldAndHardEdged =
+  Object.values(out.readsDusk).slice(1).every(Boolean) &&
+  Object.values(out.readsDay).slice(1).every(Boolean);
+// one treatment, not two: the whole point is that it needs no theme
 out.sameInBothThemes = out.bannerDusk.color === out.bannerDay.color &&
                        out.bannerDusk.shadow === out.bannerDay.shadow;
 
@@ -196,7 +214,7 @@ out.doesNotStrobe = out.intersectionNames.length <= 3;
 out.zonesAreToldApart = !!out.zoneAtSouthBeach && !!out.zoneAtFlamingo &&
                         out.zoneAtSouthBeach !== out.zoneAtFlamingo;
 const ASSERTIONS = ['namesTheStreet', 'doesNotStrobe', 'zonesAreToldApart', 'buildingChanged',
-                    'labelHoldsLongEnough', 'bannerIsGoldOnLightBlue', 'sameInBothThemes'];
+                    'labelHoldsLongEnough', 'bannerIsGoldAndHardEdged', 'sameInBothThemes'];
 out.failing = ASSERTIONS.filter(k => !out[k]);
 out.pass = out.failing.length === 0 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));

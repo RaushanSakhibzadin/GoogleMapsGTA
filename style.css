@@ -388,29 +388,38 @@ body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255
   background:#0a0614}
 /* street name: appears when you turn onto a new road, then fades (GTA V style)
 
-   GOLD WITH A LIGHT BLUE EDGE, AND THE SAME IN BOTH THEMES. It was cyan at
-   night and a dark teal by day, which is two colours to get right instead of
-   one — and the daylight half was picked for a pale ground that is now a dark
-   sea-green, so it was heading for teal on teal.
+   GOLD WITH A HARD DARK EDGE, AND THE SAME IN BOTH THEMES.
 
-   The pairing does the work by itself: gold is far from anything this game
-   draws underneath it, and the light blue ring around each letter separates it
-   from a bright facade, where the gold alone would wash out. Eight offsets
-   rather than -webkit-text-stroke, which thins hairlines at some sizes and is
-   the one property here that older WebKit renders differently. The soft dark
-   drop underneath is what carries it over a white wall in daylight; the ring
-   alone is light, and light on light is the case the ring cannot fix.
+   It has been three things now. Cyan at night and dark teal by day was two
+   colours to keep right instead of one, and the daylight half had been chosen
+   for a pale ground that is now dark sea-green. Gold with a light blue ring
+   fixed the first problem and made a second: at thirteen pixels the ring is a
+   large fraction of each stroke, so it read as a blue haze around the letters
+   rather than as an outline, and the word came out looking blue-green rather
+   than yellow — reported exactly that way.
 
-   There is deliberately NO body.theme-day override any more. Adding one back
-   would be re-solving a problem this colour exists to have already solved. */
-#street{max-width:100%;font-family:var(--ui);font-weight:700;font-size:13px;
-  letter-spacing:.13em;text-transform:uppercase;color:var(--gold);
+   The edge is near-black now, which is what an outline is for: it separates the
+   gold from whatever is behind it without competing for the colour. Gold on
+   dark is the one pairing that needs no help at all, and gold on a sunlit
+   facade is carried by the dark edge, so a single treatment covers both themes
+   and both backgrounds.
+
+   NOTHING IS BLURRED. Every offset is a hard copy at zero blur — that is what
+   "clear edges" means, and a soft drop underneath would be a second aura doing
+   the job the outline already does. Eight offsets rather than
+   -webkit-text-stroke, which thins hairlines at some sizes and is the one
+   property here that older WebKit renders differently.
+
+   Fifteen pixels rather than thirteen: the name of the road you are on is read
+   at a glance from the corner of the screen at speed, and two points is the
+   cheapest readability there is. */
+#street{max-width:100%;font-family:var(--ui);font-weight:700;font-size:15px;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--gold);
   text-shadow:
-    -1px -1px 0 var(--cyan), 1px -1px 0 var(--cyan),
-    -1px  1px 0 var(--cyan), 1px  1px 0 var(--cyan),
-     0 -1.6px 0 var(--cyan), 0 1.6px 0 var(--cyan),
-    -1.6px 0 0 var(--cyan), 1.6px 0 0 var(--cyan),
-     0 2px 7px rgba(0,0,0,.85);
+    -1.2px -1.2px 0 #12061d, 1.2px -1.2px 0 #12061d,
+    -1.2px  1.2px 0 #12061d, 1.2px  1.2px 0 #12061d,
+     0 -1.8px 0 #12061d, 0 1.8px 0 #12061d,
+    -1.8px 0 0 #12061d, 1.8px 0 0 #12061d;
   opacity:0;transform:translateY(-5px);transition:opacity .35s,transform .35s}
 #street.on{opacity:1;transform:none}
 
