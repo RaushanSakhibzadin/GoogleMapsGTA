@@ -111,7 +111,8 @@ function buildingColours(t, area, h, seed) {
 }
 
 // police reuses the blue the cop blips already use, so the radar reads consistently
-const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e' };
+const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
+                  fire: '#ff6a2b', taxi: '#f2b705' };
 /* AND A FACE FOR EACH, because three coloured dots are three coloured dots.
 
    The colours are the same three a player has to learn and then remember, and
@@ -129,7 +130,7 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e' };
    The mission markers are here too: the package you are going to collect and the
    flag where it is going. */
 const POI_EMOJI = {
-  police: '🚓', hospital: '🏥', repair: '🔧',
+  police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕',
   pickup: '📦', drop: '🏁'
 };
 /* THE FONT CANVAS NEEDS TO BE TOLD, and it is not the HUD's font. Impact has no
@@ -156,6 +157,8 @@ const IS_FOOD = t => FOOD_AMENITY.test(t.amenity || '') ||
 
 const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'hospital' ? 'hospital'
+                    : t.amenity === 'fire_station' ? 'fire'
+                    : t.amenity === 'taxi' ? 'taxi'
                     : t.shop === 'car_repair' ? 'repair' : null;
 
 /* ------------------- the name, in a script you can read -------------------
@@ -1643,7 +1646,12 @@ const LOAD_RING_WAIT = 12000;
 // an opening fetch slower than this means a heavy area — take less of the ring
 const SLOW_AREA_MS = 7000;
 
-const POI_KINDS = ['police', 'hospital', 'repair'];
+/* Every kind the sweep will widen for. The fire station and the taxi rank are
+   in here for the same reason the other three are: a shift cannot start at a
+   depot the city does not have, and the opening 1.8 km of a real city very
+   often has neither. If the ladder runs out and one is still missing, that
+   job is simply not on offer here — which is what the data says. */
+const POI_KINDS = ['police', 'hospital', 'repair', 'fire', 'taxi'];
 const missingKinds = () => POI_KINDS.filter(k => !W.pois.some(p => p.kind === k));
 
 /* The opening area is 1.8 km across, and plenty of real neighbourhoods that size

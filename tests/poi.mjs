@@ -74,6 +74,40 @@ const out = {};
   await p.close();
 }
 
+/* ---- the five kinds, end to end ---- */
+/* A fire station and a taxi rank are new, and a kind is only real once it has
+   made the whole trip: asked for in the Overpass query, classified out of the
+   tags, given a colour and a face, and listed among the kinds the sweep will
+   widen the search for. Missing any one of those leaves a landmark that is
+   fetched and invisible, or visible and never fetched — both of which look like
+   nothing at all from a screenshot. */
+{
+  const { p, errs } = await boot(b);
+  out.kinds = await p.evaluate(() => {
+  const ql = overpassQL(0, 0, 0, 0, 'pois');
+  const t = k => POI_KIND(k);
+  return {
+    asked: { fire: /fire_station/.test(ql), taxi: /amenity[^)]*\btaxi\b/.test(ql) },
+    classified: { fire: t({ amenity: 'fire_station' }), taxi: t({ amenity: 'taxi' }),
+                  police: t({ amenity: 'police' }), hospital: t({ amenity: 'hospital' }),
+                  repair: t({ shop: 'car_repair' }) },
+    coloured: POI_KINDS.every(k => !!POI_COL[k]),
+    faced: POI_KINDS.every(k => !!POI_EMOJI[k]),
+    swept: POI_KINDS.slice().sort().join(',')
+  };
+});
+  out.kinds.errs = errs;
+  await p.close();
+}
+out.kinds.allFiveArrive =
+  out.kinds.asked.fire && out.kinds.asked.taxi &&
+  out.kinds.classified.fire === 'fire' && out.kinds.classified.taxi === 'taxi' &&
+  out.kinds.classified.police === 'police' && out.kinds.classified.hospital === 'hospital' &&
+  out.kinds.classified.repair === 'repair' &&
+  out.kinds.coloured && out.kinds.faced &&
+  out.kinds.swept === 'fire,hospital,police,repair,taxi';
+
+
 // ---------- 2. busted: a cop pulls up to a stopped player and arrests them ----------
 // The reported bug. The player is held still but the COP is left entirely to its
 // own AI -- it has to decide to stop by itself, which is what was broken.
@@ -444,6 +478,7 @@ const out = {};
    Read off the report rather than restated, so a section added later is covered
    by construction instead of by remembering to add it here. */
 const ASSERTIONS = [
+  'kinds.allFiveArrive',
   'parsed.hospitalIsBuilding',
   'repair.healed', 'repair.recoloured', 'repair.chargedTheQuote',
   'repair.priceFollowsTheDamage', 'repair.chargedOnce', 'repair.poorUntouched',

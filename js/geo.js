@@ -181,7 +181,14 @@ function overpassQL(s, w, n, e, kind, opt) {
   // returns one point per hit instead of a whole building outline.
   if (kind === 'pois') {
     return `[out:json][timeout:40];(` +
-      `nwr["amenity"~"^(police|hospital)$"](${bb});` +
+      /* THE FOUR PLACES YOU CAN TAKE A JOB, plus the two you drive to when the
+         job goes wrong. A fire station and a taxi rank are as sparse in OSM as a
+         police station is — central Belgrade has neither inside the 1.8 km the
+         opening ring covers — which is precisely what widenLandmarkSearch is
+         for: they ride in the same tag-indexed sweep that already goes out to
+         18 and then 45 km looking for a hospital. amenity=taxi is the RANK, not
+         a company office, which is where a shift starts. */
+      `nwr["amenity"~"^(police|hospital|fire_station|taxi)$"](${bb});` +
       `nwr["shop"="car_repair"](${bb});` +
       /* MONUMENTS, which are scenery rather than services — but they ride with
          the landmark sweep because they want the same treatment: sparse,
