@@ -842,7 +842,12 @@ function clearMission() {
    the arrow on the radar, the objective line, the clock — reads MISSION, so a
    new shift is a new way to fill MISSION in and nothing else. */
 function newMission() {
-  if (state !== 'play') return;
+  /* NO GUARD ON state HERE, and that was a real bug for one commit. resetRun
+     hands out the opening contract while the loading screen is still up — the
+     state does not become 'play' until after the world is built — so refusing
+     to work outside 'play' meant a fresh city started with no job at all, and
+     window.__m().pick came back null. Caught by tests/gameplay.mjs, which drives
+     straight to the first pickup. */
   if (JOB === 'taxi') return newFare();
   if (JOB === 'ambulance') return newCasualty();
   if (JOB === 'fire') return newFire();
