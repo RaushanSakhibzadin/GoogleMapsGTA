@@ -53,10 +53,11 @@ const SPIN_SECS = .85;      // how long a committed 180 takes, eased in and out
 // full throttle and going nowhere for this long means something has you pinned
 const STUCK_SECS = 1.3;
 /* fire and chase are the two goals that are not a point you drive to and stop
-   at; fare is whoever is waiting on the pavement, and riding says they are in
-   the car. */
+   at; fare is whoever is waiting on the pavement, riding says they are in the
+   car, and rider is that same person kept aside while they are — because a
+   passenger has to be put back on the street when the ride ends. */
 const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0,
-                  fire: null, chase: null, fare: null, riding: false };
+                  fire: null, chase: null, fare: null, riding: false, rider: null };
 
 /* WHERE THE OTHER CARS ARE, in buckets, rebuilt once a frame.
 

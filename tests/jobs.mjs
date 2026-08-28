@@ -297,12 +297,85 @@ out.armour = await p.evaluate(async () => {
 out.policeCarIsArmoured = out.armour.police < out.armour.courier * .6 &&
                           out.armour.police > 0;
 
+/* ---- 11. and the passenger gets out again ---- */
+/* Asked for after a session of play: the fare vanished at the drop. They were
+   taken out of the crowd to be carried and never put back, so every completed
+   taxi job quietly deleted a person from the city and the kerb you pulled up at
+   was empty.
+ *
+ * Four things have to hold, and only the first is obvious: they are back in the
+ * crowd; they are at the drop rather than wherever the pavement's nearest NODE
+ * happened to be — a real OSM way can run 800 m between nodes; they are on the
+ * pavement and not standing in the carriageway; and they are WALKING, because a
+ * passenger put back with the "waiting for a taxi" flag still set is a statue. */
+out.dropOff = await p.evaluate(async () => {
+  window.__takeJob('taxi');
+  await new Promise(r => setTimeout(r, 900));
+  if (!MISSION.fare) return { skipped: 'no crowd yet' };
+  const who = MISSION.fare;
+  window.__tp(who.x, who.y - 3, 0); P.car.vx = P.car.vy = 0;
+  await new Promise(r => setTimeout(r, 700));
+  if (window.__m().state !== 'deliver') return { skipped: 'never boarded' };
+  const inCar = peds.indexOf(who) < 0 && MISSION.rider === who;
+  const d = { x: MISSION.drop.x, y: MISSION.drop.y, h: MISSION.drop.h || 0,
+              w: (MISSION.drop.road || {}).w || 6 };
+  window.__tp(d.x, d.y, 0); P.car.vx = P.car.vy = 0;   // arrive, and it completes
+  await new Promise(r => setTimeout(r, 900));
+  const at0 = { x: who.x, y: who.y };
+  /* The next fare is handed out about now. It cannot be this person — pickFare
+     ignores anyone closer than 70 m and they are standing at the car — so the
+     walk measured below is a walk and not a fresh job freezing them again. */
+  await new Promise(r => setTimeout(r, 1400));
+  /* ACROSS the street, measured against the centreline through the drop rather
+     than as a plain distance from the pin — walking a couple of metres along the
+     kerb is not stepping into the road, and a plain radius cannot tell the two
+     apart. */
+  const lat = Math.abs((who.x - d.x) * -Math.sin(d.h) + (who.y - d.y) * Math.cos(d.h));
+  return { inCar, listed: peds.indexOf(who) >= 0,
+           riding: MISSION.riding, held: !!MISSION.rider, hurt: who.hurt,
+           fromDrop: +Math.hypot(who.x - d.x, who.y - d.y).toFixed(1),
+           lat: +lat.toFixed(1), halfRoad: d.w / 2,
+           walked: +Math.hypot(who.x - at0.x, who.y - at0.y).toFixed(2) };
+});
+out.thePassengerGetsOut = !!out.dropOff.skipped ||
+  (out.dropOff.inCar === true && out.dropOff.listed === true &&
+   out.dropOff.riding === false && out.dropOff.held === false &&
+   out.dropOff.hurt === false &&
+   // at the drop, off the tarmac, and moving
+   out.dropOff.fromDrop < 25 && out.dropOff.lat > out.dropOff.halfRoad &&
+   out.dropOff.walked > .3);
+
+/* ---- 12. clocking on clears the heat ---- */
+/* Asked for. Signing for a city vehicle at the counter is not a thing that
+   happens with a patrol car still on your tail, and a pursuit that outlives the
+   shift it started in follows you into every shift after it. The cars are
+   dismissed with the stars — five of them still ramming an ambulance is the same
+   problem in a different colour — and the bust timer with them, so you do not
+   come out of the station part of the way through an arrest. */
+out.heat = await p.evaluate(async () => {
+  window.__tp(0, 0, 0);                    // on the cross street, so cops can spawn
+  window.__takeJob('courier');
+  await new Promise(r => setTimeout(r, 700));
+  window.__addWanted(3);
+  await new Promise(r => setTimeout(r, 600));
+  const before = { wanted: window.__p().wanted, cops: window.__p().cops };
+  window.__takeJob('taxi');
+  await new Promise(r => setTimeout(r, 300));
+  const after = { wanted: window.__p().wanted, cops: window.__p().cops, bustT: P.bustT };
+  return { before, after };
+});
+out.shiftChangeClearsTheHeat =
+  out.heat.before.wanted >= 3 && out.heat.before.cops > 0 &&
+  out.heat.after.wanted === 0 && out.heat.after.cops === 0 &&
+  out.heat.after.bustT === 0;
+
 out.errs = errs.slice(0, 4);
 out.pass = out.fourDepots && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
-           out.policeCarIsArmoured && !out.errs.length;
+           out.policeCarIsArmoured && out.thePassengerGetsOut &&
+           out.shiftChangeClearsTheHeat && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

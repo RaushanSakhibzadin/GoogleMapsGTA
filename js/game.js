@@ -708,7 +708,8 @@ function resetRun() {
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
   traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
-  MISSION.fire = MISSION.chase = MISSION.fare = null; MISSION.riding = false;
+  MISSION.fire = MISSION.chase = MISSION.fare = MISSION.rider = null;
+  MISSION.riding = false;
   JOB = 'courier'; jobOffer = null;
   if ($('jobBtn')) $('jobBtn').classList.remove('on');
   // otherwise a new city opens still showing the last one's street and district
@@ -794,10 +795,20 @@ function jobHere() {
   if (!best) return null;
   return best === JOB ? 'courier' : best;
 }
+/* THE HEAT GOES AWAY WITH THE JOB. You clock on inside a police station, a fire
+   station, a hospital or a taxi rank — signing for a city vehicle at the counter
+   is not something that happens with a patrol car still on your tail, and a
+   pursuit that outlives the shift it started in follows you into the next one
+   forever. The cars are dismissed with the stars, because five of them still
+   ramming an ambulance is the same problem wearing a different colour. */
+function clearHeat() {
+  P.wanted = 0; P.cool = 0; P.bustT = 0; cops = [];
+}
 function setJob(id) {
   if (!JOBS[id] || id === JOB) return false;
   JOB = id;
   clearMission();
+  clearHeat();
   if (P.car) {
     P.car.color = JOBS[id].col;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
@@ -828,13 +839,61 @@ function syncJobBtn() {
   }
 }
 
-/* ---- clearing up after whatever the last shift was doing ---- */
+/* ---- clearing up after whatever the last shift was doing ----
+
+   THE PASSENGER GETS OUT. Somebody who was lifted out of the crowd to be carried
+   has to be put back into it when the ride ends, at the kerb where it ended:
+   otherwise every completed fare quietly deletes a person from the city and the
+   street you dropped them on is empty. They are put on the pavement rather than
+   at the drop pin, because the pin is on the centreline and that is the middle of
+   the road. The one exception is the ambulance — a casualty is delivered INTO the
+   hospital, and does not stroll away from it. */
+function dropRider(at) {
+  const who = MISSION.rider;
+  MISSION.rider = null; MISSION.riding = false;
+  if (!who || who.dead || !at) return null;
+  /* WHERE THE KERB IS. A drop point handed out by a mission carries the road and
+     the node it came from; the car does not, so for a ride that ended anywhere
+     else the nearest bit of street is found for it.
+
+     They are then stood on the PAVEMENT, offset across from the centreline —
+     the drop pin sits on the centreline, and the centreline is the middle of the
+     road. Offsetting from the point itself rather than snapping to the road's
+     nearest NODE matters: OpenStreetMap ways can run hundreds of metres between
+     nodes, and snapping would have the passenger step out and reappear at the
+     far end of the street. */
+  const spot = (at.road && at.idx != null) ? at
+    : (roadPoint(at.x, at.y, 0, 60) || roadPoint(at.x, at.y, 0, 240)
+       || roadPoint(at.x, at.y, null));
+  who.hurt = false;                          // walking again, not standing waiting
+  who.dir = Math.random() < .5 ? 1 : -1;
+  who.side = pick([-1, 1]);
+  if (spot && spot.road && spot.road.pts) {
+    const r = spot.road, h = spot.h || 0, off = pedOffset(r);
+    who.road = r;
+    // the node AHEAD of them in the direction they set off, not the one behind
+    who.idx = clamp(who.dir > 0 ? spot.idx + 1 : spot.idx, 0, r.pts.length - 1);
+    /* THE SIDE IS RELATIVE TO THE WAY THEY FACE, which is how pedWalkPoint reads
+       it — so the heading is turned round for someone walking against the way.
+       Getting this wrong put them on the correct pavement and then had them walk
+       straight across the road to the other one on the first step. */
+    const hx = Math.cos(h) * who.dir, hy = Math.sin(h) * who.dir;
+    who.x = spot.x - hy * off * who.side;
+    who.y = spot.y + hx * off * who.side;
+    who.h = Math.atan2(hy, hx);
+  } else { who.x = at.x; who.y = at.y; }
+  if (peds.indexOf(who) < 0) peds.push(who);
+  return who;
+}
+
 function clearMission() {
   MISSION.state = 'none';
   MISSION.pick = MISSION.drop = null;
   MISSION.fire = null;
   MISSION.chase = null;
   if (MISSION.fare) { MISSION.fare.hurt = false; MISSION.fare = null; }
+  // changing shift mid-ride is still the end of the ride, so let them out here
+  dropRider(P.car);
   setObjective('hud.freeRoam');
 }
 
@@ -1003,6 +1062,7 @@ function startDelivery() {
   if (MISSION.fare) {
     const i = peds.indexOf(MISSION.fare);
     if (i >= 0) peds.splice(i, 1);
+    MISSION.rider = MISSION.fare;     // kept, so they can be let out again
     MISSION.fare = null;
     MISSION.riding = true;
   }
@@ -1023,7 +1083,9 @@ function startDelivery() {
 function completeDelivery() {
   P.cash += MISSION.reward; P.score += MISSION.reward;
   MISSION.done++;
-  MISSION.riding = false;
+  // out at the kerb they asked for — except the casualty, who is now indoors
+  if (JOB === 'ambulance') { MISSION.rider = null; MISSION.riding = false; }
+  else dropRider(MISSION.drop || P.car);
   store.set('vm_cash', P.cash);
   SFX.cash();
   toast(txt(JOB === 'courier' ? 'toast.delivered' : 'toast.droppedOff', { n: MISSION.reward }), 2000);
@@ -1045,7 +1107,7 @@ function completeJob(key) {
 }
 function failDelivery() {
   MISSION.state = 'none';
-  MISSION.riding = false;
+  dropRider(P.car);           // they have had enough of this taxi, and get out here
   toast(txt('toast.tooSlow'), 1800);
   setObjective('hud.freeRoam');
   setTimeout(newMission, 1600);
@@ -1134,14 +1196,18 @@ function respawn(kind) {
   // the station or hospital nearest to where it happened
   P.recover = recoverPoint(kind);
   SFX.bust();
-  if (MISSION.state === 'deliver') { MISSION.state = 'none'; setTimeout(newMission, 2600); }
+  if (MISSION.state === 'deliver') {
+    MISSION.state = 'none';
+    dropRider(P.car);         // out at the wreck, rather than carried off to the cells
+    setTimeout(newMission, 2600);
+  }
 }
 function doRespawn() {
   const sp = P.recover || P.spawn;
   P.car.x = sp.x; P.car.y = sp.y; P.car.h = sp.h;
   P.car.vx = P.car.vy = 0; P.car.hp = 100;
   P.calm = 0;
-  P.wanted = 0; P.cool = 0; cops = [];
+  clearHeat();
   cam.x = sp.x; cam.y = sp.y;
   P.dead = false;
   $('big').classList.remove('on');
