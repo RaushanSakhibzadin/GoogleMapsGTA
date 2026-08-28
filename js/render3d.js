@@ -2032,6 +2032,66 @@ function pushPolice(o, src, blink) {
   }
 }
 
+/* THE OTHER TWO LIVERIES, built the same way pushPolice is: out of the car's own
+   eight corners, so they land on the detailed body up close and on the two-box
+   version at distance without either one knowing about them, and they ride the
+   pitch and the roll with the paint they sit on.
+
+   The roof matters more here than the flank does. This game is played from
+   behind and slightly above, and on a phone the car is an inch tall — a marking
+   on the door is four pixels of noise, while the roof is the largest unbroken
+   surface you ever see of your own car. So the cross and the sign go on top,
+   which is also where a real ambulance and a real cab put them, for the same
+   reason: to be read from above. */
+const AMB_RED = [.85, .12, .18];
+const ROOF = 1.23;                        // where the glasshouse ends and the sky starts
+function pushAmbulance(o, src) {
+  // a red band along each flank, for the low angle the chase camera actually has
+  for (const side of [-1, 1]) {
+    pushBox(o, subBox(src, SUBTMP, -.86, .86,
+                      side < 0 ? -1.012 : .992, side < 0 ? -.992 : 1.012, .02, .24),
+            AMB_RED[0], AMB_RED[1], AMB_RED[2]);
+  }
+  /* THE CROSS, centred on the glasshouse rather than on the car: the roof runs
+     from -.66 to .32 and a cross centred on the body would hang off the back of
+     it into thin air. */
+  const cf = -.17, T = .21;
+  pushBox(o, subBox(src, SUBTMP, cf - .42, cf + .42, -T, T, ROOF, ROOF + .06),
+          AMB_RED[0], AMB_RED[1], AMB_RED[2]);
+  pushBox(o, subBox(src, SUBTMP, cf - T, cf + T, -.62, .62, ROOF, ROOF + .06),
+          AMB_RED[0], AMB_RED[1], AMB_RED[2]);
+}
+const TAXI_DARK = [.075, .085, .105];
+const TAXI_SIGN = [1, .84, .30];
+const TAXI_COLS = 9, TAXI_ROWS = 2;
+function pushTaxi(o, src) {
+  /* THE CHEQUER, and only the dark half of it — the light squares are the cab's
+     own yellow, exactly as the police band leaves the white squares to the
+     paint. Nine columns rather than the police car's seven: a taxi chequer is a
+     finer pattern than a Sillitoe one, and it is the difference between the two
+     that says which of them you are looking at. */
+  const y0 = .08, y1 = .44;
+  const fw = 1.72 / TAXI_COLS, rh = (y1 - y0) / TAXI_ROWS;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < TAXI_COLS; i++) for (let j = 0; j < TAXI_ROWS; j++) {
+      if ((i + j) % 2) continue;
+      const f0 = -.86 + fw * i, u0 = y0 + rh * j;
+      pushBox(o, subBox(src, SUBTMP, f0, f0 + fw,
+                        side < 0 ? -1.012 : .992, side < 0 ? -.992 : 1.012, u0, u0 + rh),
+              TAXI_DARK[0], TAXI_DARK[1], TAXI_DARK[2]);
+    }
+  }
+  /* AND THE ROOF SIGN, which is the part that does the work here. The chase
+     camera sits behind the car and looks along it, so the flank chequer is very
+     nearly edge-on and the roof is most of what you can see — measured, the sign
+     is worth about thirty screen pixels at driving distance and the chequer is
+     worth none of them. It is sized to be read, not to be to scale. */
+  pushBox(o, subBox(src, SUBTMP, -.42, .08, -.34, .34, ROOF, ROOF + .05),
+          TAXI_DARK[0], TAXI_DARK[1], TAXI_DARK[2]);
+  pushBox(o, subBox(src, SUBTMP, -.38, .04, -.30, .30, ROOF + .05, ROOF + .26),
+          TAXI_SIGN[0], TAXI_SIGN[1], TAXI_SIGN[2]);
+}
+
 /* THE MODEL MATRIX FOR ONE CAR, read straight out of the eight corners carBox
    already worked out. Those corners carry the heading, the pitch and the roll
    the physics computed, so nothing here re-derives a rotation — two rotations
@@ -2273,7 +2333,10 @@ function render3D() {
     else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
     // the livery goes into the plain stream either way — it is the same eight
     // corners, so it lands on the detailed body and the distant one alike
-    if (q.kind === 'cop') pushPolice(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
+    const liv = q.livery || (q.kind === 'cop' ? 'police' : null);
+    if (liv === 'police') pushPolice(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
+    else if (liv === 'taxi') pushTaxi(dyn, BOXTMP);
+    else if (liv === 'ambulance') pushAmbulance(dyn, BOXTMP);
   };
   for (const t of traffic) addCar(t);
   for (const k of cops) addCar(k);

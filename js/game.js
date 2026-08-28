@@ -764,12 +764,18 @@ const missionReach = base => Math.min(base * (1 + (CHUNK.loaded - 1) * .55), bas
    fire station and the taxi rank were added to that same sweep for this. Nothing
    is placed by the game: if a city has no fire station within 45 km, there is no
    fire work in it, which is what the map says. */
+/* AND THE CAR LOOKS LIKE THE JOB. Paint alone was never going to carry it: a
+   white car is an ambulance, a police car and half the traffic. `livery` is what
+   is painted ON the paint — read by drawCar in the top-down view and by the
+   markings pass in the 3D one, both off the car's own outline, so one word here
+   dresses the car in both. The police livery is the one the patrol cars already
+   wear, so taking the shift makes you look like the cars you drive alongside. */
 const JOBS = {
   courier:   { at: null,       emoji: '📦', col: '#ff4fd8' },
-  taxi:      { at: 'taxi',     emoji: '🚕', col: '#f2b705' },
-  police:    { at: 'police',   emoji: '🚓', col: '#eef1f6' },
+  taxi:      { at: 'taxi',     emoji: '🚕', col: '#f2b705', livery: 'taxi' },
+  police:    { at: 'police',   emoji: '🚓', col: '#eef1f6', livery: 'police' },
   fire:      { at: 'fire',     emoji: '🚒', col: '#e0301f' },
-  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa' }
+  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance' }
 };
 const JOB_AT = {};
 for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
@@ -812,6 +818,7 @@ function setJob(id) {
   clearHeat();
   if (P.car) {
     P.car.color = JOBS[id].col;
+    P.car.livery = JOBS[id].livery || null;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
        paint. Everything that damages the player is scaled by this, so a police
        shift can lean on a fleeing driver without ending the shift. */
@@ -1183,8 +1190,13 @@ function repairAt(p) {
   P.cash -= cost;
   store.set('vm_cash', P.cash);
   P.car.hp = 100;
-  const others = PAL.carBody.filter(c => c !== P.car.color);
-  P.car.color = pick(others.length ? others : PAL.carBody);
+  /* THE RESPRAY IS A COURIER THING. A city vehicle comes out of the body shop
+     the colour it went in — an ambulance repainted hot pink, still wearing its
+     red cross, is not a joke that survives being seen twice. */
+  if (JOB === 'courier') {
+    const others = PAL.carBody.filter(c => c !== P.car.color);
+    P.car.color = pick(others.length ? others : PAL.carBody);
+  }
   SFX.pickup();
   toast((p.name ? p.name.toUpperCase() + ' · ' : '') +
         txt('toast.repaired', { n: cost }), 1800);
@@ -1540,6 +1552,9 @@ function update(dt) {
     if (dist2(c.x, c.y, p.x, p.y) < 100) repairAt(p);
   }
 
+
+  // the lightbar on a police shift runs off the same clock the patrol cars use
+  c.blink += dt;
 
   // --- the armor comes back when nothing has hit you for a while
   if (!P.dead) {

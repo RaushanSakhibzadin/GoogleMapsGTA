@@ -337,12 +337,51 @@ function drawCar(c, isPlayer) {
   ctx.fillStyle = '#ff3355'; ctx.fillRect(-L / 2, -Wd / 2 + .18, .3, .5);
   ctx.fillRect(-L / 2, Wd / 2 - .68, .3, .5);
 
-  if (c.kind === 'cop') {
+  /* THE MARKINGS, which are not the paint. A patrol car carries its livery by
+     kind; the player's is whichever shift they are on, and it is the same word
+     the 3D view reads. Everything below is drawn in the car's own local frame,
+     so it turns, brakes and rolls with the body it is painted on. */
+  const liv = c.livery || (c.kind === 'cop' ? 'police' : null);
+
+  if (liv === 'taxi') {
+    /* THE CHEQUER. Two rows of small squares along each flank is the taxi mark
+       everywhere it is used, and unlike a roof sign it is legible from directly
+       above, which is the only angle this view has. Only the DARK squares are
+       painted — the light half is the cab's own yellow, so the pattern costs
+       half as many rectangles and can never disagree with the paint. */
+    const cols = 9, rows = 2, bw = (L * .84) / cols, bh = .27;
+    for (const side of [-1, 1]) {
+      const y0 = side < 0 ? -Wd / 2 : Wd / 2 - bh * rows;
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        if ((i + j) % 2) continue;
+        ctx.fillStyle = '#14161c';
+        ctx.fillRect(-L * .42 + bw * i, y0 + bh * j, bw, bh);
+      }
+    }
+    // and the roof sign, which is the half of a taxi you see from the front
+    ctx.fillStyle = '#1a1c24';
+    rrect(-L * .06, -Wd * .21, L * .17, Wd * .42, .12); ctx.fill();
+    ctx.fillStyle = '#ffd84d';
+    rrect(-L * .04, -Wd * .17, L * .13, Wd * .34, .1); ctx.fill();
+  } else if (liv === 'ambulance') {
+    /* THE CROSS GOES ON THE ROOF, because that is the surface this view can see
+       and because that is where a real one puts it — a roof cross is there to be
+       read from above by the helicopter, which is exactly the camera. A red band
+       along each flank carries it at the low angle of the chase view. */
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = '#d8202f';
+      ctx.fillRect(-L * .42, side < 0 ? -Wd / 2 : Wd / 2 - .22, L * .84, .22);
+    }
+    const arm = Wd * .21, lx = L * .17, ly = Wd * .38;
+    ctx.fillStyle = '#d8202f';
+    ctx.fillRect(-lx, -arm / 2, lx * 2, arm);       // along the car
+    ctx.fillRect(-arm / 2, -ly, arm, ly * 2);       // and across it
+  } else if (liv === 'police') {
     /* SERBIAN LIVERY, looked up rather than invented: white, a blue chequer band
        down each flank, and a blue LED bar. The bar here alternated blue and RED,
        which is a North American convention — a Belgrade car is blue at both ends
        and what alternates is which end is lit. */
-    const on = Math.floor(c.blink * 7) % 2 === 0;
+    const on = Math.floor((c.blink || 0) * 7) % 2 === 0;
     // the chequer, seen from above as a band along each side
     const cols = 7, cw = (L * .86) / cols;
     for (const side of [-1, 1]) {
@@ -646,7 +685,11 @@ function missionGoal() {
   if (S === 'pickup' && MISSION.pick) return { at: MISSION.pick, col: '#ff4fd8', kind: 'pickup' };
   if (S === 'deliver' && MISSION.drop) return { at: MISSION.drop, col: GOLD, kind: 'drop' };
   if (S === 'fire' && MISSION.fire) return { at: MISSION.fire, col: '#ff6a2b', kind: 'blaze' };
-  if (S === 'chase' && MISSION.chase) return { at: MISSION.chase, col: '#3fa2ff', kind: 'chase' };
+  /* THE RUNAWAY IS RED. It was the same blue the patrol cars and the police
+     station blip are drawn in, which put the one car you are chasing in the
+     livery of the people chasing it — on a shift where half the blips on the
+     radar are police, the target was indistinguishable from the backup. */
+  if (S === 'chase' && MISSION.chase) return { at: MISSION.chase, col: '#ff2e3f', kind: 'chase' };
   return null;
 }
 

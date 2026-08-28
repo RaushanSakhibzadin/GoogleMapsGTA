@@ -23,6 +23,10 @@ function makeCar(x, y, h, kind) {
     accel: isCop ? 28 : (kind === 'player' ? 40 : 7),
     turn: isCop ? 2.5 : 2.7,
     color: isCop ? '#f2f4f8' : pick(PAL.carBody),
+    /* Markings painted on top of the paint, or null for a car that is just a
+       car. Patrol cars carry theirs by kind; the player's is whichever shift
+       they are on. */
+    livery: isCop ? 'police' : null,
     steer: 0, road: true, dead: false, hitCd: 0,
     /* THE 3D BODY — see body3d.js. Height above the terrain, attitude, and the
        rates that carry a tumble through the air. Declared here so every car has
