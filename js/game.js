@@ -656,6 +656,18 @@ const TRAFFIC_MAX = 18;    // t-boning a civilian
 const COP_MAX = 12;        // a cruiser ramming you, now once every 0.6 s
 const BLAST_MAX = 38;      // standing in an explosion
 
+/* WHAT COUNTS AS A HIT WORTH CALLING THE POLICE OVER, in metres per second of
+   closing speed along the point of contact — the same number the damage is
+   scaled from. Separate from the thresholds above on purpose: a car takes paint
+   off at 6, and that is right, but a star is a different order of event. At 22
+   18 somebody has been wrecked; below it you clipped them, and MEASURED that is
+   the line worth drawing: doing 100 km/h into the back of a car doing 40 closes
+   at about 17, which is the "every hit" the old bar of 13 was catching, while a
+   head-on with the same pair closes at nearly 40. The bar for a patrol car is
+   lower, because leaning on one is a choice in a way that clipping a hatchback
+   in traffic is not. */
+const WANTED_HIT = 18, WANTED_HIT_COP = 12;
+
 /* AND THE ARMOR COMES BACK, SLOWLY, WHEN NOTHING HAS HIT YOU.
 
    Measured over ninety seconds of driving hard at a delivery with two stars up:
@@ -1040,21 +1052,55 @@ function emitFire(f, dt) {
 
 /* ---- police: stop that car ----
 
-   Marked out of the traffic already on the street rather than spawned, so the
-   car you are told to stop is one that was going about its business a second
-   ago. It is given a longer leash — a higher top speed — so it is a pursuit
-   rather than a formality, and it counts as stopped when it has been beaten
-   down, which covers both halves of what was asked: arrested if it survives
-   being run off the road, destroyed if it does not. */
+   IT STARTS A LONG WAY OFF, and that is the whole difficulty of the shift. The
+   first version marked a car out of the traffic already on the street, which
+   sounded better than spawning one and played much worse: traffic only exists
+   inside the cull radius, about two hundred and sixty metres, and the nearest
+   car in that band is usually the one in front of you. The call came in and the
+   target was already in your windscreen — reported as too easy, and it was.
+
+   So the target is put on a road three hundred to nine hundred metres away and
+   pushed into the traffic list, where it drives like any other car until you
+   catch it. An existing car in that band is still preferred when there is one;
+   in a dense city with the view zoomed out there sometimes is.
+
+   IT ALSO HAS TO SURVIVE BEING FAR AWAY, which took two more changes. The cull
+   deletes traffic past the edge of the screen, so the runaway is exempted from
+   it and given a leash of its own instead — the same arrangement the police
+   cars have always had, and for the same reason: a pursuit that evaporates when
+   the target leaves the frame is not a pursuit. And vanishing used to PAY, since
+   "gone from the traffic list" was read as "stopped"; past the leash it now
+   counts as an escape and pays nothing. Between them those two made a distant
+   target possible at all — a chase that ends in a reward the moment you fall
+   three hundred metres behind is easier than one that starts next to you.
+
+   It is given a higher top speed so it is a pursuit rather than a formality, and
+   it counts as stopped when it has been beaten down, which covers both halves of
+   what was asked: arrested if it survives being run off the road, destroyed if
+   it does not. */
 const CHASE_STOP = 34;
+const CHASE_MIN = 300, CHASE_MAX = 900;
+// how far it can get from you before it has got away, and stops being simulated
+const CHASE_LEASH = 1500;
 function newPursuit() {
   let best = null, bd = Infinity;
+  /* NOT missionReach, WHICH IS THE MISTAKE THIS COMMENT EXISTS TO STOP SOMEBODY
+     REPEATING. Every other contract widens as more of the map streams in, and
+     doing the same here put the target up to 2.9 km away — outside the leash,
+     so the cull deleted it on the very next frame and the shift reported that it
+     had got away before you had touched the accelerator. The two numbers are a
+     pair: where it starts has to stay well inside how far it may get. */
+  const far = CHASE_MAX;
   for (const t of traffic) {
     if (t.dead) continue;
     const d = dist(t.x, t.y, P.car.x, P.car.y);
-    if (d < 40 || d > 520) continue;
+    if (d < CHASE_MIN || d > far) continue;
     if (d < bd) { bd = d; best = t; }
   }
+  /* Nothing out there yet, which is the usual case: put one there. The last
+     fallback is a small map — a city whose roads do not reach three hundred
+     metres has to be allowed to hand out police work too. */
+  if (!best) best = spawnOneCar(CHASE_MIN, far) || spawnOneCar(120, far);
   if (!best) { MISSION.state = 'none'; scheduleMission(2500); return; }
   best.wanted = true;
   best.maxSpeed = Math.max(best.maxSpeed, 26);
@@ -1103,7 +1149,7 @@ function startDelivery() {
   const rate = JOB === 'taxi' ? 2.1 : JOB === 'ambulance' ? 2.4 : 1.6;
   MISSION.reward = Math.round(120 + dd * rate + MISSION.done * 45);
   SFX.pickup();
-  toast(txt(JOB === 'courier' ? 'toast.secured' : 'toast.aboard', { n: MISSION.reward }), 1800);
+  toast(txt(BOARD_TOAST[JOB] || 'toast.secured', { n: MISSION.reward }), 1800);
   const where = d.road && d.road.name;
   const key = JOB === 'ambulance' ? 'hud.toHospital'
             : JOB === 'taxi' ? (where ? 'hud.driveTo' : 'hud.driveFare')
@@ -1116,7 +1162,7 @@ function completeDelivery() {
   releaseRider(MISSION.drop || P.car);
   store.set('vm_cash', P.cash);
   SFX.cash();
-  toast(txt(JOB === 'courier' ? 'toast.delivered' : 'toast.droppedOff', { n: MISSION.reward }), 2000);
+  toast(txt(DONE_TOAST[JOB] || 'toast.delivered', { n: MISSION.reward }), 2000);
   MISSION.state = 'none';
   scheduleMission(900);
 }
@@ -1133,6 +1179,32 @@ function completeJob(key) {
   setObjective('hud.freeRoam');
   scheduleMission(1200);
 }
+/* AND IT CAN GET AWAY. The counterpart to completeJob for the one shift whose
+   target can leave: past the leash the car is gone, the shift pays nothing, and
+   the next call comes in. */
+function failPursuit() {
+  MISSION.chase = null;
+  MISSION.state = 'none';
+  toast(txt('toast.gotAway'), 1800);
+  setObjective('hud.freeRoam');
+  scheduleMission(1600);
+}
+
+/* EVERY LINE A SHIFT SAYS IS ITS OWN. Three of these tables rather than a
+   ternary apiece, because a ternary is where the courier's words leak into
+   somebody else's job: "PASSENGER ABOARD" was shown to an ambulance driver who
+   had just loaded a casualty, and "PACKAGE LOST" to one who had run out of time,
+   both for the same reason — one line written for the first shift and inherited
+   by every shift after it. A missing entry falls back to the courier's, which is
+   the shift every other one is a variation on.
+
+   The word for who is in the car is one word per language, and it is the same
+   word from the pickup line to the drop-off toast: the English is "patient"
+   throughout, and each translation keeps whichever of casualty, injured person
+   or patient reads naturally in that language. */
+const BOARD_TOAST = { taxi: 'toast.aboard', ambulance: 'toast.patientAboard' };
+const DONE_TOAST = { taxi: 'toast.droppedOff', ambulance: 'toast.patientIn' };
+
 /* WHAT WAS LOST DEPENDS ON WHAT YOU WERE CARRYING. "PACKAGE LOST" is the courier
    run and nothing else — an ambulance that runs out of time has not mislaid a
    parcel. The fallback is the courier line, because that is the shift every
@@ -1426,7 +1498,17 @@ function update(dt) {
       cam.shake = Math.min(1, cam.shake + .35);
       SFX.crash(rel);
       for (let i = 0; i < 5; i++) parts.push(sparks((c.x + t.x) / 2, (c.y + t.y) / 2));
-      if (rel > 13) addWanted(.34);
+      /* ONLY A REAL SMASH BRINGS THE POLICE. Reported from play: the wanted
+         level went up for scraping past anything. The bar was 13 m/s of closing
+         speed, which rear-ending a slower car at speed clears; 18 is a wreck
+         rather than a scrape, and the damage threshold above is untouched — a
+         bump still costs you paint, it just no longer costs you a star.
+
+         AND RAMMING THE CAR YOU WERE SENT TO STOP IS THE JOB. On a police shift
+         the runaway is an ordinary traffic car as far as this code is concerned,
+         so doing exactly what the objective asks was earning you a wanted level
+         of your own. */
+      if (rel > WANTED_HIT && !(JOB === 'police' && t === MISSION.chase)) addWanted(.34);
       damageCar(t, rel);
       t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
       /* AND THE RADIO IS LEFT ALONE. A shunt used to knock the dial off its
@@ -1471,7 +1553,10 @@ function update(dt) {
     if (rel > 5 && P.copCd <= 0) {
       P.copCd = .6;
       hurtPlayer(clamp(rel * .5, 0, COP_MAX), 'cop');
-      damageCar(k, rel); addWanted(.22); SFX.crash(rel);
+      damageCar(k, rel); SFX.crash(rel);
+      // a lower bar than a civilian: leaning on a patrol car is provocative in a
+      // way that clipping a hatchback is not, but a touch is still a touch
+      if (rel > WANTED_HIT_COP) addWanted(.22);
     }
     // busted: you stopped, a cop pulled up alongside and stopped too, for a beat.
     // The cop has to be stationary as well — one blowing past at speed is a near
@@ -1535,7 +1620,9 @@ function update(dt) {
     if (f.hp <= 0) completeJob('toast.fireOut');
   } else if (MISSION.state === 'chase' && MISSION.chase) {
     const t = MISSION.chase;
-    if (t.dead || traffic.indexOf(t) < 0) completeJob('toast.stopped');
+    // wrecked counts as stopped; merely gone does not, and used to pay for it
+    if (t.dead) completeJob('toast.stopped');
+    else if (traffic.indexOf(t) < 0) failPursuit();
     else if (t.hp <= CHASE_STOP) {
       /* ARRESTED RATHER THAN DESTROYED, which is the outcome worth having: it is
          beaten, so it stops, and the shift ends without a fireball in a street
@@ -1572,7 +1659,13 @@ function update(dt) {
      culled to the screen: a pursuit that evaporates the moment it drops out of
      frame is not a pursuit, so they keep their own 700 m leash. */
   const tR = trafficR();
-  traffic = traffic.filter(t => !t.dead && dist2(t.x, t.y, c.x, c.y) < tR * tR);
+  /* THE RUNAWAY KEEPS ITS OWN LEASH, the way the police cars do. It is put on
+     the map hundreds of metres away, which is well outside the radius the rest
+     of the traffic lives in, so culling it to the screen would delete the target
+     on the frame after it was handed out. */
+  const chR = MISSION.state === 'chase' ? CHASE_LEASH : 0;
+  traffic = traffic.filter(t => !t.dead &&
+    dist2(t.x, t.y, c.x, c.y) < (t === MISSION.chase ? chR * chR : tR * tR));
   peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
   /* Refilling the world is a search over the road index, so it is rate-limited
      rather than run every frame. Traffic tops out at 17 m/s and you now do 100:
@@ -1583,7 +1676,16 @@ function update(dt) {
   P.popT = (P.popT || 0) - dt;
   if (P.popT <= 0) {
     P.popT = .25;
-    const cap = trafficCap();
+    /* THE RUNAWAY IS NOT ONE OF THE CAP'S CARS, and this is the second place
+       that had to learn it. The police shift puts it on the map and pushes it
+       onto the END of the list, which is exactly where a truncation bites: being
+       one car over the cap deleted the target a quarter of a second after the
+       shift handed it out, and the pursuit announced that it had got away before
+       you had moved. Counted separately, and lifted out of the way of the trim
+       when the list has to be cut — switching back from daylight cuts two
+       hundred cars at once and would take the target with them. */
+    const chase = MISSION.state === 'chase' ? MISSION.chase : null;
+    const cap = trafficCap() + (chase ? 1 : 0);
     const need = cap - traffic.length;
     /* Five a tick while topping up, as before — spawning is a road search and
        raising the steady rate to ten cost four frames a second at dusk, where
@@ -1591,7 +1693,10 @@ function update(dt) {
        only for the standing start and the switch into daylight, where the deficit
        is two hundred and filling it five at a time would take ten seconds. */
     if (need > 0) spawnTraffic(Math.min(need > 40 ? 25 : 5, need));
-    else if (need < 0) traffic.length = cap;               // switched back to dusk
+    else if (need < 0) {                                   // switched back to dusk
+      traffic.length = cap;
+      if (chase && traffic.indexOf(chase) < 0) { traffic.length = cap - 1; traffic.push(chase); }
+    }
     if (peds.length < 34) spawnPeds(Math.min(6, 34 - peds.length));
   }
 

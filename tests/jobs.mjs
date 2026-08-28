@@ -405,6 +405,190 @@ out.failureFitsTheShift = ['courier', 'taxi', 'ambulance'].every(id =>
   (out.failed.taxi.skipped || !out.failed.taxi.hadRider || out.failed.taxi.listed === true) &&
   (out.failed.ambulance.skipped || out.failed.ambulance.listed === false);
 
+/* ---- 14. every shift says its own words ---- */
+/* Reported from play: the ambulance said PASSENGER ABOARD. One line written for
+   the first shift and inherited by the next, the same fault as PACKAGE LOST, and
+   the reason both happened is that the choice was a ternary — "courier or not" —
+   which has no room for a third answer. So this walks all three carrying shifts
+   through a whole run and reads what was actually on screen at each step.
+ *
+ * ASKED THROUGH THE KEYS, not the English, so it holds in every language; and
+ * pinned to English first, because the toast is read off the page and the page
+ * is in whatever language the browser asked for. */
+out.words = await p.evaluate(async () => {
+  const was = LANG;
+  setLang('en');
+  const el = document.getElementById('toast'), obj = document.getElementById('objT');
+  const r = {};
+  for (const id of ['courier', 'taxi', 'ambulance']) {
+    window.__takeJob(id);
+    await new Promise(res => setTimeout(res, 900));
+    if (!MISSION.pick) { r[id] = { skipped: 'no work' }; continue; }
+    const pickLine = obj.textContent;
+    el.textContent = '';
+    window.__tp(MISSION.pick.x, MISSION.pick.y - 3, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(res => setTimeout(res, 700));
+    if (window.__m().state !== 'deliver') { r[id] = { skipped: 'never started' }; continue; }
+    const board = el.textContent, dropLine = obj.textContent;
+    const d = { x: MISSION.drop.x, y: MISSION.drop.y };
+    el.textContent = '';
+    window.__tp(d.x, d.y, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(res => setTimeout(res, 700));   // before the next job is handed out
+    r[id] = { pickLine, board, dropLine, done: el.textContent };
+  }
+  window.__takeJob('courier');
+  const want = { board: { courier: txt('toast.secured'), taxi: txt('toast.aboard'),
+                          ambulance: txt('toast.patientAboard') },
+                 done: { courier: txt('toast.delivered'), taxi: txt('toast.droppedOff'),
+                         ambulance: txt('toast.patientIn') },
+                 hospital: txt('hud.toHospital') };
+  setLang(was);
+  return { ...r, want };
+});
+/* The line on screen has the fee in it and the key does not, so both sides are
+   normalised: every run of digits and every ${n} becomes one hash. What is being
+   compared is which SENTENCE was chosen, not what it was paid. */
+const norm = s => String(s).replace(/\$\{n\}|\$?\d+/g, '#');
+const said = (id, k) => out.words[id].skipped ||
+  norm(out.words[id][k]) === norm(out.words.want[k][id]);
+out.eachShiftSaysItsOwnWords =
+  ['courier', 'taxi', 'ambulance'].every(id => said(id, 'board') && said(id, 'done')) &&
+  // three different lines each, not one line fetched under three names
+  new Set(Object.values(out.words.want.board)).size === 3 &&
+  new Set(Object.values(out.words.want.done)).size === 3 &&
+  // and the ambulance is sent to a hospital, not told to drive to a street
+  (out.words.ambulance.skipped || out.words.ambulance.dropLine === out.words.want.hospital) &&
+  // the words themselves, in the language this was pinned to
+  (out.words.ambulance.skipped ||
+   (/PATIENT/.test(out.words.ambulance.board) && !/PASSENGER|PACKAGE/.test(out.words.ambulance.board) &&
+    !/PASSENGER|PACKAGE/.test(out.words.ambulance.done)));
+
+/* ---- and in all ten languages ---- */
+/* The English is one paste away from being right and the other nine are where a
+   shared line actually hides: every locale was written by copying the block
+   above it. This asks each language for the three shifts' versions of the same
+   four moments and fails if any two of them came back identical, or if any of
+   them came back as the key. */
+out.locales = await p.evaluate(() => {
+  const SETS = {
+    board: ['toast.secured', 'toast.aboard', 'toast.patientAboard'],
+    done: ['toast.delivered', 'toast.droppedOff', 'toast.patientIn'],
+    fail: ['toast.tooSlow', 'toast.fareGone', 'toast.patientLost'],
+    pickup: ['hud.pickUp', 'hud.fare', 'hud.casualty'],
+    goal: ['hud.deliverPkg', 'hud.driveFare', 'hud.toHospital']
+  };
+  const was = LANG;
+  const langs = [...document.getElementById('lang').options].map(o => o.value);
+  const bad = [];
+  for (const L of langs) {
+    setLang(L);
+    for (const k in SETS) {
+      const v = SETS[k].map(key => txt(key));
+      SETS[k].forEach((key, i) => { if (v[i] === key) bad.push(L + ' ' + key + ': untranslated'); });
+      if (new Set(v).size !== v.length) bad.push(L + ' ' + k + ': ' + v.join(' | '));
+    }
+  }
+  setLang(was);
+  return { langs: langs.length, bad };
+});
+out.noShiftBorrowsAnother = out.locales.langs >= 10 && out.locales.bad.length === 0;
+
+/* ---- 15. the pursuit starts a long way off ---- */
+/* Reported from play: police work was too easy. The target was picked out of the
+   traffic already on the street, and traffic only exists inside the cull radius
+   — about 260 m — so "the nearest car in the band" was usually the one in front
+   of you. Three runs rather than one, because one could be luck. */
+out.pursuit = await p.evaluate(async () => {
+  const runs = [];
+  for (let i = 0; i < 3; i++) {
+    window.__takeJob('courier');
+    window.__tp(0, 0, 0); P.car.vx = P.car.vy = 0;   // mid-fixture, roads all round
+    await new Promise(r => setTimeout(r, 400));
+    window.__takeJob('police');
+    await new Promise(r => setTimeout(r, 900));
+    const t = MISSION.chase;
+    runs.push(t ? { d: Math.round(dist(t.x, t.y, P.car.x, P.car.y)),
+                    listed: traffic.indexOf(t) >= 0, wanted: !!t.wanted,
+                    onARoad: !!t.road_ } : null);
+  }
+  window.__takeJob('courier');
+  return runs;
+});
+out.pursuitStartsFarOff = out.pursuit.every(r =>
+  r && r.listed && r.wanted && r.onARoad && r.d > 250);
+
+/* ---- 16. and losing it pays nothing ---- */
+/* THE OTHER HALF OF MAKING IT DISTANT. "Gone from the traffic list" used to be
+   read as "stopped", so the reward landed the moment the target was culled — and
+   a target that starts 300 m away is culled the instant you fall behind, which
+   would have made the harder version of the job the easier one to farm. */
+out.escape = await p.evaluate(async () => {
+  window.__takeJob('courier');
+  window.__tp(0, 0, 0); P.car.vx = P.car.vy = 0;
+  await new Promise(r => setTimeout(r, 400));
+  window.__takeJob('police');
+  await new Promise(r => setTimeout(r, 900));
+  const t = MISSION.chase;
+  if (!t) return { skipped: 'no target' };
+  const cash0 = window.__p().cash, done0 = window.__m().done;
+  document.getElementById('toast').textContent = '';
+  t.x = P.car.x + 4000; t.y = P.car.y;          // straight past the leash
+  await new Promise(r => setTimeout(r, 600));
+  const out2 = { cash0, cash: window.__p().cash, done0, done: window.__m().done,
+                 listed: traffic.indexOf(t) >= 0, state: window.__m().state,
+                 said: document.getElementById('toast').textContent, want: txt('toast.gotAway') };
+  window.__takeJob('courier');
+  return out2;
+});
+out.losingItPaysNothing = !!out.escape.skipped ||
+  (out.escape.cash === out.escape.cash0 && out.escape.done === out.escape.done0 &&
+   !out.escape.listed && out.escape.said === out.escape.want);
+
+/* ---- 17. only a real smash brings the police ---- */
+/* Reported from play: the wanted level went up for every scrape. The bar was 13
+   m/s of closing speed, which rear-ending a slower car at speed clears.
+ *
+ * THE MIDDLE RUN IS THE ONE THAT MATTERS. A light tap never starred you and a
+ * head-on always will, so a test of only those two passes just as happily on the
+ * old bar as on the new one — it did, first time out. The run that discriminates
+ * is the one that lands BETWEEN the two bars, and it is asserted to land there:
+ * the closing speed is recovered from the damage ledger (damage is 0.7 of it up
+ * to a cap of 18) and checked to be inside 13 to 18, so a staging drift that
+ * moved it out of that band would fail here rather than quietly stop testing
+ * anything.
+ *
+ * BOTH RUNS HAVE TO ACTUALLY CONNECT, for the same reason: a bump that MISSED
+ * would report no stars just as happily as one that was correctly ignored, so
+ * the ledger is read as proof of contact. The crowd is emptied first — running
+ * somebody over is worth a whole star on its own and would land in the middle of
+ * the measurement. */
+out.hits = await p.evaluate(async () => {
+  const bump = async (v, gap) => {
+    window.__takeJob('courier');
+    window.__heal(); window.__dmgReset();
+    P.wanted = 0; P.cool = 0; P.hitCd = 0; cops = []; peds = [];
+    window.__tp(0, 0, 0);
+    if (!traffic.length) return { skipped: 'no traffic' };
+    window.__putTraffic(0, gap, 0, Math.PI, null, 0, 0);
+    window.__setCarHp('traffic', 0, 100);
+    P.car.vx = v; P.car.vy = 0;                 // straight at it, no throttle
+    await new Promise(r => setTimeout(r, 900));
+    const hit = +(window.__dmg().traffic || 0).toFixed(1);
+    return { v, hit, rel: +(hit / .7).toFixed(1), wanted: window.__p().wanted };
+  };
+  const light = await bump(9, 4);
+  const scrape = await bump(19, 6);
+  const hard = await bump(45, 8);
+  window.__takeJob('courier');
+  return { light, scrape, hard };
+});
+out.onlyStrongHitsAreNoticed = !!out.hits.light.skipped ||
+  (out.hits.light.hit > 0 && out.hits.light.wanted === 0 &&
+   // the discriminating one: harder than the old bar, softer than the new
+   out.hits.scrape.rel > 13 && out.hits.scrape.rel < 18 &&
+   out.hits.scrape.wanted === 0 &&
+   out.hits.hard.hit > 0 && out.hits.hard.wanted > 0);
+
 out.errs = errs.slice(0, 4);
 out.pass = out.fourDepots && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
@@ -412,7 +596,9 @@ out.pass = out.fourDepots && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
            out.policeCarIsArmoured && out.thePassengerGetsOut &&
            out.shiftChangeClearsTheHeat && out.failureFitsTheShift &&
-           !out.errs.length;
+           out.eachShiftSaysItsOwnWords && out.noShiftBorrowsAnother &&
+           out.pursuitStartsFarOff && out.losingItPaysNothing &&
+           out.onlyStrongHitsAreNoticed && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

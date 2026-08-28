@@ -170,6 +170,29 @@ function spawnTraffic(n, wide) {
     gridAdd(c);
   }
 }
+/* ONE TRAFFIC CAR, ON A ROAD, WHEREVER YOU ASK FOR IT.
+
+   spawnTraffic fills the ring around the player and is the wrong tool for the
+   police shift, which wants a single car a long way off and wants to know which
+   one it got. Same construction — the lane offset, the heading that matches the
+   direction of travel, the way and node it starts on — so what comes back is an
+   ordinary car that drives like the rest of the traffic, and is one of them. */
+function spawnOneCar(minD, maxD) {
+  const p = roadPoint(P.car.x, P.car.y, minD, maxD, 140) ||
+            roadPoint(P.car.x, P.car.y, minD, maxD);
+  if (!p) return null;
+  const dir = Math.random() < .5 ? 1 : -1;
+  const h = dir > 0 ? p.h : p.h + Math.PI;
+  const off = laneOffset(p.road);
+  const c = makeCar(p.x + Math.cos(h + Math.PI / 2) * off,
+                    p.y + Math.sin(h + Math.PI / 2) * off, h, 'traffic');
+  c.road_ = p.road; c.idx = p.idx; c.dir = dir;
+  c.i = traffic.length;
+  traffic.push(c);
+  gridAdd(c);
+  return c;
+}
+
 // Re-home a car onto some nearby way (used when one runs out of road).
 function rehome(c) {
   const p = roadPoint(c.x, c.y, 0, 260, 140) || roadPoint(c.x, c.y, 0, 260) || roadPoint(c.x, c.y, null);
