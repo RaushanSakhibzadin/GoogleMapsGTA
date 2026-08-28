@@ -181,6 +181,48 @@ const PAL = {
 let themeName = 'dusk';
 for (const k in THEMES.dusk) if (typeof THEMES.dusk[k] !== 'function') PAL[k] = THEMES.dusk[k];
 
+/* ------------- the ink for a name painted on that building -------------
+
+   Asked for: a caption should be the colour OpenStreetMap gives its building.
+   The game already knows that colour — `building:colour` where the mapper set
+   one, otherwise the material it was classified as — and it is the same value
+   the wall is drawn from, so a sign now belongs to the thing it is bolted to
+   instead of being one of two house colours.
+
+   THE OBVIOUS VERSION OF THIS IS INVISIBLE. Paint the letters in exactly the
+   wall's colour and there are no letters. So the HUE is the building's and the
+   LUMA is moved clear of the wall: lighter than a dark wall, darker than a pale
+   one, which is the direction real signage goes anyway — painted dark on cream
+   render, lit pale on brick.
+
+   MOVED AGAINST THE WALL AS DRAWN, not against the raw material, because those
+   are very different numbers. Dusk multiplies a material by 0.17 and pulls it
+   towards a violet ambient, so every wall in the city is nearly black and every
+   sign has to be lighter than it; daylight multiplies by 0.66 and half the
+   walls end up lighter than their own sign. Reading the theme's own wallT is
+   what makes that fall out rather than being a rule per theme.
+
+   The floor and ceiling stop the two extremes going silly: a black building
+   would otherwise get black letters and a white one white ones. */
+const INK_LIFT = .34, INK_MIN = .12, INK_MAX = .93;
+function signInk(mat, theme) {
+  const t = THEMES[theme] || THEMES.dusk;
+  const wl = lum(t.wallT(mat)) / 255;              // the wall as it is painted
+  const ml = lum(mat) / 255;                       // and the material's own weight
+  const dir = wl > .5 ? -1 : 1;                    // away from the wall, whichever way has room
+  const want = clamp(wl + dir * INK_LIFT, INK_MIN, INK_MAX);
+  /* DARKENING SCALES, LIGHTENING MIXES TOWARDS WHITE, and it is not a stylistic
+     choice either way. Scaling holds the hue exactly, which is what you want on
+     the way down — but on the way up it cannot start from black (nothing times
+     anything is still nothing: a black building came out with black lettering
+     on a black wall, gap zero) and it clips the strong channel long before the
+     weak one, which turns a scaled-up brick orange. Mixing towards white always
+     reaches the target luma, cannot clip, and keeps the channels in the order
+     that makes the colour recognisable. */
+  if (ml > 0 && want <= ml) return mul(mat, want / ml);
+  return mixc(mat, [255, 255, 255], (want - ml) / (1 - ml));
+}
+
 /* Resolve every building's stored material into this theme's drawn colours.
    Runs on theme change and at world build — thousands of buildings in a few ms,
    which is why drawBuilding never has to know a theme exists. */

@@ -206,35 +206,30 @@ const shot = await p.evaluate(() => {
 });
 out.sign = shot;
 out.signsAreDrawn = shot.lit > 400;
-/* AND THE DAYLIGHT INK IS BLUE. Everything above is satisfied by lettering of
-   any colour, including the white this replaced, so without this the change the
-   player asked for is untested. Asserted as a relationship between the channels
-   rather than against a number, because the wall colour underneath and the fog
-   both shift the absolute values. */
-out.blueByDay = !!shot.ink && shot.glyphs > 100 &&
-                shot.ink[2] > shot.ink[0] * 1.5 && shot.ink[2] > shot.ink[1] * 1.2;
+/* AND THE INK IS THAT BUILDING'S OWN COLOUR.
 
-/* ---- 1c. and a restaurant's name is yellow ----
+   This replaces two assertions — a blue daylight ink and a yellow one for
+   restaurants — because both described a rule that no longer exists. Captions
+   were two house colours chosen to read against masonry in general; they are
+   the colour OpenStreetMap gives each building now, which is what was asked
+   for. b.food is still parsed and still checked above; it simply no longer
+   picks a colour.
 
-   A SECOND CAMERA, because the one above is parked in front of the ordinary
-   blocks and the two eateries are two hundred metres along the street from
-   them. Same A/B — the frame with the names and the frame without — and the
-   glyph pixels picked out by COLOUR DISTANCE, the same ink-agnostic rule section
-   1 uses. Picking them by a rise in luma was the first attempt and it quietly
-   favoured one answer: yellow is a bright ink and blue is a dark one, so a fixed
-   luma rise found 297 yellow pixels and only 36 blue ones, and the blue reading
-   fell under its own count bar. A rule that finds more of the colour it was
-   tuned for is not a rule, it is the conclusion.
+   THE SAME BUILDINGS, PAINTED TWICE. Every signed building is given a red
+   material, the frame is read, then a blue one, and the frame is read again —
+   so the two readings differ by one property and can differ by nothing else.
+   Comparing two DIFFERENT buildings in one frame would not do: they stand at
+   different distances through different amounts of fog, and the wall behind
+   each is its own colour.
 
-   Asserted as a relationship between channels rather than against numbers: the
-   wall behind, the sun on it and the fog all move the absolute values, and none
-   of them can turn blue letters yellow. */
-out.foodShot = await p.evaluate(() => {
+   Each reading is itself the with-names-minus-without-names difference section
+   1 uses, so what is averaged is lettering rather than facade. */
+out.inkShot = await p.evaluate(() => {
   P.car.vx = P.car.vy = 0; traffic.length = 0; cops.length = 0; peds.length = 0;
   const w = Math.floor(VW * DPR), h = Math.floor(VH * DPR);
   const settle = n => { for (let i = 0; i < n; i++) window.__px3(0, 0, 1, 1); };
   const read = () => {
-    window.__tp(365, 40, -Math.PI / 2);
+    window.__tp(0, 90, -Math.PI / 2);
     settle(60);
     const A = window.__px3(0, 0, w, h);
     const keep = W.buildings.map(b => b.sign);
@@ -254,28 +249,66 @@ out.foodShot = await p.evaluate(() => {
     return { n, ink: n ? [r / n, g / n, bl / n].map(v => Math.round(v)) : null };
   };
   state = 'pause';
-  const food = read();
-  /* AND THE SAME CAMERA WITH THE FLAG TAKEN AWAY, which is the A/B that makes
-     this mean anything: without it a yellow reading could be the afternoon sun
-     on a cream wall rather than the ink. Same buildings, same names, same
-     frame — one boolean apart. */
-  const keepFood = W.buildings.map(b => b.food);
-  for (const b of W.buildings) b.food = false;
-  dropAllCells();
-  const plain = read();
-  W.buildings.forEach((b, i) => { b.food = keepFood[i]; });
+  const was = W.buildings.map(b => b.mWall);
+  const paint = c => {
+    for (const b of W.buildings) b.mWall = c.slice();
+    resolveColours(W.buildings);
+    dropAllCells();
+  };
+  paint([176, 48, 48]);
+  const red = read();
+  paint([48, 72, 190]);
+  const blue = read();
+  W.buildings.forEach((b, i) => { b.mWall = was[i]; });
+  resolveColours(W.buildings);
   dropAllCells();
   settle(60);
   state = 'play';
-  return { food, plain };
+  return { red, blue };
 });
-out.foodIsYellow =
-  out.foodShot.food.n > 100 && out.foodShot.plain.n > 100 &&
-  // yellow: red and green well clear of blue
-  out.foodShot.food.ink[0] > out.foodShot.food.ink[2] * 1.4 &&
-  out.foodShot.food.ink[1] > out.foodShot.food.ink[2] * 1.3 &&
-  // and the very same signs without the flag are the ordinary blue
-  out.foodShot.plain.ink[2] > out.foodShot.plain.ink[0] * 1.4;
+/* Channel relationships rather than numbers, for the reason the old assertions
+   gave and which has not changed: the wall behind, the sun on it and the fog
+   all move the absolute values, and none of them can turn red letters blue. */
+out.inkFollowsTheBuilding =
+  out.inkShot.red.n > 100 && out.inkShot.blue.n > 100 &&
+  out.inkShot.red.ink[0] > out.inkShot.red.ink[2] * 1.3 &&
+  out.inkShot.blue.ink[2] > out.inkShot.blue.ink[0] * 1.3;
+
+/* ---- 1c. and it stays readable against the wall it is painted on ---- */
+/* The problem the colour creates. Letters in exactly their own wall's colour
+   are no letters at all, so signInk keeps the hue and moves the luma clear of
+   the wall AS DRAWN — which is a different distance in each theme, because dusk
+   multiplies a material by 0.17 and daylight by 0.66.
+
+   Asked of the function directly and across the whole material palette, because
+   a screenshot can only show the handful of buildings that happen to be in
+   shot, and the one that breaks this will be the one that is not. */
+out.contrast = await p.evaluate(() => {
+  const mats = [];
+  for (const k in MAT) for (const c of MAT[k]) mats.push(c);
+  mats.push([0, 0, 0], [255, 255, 255], [176, 48, 48], [48, 72, 190]);
+  const rows = [];
+  for (const theme of ['dusk', 'day']) {
+    const t = THEMES[theme];
+    for (const m of mats) {
+      const wall = t.wallT(m), ink = signInk(m, theme);
+      // hue kept: the ink is the material scaled, so the channel order survives
+      const ord = (c, a, b) => (c[a] - c[b]) === 0 ? 0 : ((c[a] - c[b]) > 0 ? 1 : -1);
+      const hue = m[0] === m[1] && m[1] === m[2]
+        ? true
+        : ord(ink, 0, 1) === ord(m, 0, 1) && ord(ink, 1, 2) === ord(m, 1, 2);
+      rows.push({ theme, gap: Math.round(Math.abs(lum(ink) - lum(wall))), hue });
+    }
+  }
+  return { n: rows.length, worstGap: Math.min(...rows.map(r => r.gap)),
+           hueKept: rows.every(r => r.hue) };
+});
+/* Sixty luma out of 255 is about a quarter of the range, which is the point at
+   which lettering with a dark rim round it stops being a texture on a wall and
+   starts being a word. Nothing in the palette may fall under it, in either
+   theme, and every ink must still be recognisably its building's colour. */
+out.readableOnItsOwnWall = out.contrast.n > 40 && out.contrast.worstGap >= 60 &&
+                           out.contrast.hueKept;
 
 /* ---- 2. and they stay on the building ---- */
 /* Geometry, not pixels: signQuad is the same function the cell builder uses, so
@@ -329,7 +362,9 @@ out.longNamesGetWider = out.shape.short > 0 && out.shape.long > out.shape.short 
 out.errs = errs.slice(0, 3);
 out.pass = out.ownName && out.cyrillic && out.shopLendsItsName &&
            out.shopfrontNamesIt && out.namelessStaysBlank && out.shopsAreNotPois &&
-           out.signsAreDrawn && out.blueByDay && out.knowsWhereYouEat && out.foodIsYellow && out.staysOnTheWall && out.longNamesGetWider &&
+           out.signsAreDrawn && out.knowsWhereYouEat &&
+           out.inkFollowsTheBuilding && out.readableOnItsOwnWall &&
+           out.staysOnTheWall && out.longNamesGetWider &&
            !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

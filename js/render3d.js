@@ -607,19 +607,20 @@ void main() {
    from in front at night and painted white by day, and either way it should not
    go black when it happens to face away from the sun. */
 const SH_SIGN_V = `#version 300 es
-in vec3 aPos; in vec2 aUV; in float aKind;
+in vec3 aPos; in vec2 aUV; in vec3 aInk0; in vec3 aInk1;
 uniform mat4 uVP;
-out vec2 vU; out float vD; out float vK;
+out vec2 vU; out float vD; out vec3 vI0; out vec3 vI1;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
-  gl_Position = p; vU = aUV; vD = p.w; vK = aKind;
+  gl_Position = p; vU = aUV; vD = p.w; vI0 = aInk0; vI1 = aInk1;
 }`;
 const SH_SIGN_F = `#version 300 es
 precision mediump float;
-in vec2 vU; in float vD; in float vK;
+in vec2 vU; in float vD; in vec3 vI0; in vec3 vI1;
 uniform sampler2D uTex;
-uniform vec3 uFog, uInk, uInkFood;
+uniform vec3 uFog;
 uniform vec2 uFogR;
+uniform float uDay;
 out vec4 outC;
 void main() {
   vec4 t = texture(uTex, vU);
@@ -627,16 +628,19 @@ void main() {
   float f = clamp((vD - uFogR.x) / (uFogR.y - uFogR.x), 0.0, 1.0);
   /* The glyphs are white and their rim is black; multiplying by the ink colour
      tints the letters without touching the rim — black stays black whatever it
-     is multiplied by — which is what lets the ink be a mid blue in daylight and
-     still read against a pale stucco wall.
+     is multiplied by — which is what lets a dark ink read against a pale stucco
+     wall without losing its outline.
 
-     WHICH ink is a per-vertex flag rather than a second draw call, and rather
-     than a colour baked into the mesh. Baking it would be simpler and wrong: a
-     cell's geometry is built once and cached for as long as you are near it,
-     and pressing N to swap dusk for daylight has to change every sign in the
-     city on the same frame. A flag chooses between two uniforms instead, so the
-     theme moves both and the mesh never has to be rebuilt. */
-  vec3 ink = mix(uInk, uInkFood, vK);
+     BOTH THEMES' INKS RIDE IN THE MESH and a uniform picks between them. The
+     colour is per BUILDING now, so it cannot be a uniform; and it cannot be one
+     baked colour either, because a cell's geometry is built once and cached for
+     as long as you are near it, while pressing N to swap dusk for daylight has
+     to change every sign in the city on the same frame. Carrying both costs six
+     floats a vertex on the smallest mesh in the world and keeps the theme
+     switch free — and it keeps the arithmetic that derives them in ONE place,
+     js/util.js, rather than restating the theme's wall transform in GLSL where
+     it would quietly drift. */
+  vec3 ink = mix(vI0, vI1, uDay);
   outC = vec4(mix(t.rgb * ink, uFog, f), t.a * (1.0 - f));
 }`;
 
@@ -1230,17 +1234,32 @@ function signQuad(b, fp, wind, top, foot) {
   const R = { x: cxp + ex * w / 2 + ox, z: czp + ez * w / 2 + oz };
   return { L, R, y0, y1, s, w, h, wall: bl };
 }
+/* THE BUILDING'S OWN COLOUR, WORKED OUT ONCE AND CARRIED BY THE VERTICES.
+
+   Both themes' inks go in, because a cell is built once and kept while you are
+   near it and the theme can change under it — see the note in the shader. The
+   material is the same [r,g,b] the wall is drawn from, so a caption and the
+   thing it is bolted to are the same colour by construction rather than by two
+   pieces of code agreeing.
+
+   b.food is still parsed and still tested; it simply no longer picks a colour,
+   because every caption now takes its building's. It is left in place as the
+   hook it would need to be if an accent for eateries is ever wanted back. */
+const SIGN_MAT = [180, 178, 172];
 function pushSign(out, b, fp, wind, top, foot) {
   const q = signQuad(b, fp, wind, top, foot);
   if (!q) return;
   const { L, R, y0, y1, s } = q;
-  const k = b.food ? 1 : 0;             // somewhere you eat: the other ink
-  out.push(L.x, y0, L.z, s.u0, s.v1, k,
-           R.x, y0, R.z, s.u1, s.v1, k,
-           R.x, y1, R.z, s.u1, s.v0, k);
-  out.push(L.x, y0, L.z, s.u0, s.v1, k,
-           R.x, y1, R.z, s.u1, s.v0, k,
-           L.x, y1, L.z, s.u0, s.v0, k);
+  const mat = b.mWall || SIGN_MAT;
+  const d = signInk(mat, 'dusk'), y = signInk(mat, 'day');
+  const i0 = d[0] / 255, i1 = d[1] / 255, i2 = d[2] / 255;
+  const j0 = y[0] / 255, j1 = y[1] / 255, j2 = y[2] / 255;
+  out.push(L.x, y0, L.z, s.u0, s.v1, i0, i1, i2, j0, j1, j2,
+           R.x, y0, R.z, s.u1, s.v1, i0, i1, i2, j0, j1, j2,
+           R.x, y1, R.z, s.u1, s.v0, i0, i1, i2, j0, j1, j2);
+  out.push(L.x, y0, L.z, s.u0, s.v1, i0, i1, i2, j0, j1, j2,
+           R.x, y1, R.z, s.u1, s.v0, i0, i1, i2, j0, j1, j2,
+           L.x, y1, L.z, s.u0, s.v0, i0, i1, i2, j0, j1, j2);
 }
 
 /* STREET TREES.
@@ -1767,7 +1786,7 @@ function buildCell(kx, kz) {
     lit: GL.mesh(new Float32Array(lit), LIT_ATTR()),
     sgn: sgn.length ? GL.mesh(new Float32Array(sgn),
                               [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2],
-                               [G3.sign.a.aKind, 1]]) : null,
+                               [G3.sign.a.aInk0, 3], [G3.sign.a.aInk1, 3]]) : null,
     tre: tre.length ? GL.mesh(new Float32Array(tre), [[G3.tree.a.aPos, 3], [G3.tree.a.aUV, 2]]) : null
   };
 }
@@ -2540,20 +2559,17 @@ function render3D() {
 
        Dusk keeps the lamp colour the street lights use, so a fascia sign after
        dark belongs to the same night as everything under it. */
-    gl.uniform3fv(G3.sign.u.uInk,
-                  themeName === 'day' ? [.24, .53, .90] : [1, .93, .80]);
-    /* AND A RESTAURANT IS YELLOW. Not a second draw call and not a second
-       texture — the same atlas, one flag a vertex, two uniforms.
+    /* ONE UNIFORM NOW, AND IT IS NOT A COLOUR. The ink is the building's own,
+       so it rides in the mesh; this only says which of the two baked inks —
+       dusk or daylight — the frame wants. Pressing N moves every sign in the
+       city on the frame it is pressed, with nothing rebuilt.
 
-       Warmer and brighter than the blue rather than merely a different hue,
-       because the job is to be findable from the end of a street when you are
-       hungry: yellow on masonry is what an awning and a lit fascia both look
-       like, and it is the one colour the blue can never be confused with at a
-       distance or through fog. After dark it barely changes — a warm sign under
-       a sodium lamp is the same sign — which is right: it is the daylight blue
-       that these have to stand out from. */
-    gl.uniform3fv(G3.sign.u.uInkFood,
-                  themeName === 'day' ? [1, .78, .17] : [1, .86, .42]);
+       The blue and the yellow that used to live here are gone with it. They
+       were two house colours chosen to read against masonry in general; a
+       caption is the colour of ITS building now, which is what was asked for,
+       and the readable-against-its-own-wall problem that creates is solved
+       where the colour is worked out rather than here. */
+    gl.uniform1f(G3.sign.u.uDay, themeName === 'day' ? 1 : 0);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, SIGN.tex);
     gl.uniform1i(G3.sign.u.uTex, 1);
