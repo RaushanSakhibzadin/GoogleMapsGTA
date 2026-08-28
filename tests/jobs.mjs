@@ -369,13 +369,50 @@ out.shiftChangeClearsTheHeat =
   out.heat.after.wanted === 0 && out.heat.after.cops === 0 &&
   out.heat.after.bustT === 0;
 
+/* ---- 13. and running out of time says what was actually lost ---- */
+/* Reported from play: an ambulance that ran out of time said PACKAGE LOST. One
+   failure line was written for the courier run and then inherited by every shift
+   that has a clock. Asked here through the KEYS rather than the English, so it
+   holds in all ten languages, and checked with the passenger too — "PATIENT
+   LOST" while the patient hops out and strolls off is the same fault the other
+   way round. */
+out.failed = await p.evaluate(async () => {
+  const r = {};
+  for (const id of ['courier', 'taxi', 'ambulance']) {
+    window.__takeJob(id);
+    await new Promise(res => setTimeout(res, 900));
+    if (!MISSION.pick) { r[id] = { skipped: 'no work' }; continue; }
+    window.__tp(MISSION.pick.x, MISSION.pick.y - 3, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(res => setTimeout(res, 700));
+    if (window.__m().state !== 'deliver') { r[id] = { skipped: 'never started' }; continue; }
+    const who = MISSION.rider;
+    document.getElementById('toast').textContent = '';
+    MISSION.time = .05;                       // the clock runs out on the next tick
+    await new Promise(res => setTimeout(res, 500));
+    r[id] = { said: document.getElementById('toast').textContent,
+              state: window.__m().state,
+              hadRider: !!who, listed: !!who && peds.indexOf(who) >= 0 };
+  }
+  window.__takeJob('courier');
+  return { ...r, want: { courier: txt('toast.tooSlow'), taxi: txt('toast.fareGone'),
+                         ambulance: txt('toast.patientLost') } };
+});
+out.failureFitsTheShift = ['courier', 'taxi', 'ambulance'].every(id =>
+  out.failed[id].skipped || out.failed[id].said === out.failed.want[id]) &&
+  // three different lines, not one line fetched under three names
+  new Set(Object.values(out.failed.want)).size === 3 &&
+  // the fare walks off; the patient does not
+  (out.failed.taxi.skipped || !out.failed.taxi.hadRider || out.failed.taxi.listed === true) &&
+  (out.failed.ambulance.skipped || out.failed.ambulance.listed === false);
+
 out.errs = errs.slice(0, 4);
 out.pass = out.fourDepots && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
            out.policeCarIsArmoured && out.thePassengerGetsOut &&
-           out.shiftChangeClearsTheHeat && !out.errs.length;
+           out.shiftChangeClearsTheHeat && out.failureFitsTheShift &&
+           !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
 process.exit(out.pass ? 0 : 1);

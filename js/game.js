@@ -710,6 +710,7 @@ function resetRun() {
   MISSION.state = 'none'; MISSION.done = 0;
   MISSION.fire = MISSION.chase = MISSION.fare = MISSION.rider = null;
   MISSION.riding = false;
+  missionSeq++;                 // the last city's pending next-job call is not this city's
   JOB = 'courier'; jobOffer = null;
   if ($('jobBtn')) $('jobBtn').classList.remove('on');
   // otherwise a new city opens still showing the last one's street and district
@@ -817,7 +818,7 @@ function setJob(id) {
     P.car.armour = id === 'police' ? .45 : 1;
   }
   toast(txt('job.took', { job: txt('job.' + id) }), 1800);
-  setTimeout(newMission, 700);
+  scheduleMission(700);
   return true;
 }
 /* The button, refreshed on the same ten-a-second tick the street sign uses
@@ -885,8 +886,17 @@ function dropRider(at) {
   if (peds.indexOf(who) < 0) peds.push(who);
   return who;
 }
+/* AN AMBULANCE RUN ENDS ONE OF TWO WAYS and neither of them is a casualty
+   strolling off down the pavement: they either reach the hospital, in which case
+   they are indoors, or they do not, in which case they are lost. Every other
+   shift puts its passenger back on the street. */
+function releaseRider(at) {
+  if (JOB === 'ambulance') { MISSION.rider = null; MISSION.riding = false; return null; }
+  return dropRider(at);
+}
 
 function clearMission() {
+  missionSeq++;                 // voids any next-job call the last shift left pending
   MISSION.state = 'none';
   MISSION.pick = MISSION.drop = null;
   MISSION.fire = null;
@@ -895,6 +905,19 @@ function clearMission() {
   // changing shift mid-ride is still the end of the ride, so let them out here
   dropRider(P.car);
   setObjective('hud.freeRoam');
+}
+
+/* THE NEXT JOB IS ALWAYS ON A TIMER, and there must only ever be one of them
+   pending. Every mission ends by asking for the next one a second or two later,
+   and clocking on at a depot asks for one too — so failing a delivery and walking
+   straight into a fire station left two of them queued, and the stale one landed
+   a couple of seconds into the new shift and re-rolled the job you had just been
+   given. A sequence number rather than a stored handle, because clearMission has
+   to be able to cancel a pending call it did not schedule. */
+let missionSeq = 0;
+function scheduleMission(ms) {
+  const n = ++missionSeq;
+  setTimeout(() => { if (n === missionSeq) newMission(); }, ms);
 }
 
 /* ONE DISPATCH, FOUR GENERATORS. Everything downstream — the marker on the map,
@@ -986,7 +1009,7 @@ function newFire() {
     if (d < 60 || d > reach) continue;
     if (d < bd) { bd = d; best = b; }
   }
-  if (!best) { MISSION.state = 'none'; setTimeout(newMission, 3000); return; }
+  if (!best) { MISSION.state = 'none'; scheduleMission(3000); return; }
   MISSION.fire = { x: best.cx, y: best.cy, hp: 100, t: 0 };
   MISSION.state = 'fire';
   MISSION.reward = Math.round(260 + bd * 1.1 + MISSION.done * 40);
@@ -1025,7 +1048,7 @@ function newPursuit() {
     if (d < 40 || d > 520) continue;
     if (d < bd) { bd = d; best = t; }
   }
-  if (!best) { MISSION.state = 'none'; setTimeout(newMission, 2500); return; }
+  if (!best) { MISSION.state = 'none'; scheduleMission(2500); return; }
   best.wanted = true;
   best.maxSpeed = Math.max(best.maxSpeed, 26);
   MISSION.chase = best;
@@ -1055,7 +1078,7 @@ function startDelivery() {
     ? nearestPOI('hospital', P.car.x, P.car.y)
     : (roadPoint(P.car.x, P.car.y, 180, missionReach(700))
        || roadPoint(P.car.x, P.car.y, null));
-  if (!d) { MISSION.state = 'none'; setTimeout(newMission, 2000); return; }
+  if (!d) { MISSION.state = 'none'; scheduleMission(2000); return; }
   /* THE PASSENGER GETS IN, which is why the street is one person emptier for the
      rest of the ride. Removed from the crowd rather than merely hidden: a
      pedestrian standing inside the car is one the collision code can hit. */
@@ -1083,14 +1106,12 @@ function startDelivery() {
 function completeDelivery() {
   P.cash += MISSION.reward; P.score += MISSION.reward;
   MISSION.done++;
-  // out at the kerb they asked for — except the casualty, who is now indoors
-  if (JOB === 'ambulance') { MISSION.rider = null; MISSION.riding = false; }
-  else dropRider(MISSION.drop || P.car);
+  releaseRider(MISSION.drop || P.car);
   store.set('vm_cash', P.cash);
   SFX.cash();
   toast(txt(JOB === 'courier' ? 'toast.delivered' : 'toast.droppedOff', { n: MISSION.reward }), 2000);
   MISSION.state = 'none';
-  setTimeout(newMission, 900);
+  scheduleMission(900);
 }
 /* Putting out a fire and stopping a runaway both end the same way: paid, and the
    next call comes in. */
@@ -1103,14 +1124,19 @@ function completeJob(key) {
   MISSION.fire = null; MISSION.chase = null;
   MISSION.state = 'none';
   setObjective('hud.freeRoam');
-  setTimeout(newMission, 1200);
+  scheduleMission(1200);
 }
+/* WHAT WAS LOST DEPENDS ON WHAT YOU WERE CARRYING. "PACKAGE LOST" is the courier
+   run and nothing else — an ambulance that runs out of time has not mislaid a
+   parcel. The fallback is the courier line, because that is the shift every
+   other one falls back to. */
+const FAIL_TOAST = { taxi: 'toast.fareGone', ambulance: 'toast.patientLost' };
 function failDelivery() {
   MISSION.state = 'none';
-  dropRider(P.car);           // they have had enough of this taxi, and get out here
-  toast(txt('toast.tooSlow'), 1800);
+  releaseRider(P.car);        // they have had enough of this taxi, and get out here
+  toast(txt(FAIL_TOAST[JOB] || 'toast.tooSlow'), 1800);
   setObjective('hud.freeRoam');
-  setTimeout(newMission, 1600);
+  scheduleMission(1600);
 }
 // The radar sits under the objective now, so a longer objective that wraps to an
 // extra line shifts it down — re-cache the rect the edge arrow dodges against.
@@ -1198,8 +1224,8 @@ function respawn(kind) {
   SFX.bust();
   if (MISSION.state === 'deliver') {
     MISSION.state = 'none';
-    dropRider(P.car);         // out at the wreck, rather than carried off to the cells
-    setTimeout(newMission, 2600);
+    releaseRider(P.car);      // out at the wreck, rather than carried off to the cells
+    scheduleMission(2600);
   }
 }
 function doRespawn() {
@@ -1474,7 +1500,7 @@ function update(dt) {
     if (MISSION.fare.dead || peds.indexOf(MISSION.fare) < 0) {
       MISSION.fare = null;
       clearMission();
-      setTimeout(newMission, 1200);
+      scheduleMission(1200);
     } else {
       MISSION.pick.x = MISSION.fare.x; MISSION.pick.y = MISSION.fare.y;
     }
