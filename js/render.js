@@ -147,8 +147,15 @@ function render2D() {
     if (Math.abs(p.x - cam.x) > viewR || Math.abs(p.y - cam.y) > viewR) continue;
     marker(p, POI_COL[p.kind], p.kind);
   }
-  if (MISSION.state === 'pickup' && MISSION.pick) marker(MISSION.pick, '#ff4fd8', 'pickup');
-  if (MISSION.state === 'deliver' && MISSION.drop) marker(MISSION.drop, GOLD, 'drop');
+  {
+    /* ONE ANSWER TO "WHERE IS THE JOB", asked in seven places and now given in
+       one. It was two lines checking two states, repeated in the world, the big
+       map, the radar, the edge arrow and the chase view's beacon — which was
+       survivable while there was one kind of job and is not survivable with
+       five. A burning building and a car being chased are goals like any other. */
+    const g = missionGoal();
+    if (g) marker(g.at, g.col, g.kind);
+  }
 
   if (!P.dead || Math.floor(P.deadT * 8) % 2 === 0) drawCar(c, true);
 
@@ -374,7 +381,8 @@ function drawPed(p) {
 
 /* off-screen objective arrow */
 function drawArrow() {
-  const tgt = MISSION.state === 'pickup' ? MISSION.pick : MISSION.state === 'deliver' ? MISSION.drop : null;
+  const goal = missionGoal();
+  const tgt = goal && goal.at;
   if (!tgt) return;
   const s = toScreen(tgt.x, tgt.y);
   const pad = 60;
@@ -395,7 +403,7 @@ function drawArrow() {
     y = (above > 46 && y < (miniRect.top + miniRect.bottom) / 2) ? above : below;
   }
   y = clamp(y, 46, botLimit);
-  const col = MISSION.state === 'pickup' ? '#ff4fd8' : GOLD;
+  const col = goal.col;
   ctx.save(); ctx.translate(x, y); ctx.rotate(a);
   ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14;
   ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-10, -10); ctx.lineTo(-5, 0); ctx.lineTo(-10, 10);
@@ -596,12 +604,11 @@ function drawBigMap() {
      the whole marker rather than sliding a growing emoji off a stuck dot. */
   const fpx = mapFaceSize(MAPV.s), dotR = fpx * .28;
   for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], dotR);
-  if (MISSION.state === 'pickup' && MISSION.pick) dot(MISSION.pick.x, MISSION.pick.y, '#ff4fd8', dotR * 1.4);
-  if (MISSION.state === 'deliver' && MISSION.drop) dot(MISSION.drop.x, MISSION.drop.y, GOLD, dotR * 1.4);
+  const goal = missionGoal();
+  if (goal) dot(goal.at.x, goal.at.y, goal.col, dotR * 1.4);
   // faces over the top of every dot, so one landmark never hides another's
   for (const p of W.pois) face(p.x, p.y, p.kind, fpx);
-  if (MISSION.state === 'pickup' && MISSION.pick) face(MISSION.pick.x, MISSION.pick.y, 'pickup', fpx * 1.2);
-  if (MISSION.state === 'deliver' && MISSION.drop) face(MISSION.drop.x, MISSION.drop.y, 'drop', fpx * 1.2);
+  if (goal) face(goal.at.x, goal.at.y, goal.kind, fpx * 1.2);
 
   /* THE CAR, POINTING WHERE IT IS POINTING — and big enough to find.
 
@@ -635,8 +642,11 @@ function drawBigMap() {
    the arrow uses and the drop-off is GOLD, and getting that pair wrong in one
    of the four is precisely the kind of thing nobody notices for a month. */
 function missionGoal() {
-  if (MISSION.state === 'pickup' && MISSION.pick) return { at: MISSION.pick, col: '#ff4fd8' };
-  if (MISSION.state === 'deliver' && MISSION.drop) return { at: MISSION.drop, col: GOLD };
+  const S = MISSION.state;
+  if (S === 'pickup' && MISSION.pick) return { at: MISSION.pick, col: '#ff4fd8', kind: 'pickup' };
+  if (S === 'deliver' && MISSION.drop) return { at: MISSION.drop, col: GOLD, kind: 'drop' };
+  if (S === 'fire' && MISSION.fire) return { at: MISSION.fire, col: '#ff6a2b', kind: 'blaze' };
+  if (S === 'chase' && MISSION.chase) return { at: MISSION.chase, col: '#3fa2ff', kind: 'chase' };
   return null;
 }
 
@@ -917,9 +927,8 @@ function drawMini() {
      Always at full strength, because unlike the garage this is not a suggestion
      — it is the current task, and the colour matches the arrow on the screen and
      the marker on the city map. */
-  const tgt = MISSION.state === 'pickup' ? MISSION.pick
-            : MISSION.state === 'deliver' ? MISSION.drop : null;
-  if (tgt) rimTo(tgt.x, tgt.y, MISSION.state === 'pickup' ? '#ff4fd8' : GOLD, true);
+  // `goal` is already in hand from the blip above — the same one answer
+  if (goal) rimTo(goal.at.x, goal.at.y, goal.col, true);
 
   // player triangle at centre, always pointing up
   mctx.save(); mctx.translate(r, r);

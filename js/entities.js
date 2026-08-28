@@ -52,7 +52,11 @@ const MAX_MARKS = 760, MARK_LIFE = 9;
 const SPIN_SECS = .85;      // how long a committed 180 takes, eased in and out
 // full throttle and going nowhere for this long means something has you pinned
 const STUCK_SECS = 1.3;
-const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0 };
+/* fire and chase are the two goals that are not a point you drive to and stop
+   at; fare is whoever is waiting on the pavement, and riding says they are in
+   the car. */
+const MISSION = { state: 'none', pick: null, drop: null, time: 0, reward: 0, done: 0,
+                  fire: null, chase: null, fare: null, riding: false };
 
 /* WHERE THE OTHER CARS ARE, in buckets, rebuilt once a frame.
 
@@ -210,6 +214,10 @@ function pedSkin() {
 function makePed(x, y, road, idx, dir, side) {
   return {
     x, y, road, idx, dir, side,
+    /* Set when this person is the point of the current job: 'wait' for a fare
+       who has flagged you down, 'down' for a casualty. Either way they stop
+       walking, because a target that strolls off is a target you cannot reach. */
+    hurt: false,
     h: 0, spd: rand(1.0, 1.7),
     shirt: pedShirt(), trews: pedShirt(), skin: pedSkin(),
     // where in the stride they are, so a crowd is not one person copied

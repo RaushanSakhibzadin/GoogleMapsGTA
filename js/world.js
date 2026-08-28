@@ -131,7 +131,9 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
    flag where it is going. */
 const POI_EMOJI = {
   police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕',
-  pickup: '📦', drop: '🏁'
+  pickup: '📦', drop: '🏁',
+  // and the two goals that are not a place you drive to and stop at
+  blaze: '🔥', chase: '🚨'
 };
 /* THE FONT CANVAS NEEDS TO BE TOLD, and it is not the HUD's font. Impact has no
    emoji in it, and a canvas asked for a glyph its font does not have falls back

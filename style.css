@@ -246,6 +246,29 @@ body.perked .perk .keyRow{display:none}
 .pat.on{display:inline-block}
 .pat:hover{background:rgba(255,66,77,.22);color:#ffb3b7;transform:translateY(-1px)}
 #patL{margin-top:18px}
+/* The depot button: big, because it is the one contextual action in the game and
+   it is pressed at a standstill with a thumb. Above #touch so it is not under a
+   pad, and it grows into place rather than appearing, so pulling up outside a
+   fire station reads as an offer rather than as a flicker. */
+#jobBtn{position:fixed;left:50%;bottom:calc(var(--edgeB) + var(--pad) + 22px);z-index:45;
+  display:none;align-items:center;justify-content:center;pointer-events:auto;
+  width:86px;height:86px;padding:0;border-radius:26px;cursor:pointer;
+  background:rgba(255,227,106,.16);border:2px solid var(--gold);
+  box-shadow:0 6px 26px rgba(0,0,0,.45);
+  opacity:0;transform:translateX(-50%) scale(.8);
+  transition:opacity .18s ease,transform .18s ease}
+#jobBtn.on{display:flex;opacity:1;transform:translateX(-50%) scale(1)}
+#jobBtn:active{background:rgba(255,227,106,.34)}
+#jobBtnE{font-size:44px;line-height:1;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
+/* On a landscape phone there is no room above the pads — it goes beside the
+   left-hand pair instead, where the keyboard hint used to be. */
+@media (max-height:520px){
+  #jobBtn{width:66px;height:66px;border-radius:20px;
+    bottom:calc(var(--edgeB) + var(--pad) + 8px)}
+  #jobBtnE{font-size:34px}
+}
+
 /* GHOST is a big change to how the car behaves, so it says so while it's on. */
 #ghostTag{position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:36;display:none;
   font-family:var(--hud);font-size:13px;letter-spacing:.22em;color:var(--gold);

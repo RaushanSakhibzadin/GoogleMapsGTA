@@ -105,6 +105,10 @@ function mapPulseOff() {
   const cv = $('bigmapFX');
   if (cv && cv.width) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
 }
+/* The one contextual control in the game. setJob refuses anything that is not on
+   offer here, so a stale button cannot hand out a shift you have driven away
+   from. */
+$('jobBtn').onclick = () => { const j = jobHere(); if (j) setJob(j); };
 $('mini').onclick = openMap;
 $('mapClose').onclick = closeMap;
 /* PUT THE CAR BACK IN THE MIDDLE, and touch nothing else.
@@ -732,6 +736,12 @@ window.__mapView = () => ({ cx: +MAPV.cx.toFixed(1), cy: +MAPV.cy.toFixed(1), s:
 window.__mapPan = (dx, dy) => { MAPV.cx += dx; MAPV.cy += dy; mapClamp(); drawBigMap(); };
 window.__mapZoom = k => { MAPV.s *= k; mapClamp(); drawBigMap(); };
 window.__mapCentre = () => centreMap();
+window.__job = () => ({ id: JOB, offer: jobOffer,
+  shown: $('jobBtn').classList.contains('on'),
+  emoji: $('jobBtnE').textContent,
+  colour: P.car && P.car.color, armour: P.car && P.car.armour });
+window.__takeJob = id => setJob(id);
+window.__jobHere = () => jobHere();
 /* The ping, drawn at a phase the caller names. The animation is on the wall
    clock, which is right for a decoration and useless for a test: sampling it
    twice gets two arbitrary moments and no way to say what should have changed

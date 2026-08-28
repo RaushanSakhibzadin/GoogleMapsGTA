@@ -2762,10 +2762,10 @@ function render3D() {
       for (const [u, t] of v)
         add.push(x + u * r, terrainH(x + u * r, z + t * r) + .30, z + t * r, cr, cg, cb, a, u, t);
     };
-    const tgt = MISSION.state === 'pickup' ? MISSION.pick
-              : MISSION.state === 'deliver' ? MISSION.drop : null;
+    const goal = missionGoal();
+    const tgt = goal && goal.at;
     if (tgt) {
-      const q = parseColour(MISSION.state === 'pickup' ? '#ff4fd8' : GOLD) || [255, 79, 216];
+      const q = parseColour(goal.col) || [255, 79, 216];
       const cr = q[0] / 255, cg = q[1] / 255, cb = q[2] / 255;
       /* Gone under sixteen metres and at full strength by forty-two. The pickup
          itself triggers at seven, so the column is there for the whole approach

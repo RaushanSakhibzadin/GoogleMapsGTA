@@ -688,6 +688,12 @@ const REGEN_CAP = 65;      // and no further
 const DMG = { bld: 0, traffic: 0, cop: 0, blast: 0, deaths: 0 };
 function hurtPlayer(n, why) {
   if (!(n > 0) || P.dead) return 0;
+  /* THE ARMOURED CAR, and the one line that makes it one. Every source of damage
+     in the game already funnels through here — that is what this function is
+     for — so a police shift takes less of all of them without four separate
+     places learning what a police shift is. Scaled before the tally, so the
+     figures still say what actually landed. */
+  n *= (P.car && P.car.armour) || 1;
   DMG[why] = (DMG[why] || 0) + n;
   P.car.hp -= n;
   P.calm = 0;                       // the regeneration window starts again
@@ -702,6 +708,9 @@ function resetRun() {
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
   traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
+  MISSION.fire = MISSION.chase = MISSION.fare = null; MISSION.riding = false;
+  JOB = 'courier'; jobOffer = null;
+  if ($('jobBtn')) $('jobBtn').classList.remove('on');
   // otherwise a new city opens still showing the last one's street and district
   NAV.street = NAV.zone = NAV.cand = ''; NAV.candT = NAV.showT = 0;
   $('street').textContent = ''; $('street').classList.remove('on');
@@ -736,7 +745,232 @@ const trafficCap = () => TRAFFIC_SET || (themeName === 'day' ? TRAFFIC_N * 3 : T
 // the new districts instead of clustering in the block you started on.
 const missionReach = base => Math.min(base * (1 + (CHUNK.loaded - 1) * .55), base * 3.2);
 
+/* ------------------------------ the four shifts ------------------------------
+
+   Asked for: taxi, police, fire and ambulance work, taken by driving to the
+   right depot and pressing a button with that vehicle on it.
+
+   WHAT A JOB IS, HERE. One id, one place that hires for it, one emoji and one
+   paint job — and a mission generator. Everything else in this file already
+   worked in terms of "a target, a clock and a reward", so the four new shifts
+   are four generators rather than four subsystems: the update loop below still
+   asks the same questions of MISSION, and the map, the radar and the objective
+   line already draw whatever MISSION points at.
+
+   THE DEPOT IS REAL. ambulance hires at a hospital and police at a police
+   station — both of which the game already pulled from OpenStreetMap — and the
+   fire station and the taxi rank were added to that same sweep for this. Nothing
+   is placed by the game: if a city has no fire station within 45 km, there is no
+   fire work in it, which is what the map says. */
+const JOBS = {
+  courier:   { at: null,       emoji: '📦', col: '#ff4fd8' },
+  taxi:      { at: 'taxi',     emoji: '🚕', col: '#f2b705' },
+  police:    { at: 'police',   emoji: '🚓', col: '#eef1f6' },
+  fire:      { at: 'fire',     emoji: '🚒', col: '#e0301f' },
+  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa' }
+};
+const JOB_AT = {};
+for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
+/* Close enough to have pulled up at it. The landmark itself is a point at the
+   centre of a building, so this has to clear the building — twenty-two metres is
+   about a forecourt, and it is the same order as the eight the delivery drop
+   uses. */
+const JOB_RANGE = 22;
+let JOB = 'courier';
+
+/* WHICH SHIFT IS ON OFFER WHERE YOU ARE STOPPED. Standing at the depot you
+   already work for offers the way out instead, because the alternative is a
+   button that does nothing at the one place you are most likely to press it. */
+function jobHere() {
+  const c = P.car;
+  if (!c || state !== 'play') return null;
+  let best = null, bd = JOB_RANGE * JOB_RANGE;
+  for (const q of W.pois) {
+    const id = JOB_AT[q.kind];
+    if (!id) continue;
+    const d = dist2(c.x, c.y, q.x, q.y);
+    if (d < bd) { bd = d; best = id; }
+  }
+  if (!best) return null;
+  return best === JOB ? 'courier' : best;
+}
+function setJob(id) {
+  if (!JOBS[id] || id === JOB) return false;
+  JOB = id;
+  clearMission();
+  if (P.car) {
+    P.car.color = JOBS[id].col;
+    /* THE ARMOURED CAR, which is the half of "special police car" that is not
+       paint. Everything that damages the player is scaled by this, so a police
+       shift can lean on a fleeing driver without ending the shift. */
+    P.car.armour = id === 'police' ? .45 : 1;
+  }
+  toast(txt('job.took', { job: txt('job.' + id) }), 1800);
+  setTimeout(newMission, 700);
+  return true;
+}
+/* The button, refreshed on the same ten-a-second tick the street sign uses
+   rather than per frame: it is a proximity test against every landmark in the
+   city and nothing about it needs sixty answers a second. */
+let jobOffer = null;
+function syncJobBtn() {
+  const el = $('jobBtn');
+  if (!el) return;
+  const offer = jobHere();
+  if (offer === jobOffer) return;
+  jobOffer = offer;
+  el.classList.toggle('on', !!offer);
+  if (offer) {
+    $('jobBtnE').textContent = JOBS[offer].emoji;
+    const label = txt('job.take', { job: txt('job.' + offer) });
+    el.setAttribute('title', label);
+    el.setAttribute('aria-label', label);
+  }
+}
+
+/* ---- clearing up after whatever the last shift was doing ---- */
+function clearMission() {
+  MISSION.state = 'none';
+  MISSION.pick = MISSION.drop = null;
+  MISSION.fire = null;
+  MISSION.chase = null;
+  if (MISSION.fare) { MISSION.fare.hurt = false; MISSION.fare = null; }
+  setObjective('hud.freeRoam');
+}
+
+/* ONE DISPATCH, FOUR GENERATORS. Everything downstream — the marker on the map,
+   the arrow on the radar, the objective line, the clock — reads MISSION, so a
+   new shift is a new way to fill MISSION in and nothing else. */
 function newMission() {
+  if (state !== 'play') return;
+  if (JOB === 'taxi') return newFare();
+  if (JOB === 'ambulance') return newCasualty();
+  if (JOB === 'fire') return newFire();
+  if (JOB === 'police') return newPursuit();
+  return newParcel();
+}
+
+/* ---- taxi: somebody on the pavement, and somewhere they want to go ----
+
+   THE FARE IS A REAL PEDESTRIAN when there is one to be had. It would have been
+   easier to drop a marker on a road point and call it a passenger, and it would
+   have looked like one until you arrived at an empty kerb. So this takes
+   somebody out of the crowd that is already walking the pavements, stands them
+   still to wait, and removes them from the street when they get in — the city is
+   one person emptier for the rest of the ride, which is what happened.
+
+   A road point is the fallback for the moment before the crowd has spawned. */
+function pickFare(minD) {
+  let best = null, bd = Infinity;
+  for (const q of peds) {
+    if (q.dead || q.hurt) continue;
+    const d = dist(q.x, q.y, P.car.x, P.car.y);
+    if (d < minD || d > missionReach(520)) continue;
+    if (d < bd) { bd = d; best = q; }
+  }
+  return best;
+}
+function newFare() {
+  const who = pickFare(70);
+  const p = who || roadPoint(P.car.x, P.car.y, 90, missionReach(480))
+                || roadPoint(P.car.x, P.car.y, null);
+  if (!p) { MISSION.state = 'none'; return; }
+  if (who) who.hurt = 'wait';                 // stands still until you get there
+  MISSION.fare = who || null;
+  MISSION.pick = { x: p.x, y: p.y, road: p.road };
+  MISSION.drop = null;
+  MISSION.state = 'pickup';
+  const where = p.road && p.road.name;
+  setObjective(where ? 'hud.fareOn' : 'hud.fare', { street: where });
+}
+
+/* ---- ambulance: somebody who is not walking anywhere ----
+
+   Same crowd, different reason for standing still, and the destination is not a
+   road point but a HOSPITAL — one of the landmarks the game already fetches, so
+   an ambulance run ends where an ambulance run would end. If the city has no
+   hospital the shift cannot run, and says so rather than inventing one. */
+function newCasualty() {
+  const who = pickFare(60);
+  const p = who || roadPoint(P.car.x, P.car.y, 80, missionReach(420));
+  if (!p) { MISSION.state = 'none'; return; }
+  if (who) who.hurt = 'down';
+  MISSION.fare = who || null;
+  MISSION.pick = { x: p.x, y: p.y, road: p.road };
+  MISSION.drop = null;
+  MISSION.state = 'pickup';
+  const where = p.road && p.road.name;
+  setObjective(where ? 'hud.casualtyOn' : 'hud.casualty', { street: where });
+}
+
+/* ---- fire: a building, alight ----
+
+   A REAL BUILDING out of the world, not a point on a road: the thing that is
+   burning has to be a thing. The fire is a number that comes down while you are
+   parked next to it, and goes back up while you are not, so driving away is
+   losing ground rather than pausing.
+
+   It burns visibly through the particle system the explosions already use, which
+   is drawn by BOTH renderers — a fire only the top-down view could see would be
+   no fire at all in the view most people play in. */
+const FIRE_REACH = 16, FIRE_RATE = 26, FIRE_REGROW = 5;
+function newFire() {
+  let best = null, bd = Infinity;
+  const reach = missionReach(500);
+  for (const b of W.buildings) {
+    const d = dist(b.cx, b.cy, P.car.x, P.car.y);
+    if (d < 60 || d > reach) continue;
+    if (d < bd) { bd = d; best = b; }
+  }
+  if (!best) { MISSION.state = 'none'; setTimeout(newMission, 3000); return; }
+  MISSION.fire = { x: best.cx, y: best.cy, hp: 100, t: 0 };
+  MISSION.state = 'fire';
+  MISSION.reward = Math.round(260 + bd * 1.1 + MISSION.done * 40);
+  setObjective(best.sign ? 'hud.fireAt' : 'hud.fireOut', { street: best.sign || '' });
+}
+function emitFire(f, dt) {
+  f.t -= dt;
+  if (f.t > 0) return;
+  f.t = .06;
+  const k = clamp(f.hp / 100, 0, 1);
+  for (let i = 0; i < 2; i++) {
+    const a = rand(0, TAU), r = rand(0, 7) * k;
+    parts.push({ x: f.x + Math.cos(a) * r, y: f.y + Math.sin(a) * r,
+      vx: rand(-1, 1), vy: rand(-1, 1),
+      life: rand(.4, 1.0), r: rand(.5, 1.5) * (.4 + k),
+      col: pick(['#ff8a2a', '#ff5a1f', '#ffa347', '#ffd06a']) });
+  }
+  parts.push({ x: f.x + rand(-5, 5), y: f.y + rand(-5, 5), vx: rand(-.6, .6), vy: rand(-.6, .6),
+    life: rand(1.0, 2.0), r: rand(1.2, 2.6), col: '#4a4048' });
+}
+
+/* ---- police: stop that car ----
+
+   Marked out of the traffic already on the street rather than spawned, so the
+   car you are told to stop is one that was going about its business a second
+   ago. It is given a longer leash — a higher top speed — so it is a pursuit
+   rather than a formality, and it counts as stopped when it has been beaten
+   down, which covers both halves of what was asked: arrested if it survives
+   being run off the road, destroyed if it does not. */
+const CHASE_STOP = 34;
+function newPursuit() {
+  let best = null, bd = Infinity;
+  for (const t of traffic) {
+    if (t.dead) continue;
+    const d = dist(t.x, t.y, P.car.x, P.car.y);
+    if (d < 40 || d > 520) continue;
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (!best) { MISSION.state = 'none'; setTimeout(newMission, 2500); return; }
+  best.wanted = true;
+  best.maxSpeed = Math.max(best.maxSpeed, 26);
+  MISSION.chase = best;
+  MISSION.state = 'chase';
+  MISSION.reward = Math.round(300 + MISSION.done * 50);
+  setObjective('hud.pursue');
+}
+
+function newParcel() {
   const p = roadPoint(P.car.x, P.car.y, 90, missionReach(480))
          || roadPoint(P.car.x, P.car.y, null);
   if (!p) { MISSION.state = 'none'; return; }
@@ -745,32 +979,68 @@ function newMission() {
   const where = p.road && p.road.name;
   setObjective(where ? 'hud.pickUpOn' : 'hud.pickUp', { street: where });
 }
+/* THE SECOND LEG, whatever was collected on the first.
+
+   A parcel and a fare both want a road point somewhere across town; a casualty
+   wants the nearest HOSPITAL, which is a landmark the game already has. One
+   function rather than three because the clock, the fee and the arrival test are
+   the same in all three cases — only where it is going differs, and that is one
+   lookup. */
 function startDelivery() {
-  const d = roadPoint(P.car.x, P.car.y, 180, missionReach(700))
-         || roadPoint(P.car.x, P.car.y, null);
-  if (!d) { MISSION.state = 'none'; return; }
+  const d = JOB === 'ambulance'
+    ? nearestPOI('hospital', P.car.x, P.car.y)
+    : (roadPoint(P.car.x, P.car.y, 180, missionReach(700))
+       || roadPoint(P.car.x, P.car.y, null));
+  if (!d) { MISSION.state = 'none'; setTimeout(newMission, 2000); return; }
+  /* THE PASSENGER GETS IN, which is why the street is one person emptier for the
+     rest of the ride. Removed from the crowd rather than merely hidden: a
+     pedestrian standing inside the car is one the collision code can hit. */
+  if (MISSION.fare) {
+    const i = peds.indexOf(MISSION.fare);
+    if (i >= 0) peds.splice(i, 1);
+    MISSION.fare = null;
+    MISSION.riding = true;
+  }
   MISSION.drop = d;
   MISSION.state = 'deliver';
   const dd = dist(P.car.x, P.car.y, d.x, d.y);
   MISSION.time = clamp(dd / 13 + 18, 22, 150);   // cross-district runs need the room
-  MISSION.reward = Math.round(120 + dd * 1.6 + MISSION.done * 45);
+  const rate = JOB === 'taxi' ? 2.1 : JOB === 'ambulance' ? 2.4 : 1.6;
+  MISSION.reward = Math.round(120 + dd * rate + MISSION.done * 45);
   SFX.pickup();
-  toast(txt('toast.secured', { n: MISSION.reward }), 1800);
-  // the drop point already knows which way it sits on, so name it
+  toast(txt(JOB === 'courier' ? 'toast.secured' : 'toast.aboard', { n: MISSION.reward }), 1800);
   const where = d.road && d.road.name;
-  setObjective(where ? 'hud.deliverTo' : 'hud.deliverPkg', { street: where });
+  const key = JOB === 'ambulance' ? 'hud.toHospital'
+            : JOB === 'taxi' ? (where ? 'hud.driveTo' : 'hud.driveFare')
+            : (where ? 'hud.deliverTo' : 'hud.deliverPkg');
+  setObjective(key, { street: where || (d.name || '') });
 }
 function completeDelivery() {
   P.cash += MISSION.reward; P.score += MISSION.reward;
   MISSION.done++;
+  MISSION.riding = false;
   store.set('vm_cash', P.cash);
   SFX.cash();
-  toast(txt('toast.delivered', { n: MISSION.reward }), 2000);
+  toast(txt(JOB === 'courier' ? 'toast.delivered' : 'toast.droppedOff', { n: MISSION.reward }), 2000);
   MISSION.state = 'none';
   setTimeout(newMission, 900);
 }
+/* Putting out a fire and stopping a runaway both end the same way: paid, and the
+   next call comes in. */
+function completeJob(key) {
+  P.cash += MISSION.reward; P.score += MISSION.reward;
+  MISSION.done++;
+  store.set('vm_cash', P.cash);
+  SFX.cash();
+  toast(txt(key, { n: MISSION.reward }), 2000);
+  MISSION.fire = null; MISSION.chase = null;
+  MISSION.state = 'none';
+  setObjective('hud.freeRoam');
+  setTimeout(newMission, 1200);
+}
 function failDelivery() {
   MISSION.state = 'none';
+  MISSION.riding = false;
   toast(txt('toast.tooSlow'), 1800);
   setObjective('hud.freeRoam');
   setTimeout(newMission, 1600);
@@ -913,6 +1183,10 @@ function updateNav(dt) {
     $('street').textContent = nm;
     $('street').classList.add('on');
   }
+
+  // the depot button, on the same tick: it is a proximity test against every
+  // landmark in the city and nothing about it needs sixty answers a second
+  syncJobBtn();
 
   // district: persistent, flashes when you cross into a new one
   const z = zoneAt(c.x, c.y);
@@ -1061,7 +1335,10 @@ function update(dt) {
   // --- pedestrians
   for (const p of peds) {
     if (p.dead) continue;
-    walkPed(p, dt);
+    /* SOMEBODY WAITING FOR YOU DOES NOT WALK OFF. A fare who has flagged you
+       down and a casualty on the ground both stand where they are — otherwise
+       the marker crawls along the pavement while you drive to where it was. */
+    if (!p.hurt) walkPed(p, dt);
     if (dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
       p.dead = true; addWanted(1);
       SFX.crash(8); toast(txt('toast.watchIt'), 900);
@@ -1117,12 +1394,46 @@ function update(dt) {
   }
 
   // --- mission markers
+  /* A FARE WALKS AND A PARCEL DOES NOT, so the pickup point follows whoever is
+     waiting at it. They are stood still — hurt is set when the job is handed
+     out — but the crowd is culled and respawned as you drive, and a fare that
+     got culled leaves a marker over an empty pavement. Losing the person ends
+     the job rather than leaving you to drive to nobody. */
+  if (MISSION.state === 'pickup' && MISSION.fare) {
+    if (MISSION.fare.dead || peds.indexOf(MISSION.fare) < 0) {
+      MISSION.fare = null;
+      clearMission();
+      setTimeout(newMission, 1200);
+    } else {
+      MISSION.pick.x = MISSION.fare.x; MISSION.pick.y = MISSION.fare.y;
+    }
+  }
   if (MISSION.state === 'pickup' && MISSION.pick && dist(c.x, c.y, MISSION.pick.x, MISSION.pick.y) < 7) {
     startDelivery();
   } else if (MISSION.state === 'deliver') {
     MISSION.time -= dt;
     if (MISSION.time <= 0) failDelivery();
     else if (MISSION.drop && dist(c.x, c.y, MISSION.drop.x, MISSION.drop.y) < 8 && spd < 14) completeDelivery();
+  } else if (MISSION.state === 'fire' && MISSION.fire) {
+    /* PARKED NEXT TO IT, not driving past it. The number comes down while you are
+       inside the reach and climbs back while you are not, so leaving is losing
+       ground — otherwise the shift is a series of drive-bys. */
+    const f = MISSION.fire;
+    emitFire(f, dt);
+    const near = dist(c.x, c.y, f.x, f.y) < FIRE_REACH;
+    f.hp += near ? -FIRE_RATE * dt : FIRE_REGROW * dt;
+    if (f.hp > 100) f.hp = 100;
+    if (f.hp <= 0) completeJob('toast.fireOut');
+  } else if (MISSION.state === 'chase' && MISSION.chase) {
+    const t = MISSION.chase;
+    if (t.dead || traffic.indexOf(t) < 0) completeJob('toast.stopped');
+    else if (t.hp <= CHASE_STOP) {
+      /* ARRESTED RATHER THAN DESTROYED, which is the outcome worth having: it is
+         beaten, so it stops, and the shift ends without a fireball in a street
+         full of civilians. */
+      t.vx = t.vy = 0; t.maxSpeed = 0; t.wanted = false;
+      completeJob('toast.arrested');
+    }
   }
 
   // --- repair shops: drive in, leave with full armor and a new paint job

@@ -27,7 +27,7 @@ const isB = req => decodeURIComponent(req.postData() || '').includes('"building"
 
 // every element that can be on screen at once
 const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars', 'chunk',
-             'tH', 'tN', 'tL', 'tR', 'tA', 'tB'];
+             'tH', 'tN', 'tL', 'tR', 'tA', 'tB', 'jobBtn'];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = [];
@@ -65,6 +65,12 @@ for (const [label, ctxOpts] of CASES) {
   await p.click('#go');
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 30000 });
   await p.waitForTimeout(800);
+  /* THE DEPOT BUTTON IS RAISED BY HAND. It only appears when the car is stopped
+     at a place that hires, which no fixture here contains — and an element that
+     is display:none is skipped by the geometry below, so leaving it down would
+     mean the one new control in the HUD is the one control never checked for
+     landing on a thumb pad. */
+  await p.evaluate(() => { document.getElementById('jobBtn').classList.add('on'); });
   // drive briefly so the street label and district banner are both showing
   await p.keyboard.down('w'); await p.waitForTimeout(1500); await p.keyboard.up('w');
   await p.waitForTimeout(400);
