@@ -103,7 +103,16 @@ out.clearedOpensOnTheDefault = Math.abs(out.fresh.got - out.fresh.want) < 1e-4;
  *
  * DRIVEN THROUGH THE REAL BUTTON, because a control nobody can press is not a
  * control: the handler could be bound to nothing, or the button could be under
- * the close button, and every check on the function itself would still pass. */
+ * the close button, and every check on the function itself would still pass.
+ *
+ * WHAT THIS CANNOT SEE, and a note for the next person: el.click() invokes the
+ * handler directly, so it proves the wiring and the layering and NOT the touch
+ * path. The button's real failure lived in the touch path — on a phone the
+ * driving pads are still laid out behind the map overlay, ◎ sits on top of the
+ * accelerator, and the document touch handler called preventDefault on it,
+ * which stops the browser ever synthesising the click. Everything here passed
+ * throughout. This page has no touch and its pads measure zero wide, so the
+ * finger version of this lives in bigmap.mjs, which runs on an iPhone. */
 out.recentreBtn = await p.evaluate(async () => {
   /* Parked in the middle of the world first. mapClamp will not let the edge of
      the world inside the viewport, so a car sitting outside the pannable box

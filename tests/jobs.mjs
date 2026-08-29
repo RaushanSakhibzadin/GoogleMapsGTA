@@ -245,6 +245,63 @@ out.amb = await p.evaluate(async () => {
 out.ambulanceGoesToHospital = !!out.amb.skipped ||
   (out.amb.state === 'deliver' && out.amb.toHospital < 130 && out.amb.drivable);
 
+/* ---- 6b. and the patient is across town, not outside the front door ---- */
+/* Reported from play: the patients are too close to the hospital. Same fault as
+   the fires being sixty metres from the fire station — the casualty was the
+   NEAREST pedestrian at least sixty metres off, and you stand at the hospital
+   every time a call comes in, both on clocking on and after every delivery,
+   because the hospital is the drop.
+ *
+ * MEASURED FROM BOTH ENDS. From the car, which is what "how far do I drive"
+ * means, and from the hospital, which is what was actually complained about;
+ * those are the same number only at the instant the shift is taken, so the car
+ * is moved away from the hospital before the later calls to separate them.
+ *
+ * SIX CALLS, not one. The old code took the nearest of a crowd and the new one
+ * picks at random inside a band, and one sample cannot tell those apart — a
+ * single nearest-first pick can land far away by luck. The minimum across the
+ * whole set is what the band promises.
+ *
+ * AND THE PATIENT MUST SURVIVE THE DRIVE. The crowd is culled at 500 m and the
+ * mission ends the moment its person leaves that list, so a call handed out at
+ * 900 m would be withdrawn on the next cull without the exemption — which would
+ * look exactly like the shift refusing to give out work. */
+out.far = await p.evaluate(async () => {
+  const h = window.__pois().filter(q => q.kind === 'hospital')[0];
+  if (!h) return { skipped: 'no hospital' };
+  const calls = [];
+  for (let i = 0; i < 6; i++) {
+    // stand somewhere real, and after the first pair not on the hospital itself
+    if (i >= 2) window.__tp(h.x + 260, h.y + 200, 0); else window.__tp(h.x, h.y, 0);
+    P.car.vx = P.car.vy = 0;
+    window.__takeJob(i % 2 ? 'ambulance' : 'courier');
+    if (i % 2 === 0) continue;                       // courier turn: just resetting
+    await new Promise(r => setTimeout(r, 900));
+    if (!MISSION.pick) { calls.push(null); continue; }
+    calls.push({ fromCar: Math.round(Math.hypot(MISSION.pick.x - P.car.x, MISSION.pick.y - P.car.y)),
+                 fromHosp: Math.round(Math.hypot(MISSION.pick.x - h.x, MISSION.pick.y - h.y)),
+                 isPerson: !!MISSION.fare, listed: MISSION.fare ? peds.indexOf(MISSION.fare) >= 0 : null });
+  }
+  // and one of them held while the car drove the other way, past the cull radius
+  window.__takeJob('courier'); window.__takeJob('ambulance');
+  await new Promise(r => setTimeout(r, 900));
+  let survived = null;
+  if (MISSION.fare) {
+    const who = MISSION.fare;
+    window.__tp(who.x + 900, who.y + 700, 0);        // 1.1 km off, well past 500
+    P.car.vx = P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 900));
+    survived = { listed: peds.indexOf(who) >= 0, state: window.__m().state };
+  }
+  return { calls: calls.filter(Boolean), survived };
+});
+out.patientsAreAcrossTown = !!out.far.skipped ||
+  (out.far.calls.length >= 3 &&
+   out.far.calls.every(c => c.fromCar >= 400 && c.fromHosp >= 400 &&
+                            c.isPerson === true && c.listed === true) &&
+   // the call is not quietly withdrawn when you are a kilometre from the patient
+   (!out.far.survived || (out.far.survived.listed && out.far.survived.state === 'pickup')));
+
 /* ---- 7. a fire burns down only while you are next to it ---- */
 /* The whole shape of the job. Parked inside the reach it comes down; driven
    away it climbs back — otherwise the shift is a series of drive-bys, and a
@@ -949,6 +1006,7 @@ out.pass = out.fourDepots && out.ambulancesStopAtTheDoor && out.theApplianceIsHe
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
            out.policeCarIsArmoured && out.thePassengerGetsOut &&
            out.shiftChangeClearsTheHeat && out.aNewShiftIsANewCar &&
+           out.patientsAreAcrossTown &&
            out.failureFitsTheShift &&
            out.eachShiftSaysItsOwnWords && out.noShiftBorrowsAnother &&
            out.pursuitStartsFarOff && out.losingItPaysNothing &&

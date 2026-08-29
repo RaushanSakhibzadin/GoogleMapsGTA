@@ -74,6 +74,33 @@ function padAt(x, y) {
   return null;
 }
 function syncTouches(e) {
+  /* THE PADS ONLY DRIVE WHEN THERE IS SOMETHING TO DRIVE.
+   *
+   * Reported: on a phone the map's centre-on-me button does nothing. It was
+   * never the button. The pads are not hidden when an overlay opens — the map
+   * is opaque and covers them — so they are still laid out, still full width,
+   * and still answering padAt() from behind it. ◎ sits exactly on top of the
+   * accelerator, so a tap on it was read as a touch on the throttle: `ours`
+   * came back true, this handler called preventDefault, and preventDefault on
+   * touchstart is what stops the browser ever synthesising the click. The
+   * handler on the button was correct and simply never ran. On a desktop the
+   * pads measure zero wide, which is why the same button worked with a mouse
+   * and why this survived so long.
+   *
+   * Guarding on the state fixes every overlay at once rather than the one
+   * button that was noticed — the pause card and the menu sit over the same
+   * corner — and it cannot drift the way "hide the pads too" would, which is a
+   * second thing to remember every time a new overlay is added. The ✕ escaped
+   * only because it happens to sit in the gap between two pads.
+   *
+   * Anything still held is released on the way out, so opening the map
+   * mid-corner cannot latch the throttle on behind it — the same fault the
+   * comment above this function describes, arrived at from a different door. */
+  if (state !== 'play') {
+    for (const [id, prop] of PADS)
+      if (touch[prop]) { touch[prop] = 0; $(id).classList.remove('act'); }
+    return false;                  // and no preventDefault: the tap is not ours
+  }
   // measured up front: an event with no touches at all — a cancel that took the
   // last finger — would otherwise never reach padAt, and the loop below would
   // run on a null cache

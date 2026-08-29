@@ -123,6 +123,50 @@ out.zoomClamped = out.viewMinned.s > 0 && out.viewMinned.s < out.view0.s;
 
 await p.screenshot({ path: `${OUT}/shot-bigmap.png` });
 
+/* ---- the map's own buttons answer a FINGER ---- */
+/* Reported from play: on a phone the centre-on-me button does nothing.
+ *
+ * It was never the button. The driving pads are not hidden when the map opens —
+ * the overlay is opaque and simply covers them — so they were still laid out,
+ * still full width, and still answering padAt() from behind it. ◎ sits exactly
+ * on top of the accelerator, so the document touch handler read the tap as a
+ * touch on the throttle and called preventDefault, and preventDefault on
+ * touchstart is what stops the browser ever synthesising a click. The handler
+ * never ran.
+ *
+ * THIS HAS TO BE A REAL TAP ON A REAL TOUCH CONTEXT, which is why it lives here
+ * and not beside the other re-centre assertions in mapzoom.mjs. That file drives
+ * the same button with el.click(), on a desktop page whose pads measure zero
+ * wide — it invokes the handler directly and passed all the way through the
+ * bug. A control that only works when the test calls it is not a control.
+ *
+ * The ✕ is checked in the same breath because it is the control this could have
+ * broken worst — it escaped only by sitting in the gap between two pads, which
+ * is luck, not design, and the next layout change could spend it. */
+out.finger = await p.evaluate(() => {
+  window.__openMap();
+  window.__mapPan(1800, 1400);                 // dragged well off the car
+  const v = window.__mapView();
+  const at = id => { const b = document.getElementById(id).getBoundingClientRect();
+    return { pad: (h => h ? h.prop : null)(padAt(b.x + b.width / 2, b.y + b.height / 2)) }; };
+  return { lostBy: Math.round(Math.hypot(v.cx - P.car.x, v.cy - P.car.y)),
+           // what the touch layer thinks is under each button while the map is up
+           padUnderMe: at('mapMe').pad, padUnderClose: at('mapClose').pad };
+});
+await p.waitForTimeout(120);
+await p.tap('#mapMe');                         // a finger, not el.click()
+await p.waitForTimeout(200);
+out.afterFinger = await p.evaluate(() =>
+  Math.round(Math.hypot(window.__mapView().cx - P.car.x, window.__mapView().cy - P.car.y)));
+/* Lost by a long way, then found. Not zero: mapClamp will not pull the edge of
+   the world inside the viewport, so a car near a corner pins the centre short
+   of itself. */
+out.centreAnswersAFinger = out.finger.lostBy > 500 && out.afterFinger < 100;
+await p.evaluate(() => window.__closeMap());
+await p.waitForTimeout(150);
+await p.evaluate(() => window.__openMap());
+await p.waitForTimeout(150);
+
 /* ---- and it gives the game back ---- */
 await p.tap('#mapClose');
 await p.waitForTimeout(250);
@@ -151,7 +195,7 @@ out.pass =
   !!out.where &&
   out.frozen &&
   out.panMoved && out.pannedDrawn.ink > out.pannedDrawn.px * .005 &&
-  out.zoomChanged && out.zoomClamped &&
+  out.zoomChanged && out.zoomClamped && out.centreAnswersAFinger &&
   out.stateAfterClose === 'play' && out.overlayHidden && out.resumedSanely &&
   out.fps >= 50 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));

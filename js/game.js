@@ -1161,16 +1161,69 @@ function newFare() {
    road point but a HOSPITAL — one of the landmarks the game already fetches, so
    an ambulance run ends where an ambulance run would end. If the city has no
    hospital the shift cannot run, and says so rather than inventing one. */
+/* AND THE PATIENT IS ACROSS TOWN, not outside the front door.
+ *
+ * Reported from play: the patients are too close to the hospital. They were,
+ * for the same reason the fires were too close to the fire station —
+ * pickFare(60) takes the NEAREST pedestrian at least sixty metres off, and you
+ * are standing at the hospital every time a call is handed out: when you clock
+ * on, and again after every delivery, because the hospital IS the drop. So the
+ * whole shift was sixty metres out and sixty metres back.
+ *
+ * The patient is now PUT somewhere in a band rather than chosen from the crowd.
+ * That is not a stylistic preference: the crowd only exists within 500 m of the
+ * car — spawned between 40 and 400, culled at 500 — so there is nobody further
+ * out to choose, and choosing from what is nearby is precisely the fault. An
+ * ambulance is dispatched to an address; it does not look around for the
+ * closest person already lying down.
+ *
+ * Measured against the hospital as well as the car, because those are the same
+ * place only at the moment the shift is taken. A call that lands next door to
+ * the hospital while you happen to be across town is the same complaint from
+ * the other end.
+ *
+ * The clock and the money needed nothing: both are set at pickup from the
+ * length of the run — clamp(dd / 13 + 18, 22, 150) and 2.4 a metre — so a
+ * longer job already gets the room and already pays for it, and the leg out to
+ * the patient is untimed. */
+const CASUALTY_MIN = 420;
+/* THE SAME BAND THE FIRES USE, and not a metre wider, because the return leg is
+   the one on a clock: MISSION.time is clamp(dd / 13 + 18, 22, 150), so distance
+   stops buying time at about 1.7 km and everything past that is a shorter run
+   against the same 150 seconds. A fire has no such clock and can afford to be
+   further. Handing out a job that cannot be finished is not difficulty. */
+function casualtySpot() {
+  const reach = missionReach(900);
+  const h = nearestPOI('hospital', P.car.x, P.car.y);
+  /* Tried a handful of times rather than once: roadPoint hands back ONE random
+     point in the band, and the hospital test can reject it. */
+  for (let i = 0; i < 14; i++) {
+    const p = roadPoint(P.car.x, P.car.y, CASUALTY_MIN, reach);
+    if (!p) break;
+    if (!h || dist(p.x, p.y, h.x, h.y) >= CASUALTY_MIN) return p;
+  }
+  /* A small city may genuinely have nothing that far from its own hospital, and
+     a shift that refuses to hand out work is worse than a short run. */
+  return roadPoint(P.car.x, P.car.y, CASUALTY_MIN, reach)
+      || roadPoint(P.car.x, P.car.y, 80, missionReach(420))
+      || roadPoint(P.car.x, P.car.y, null);
+}
 function newCasualty() {
-  const who = pickFare(60);
-  const p = who || roadPoint(P.car.x, P.car.y, 80, missionReach(420));
+  const p = casualtySpot();
   if (!p) { MISSION.state = 'none'; return; }
-  if (who) who.hurt = 'down';
-  MISSION.fare = who || null;
-  MISSION.pick = { x: p.x, y: p.y, road: p.road };
+  /* Stood on the pavement the way the rest of the crowd is, and pushed into the
+     crowd, so everything that already knows how to draw, move, collide with and
+     pick up a pedestrian goes on working unchanged. */
+  const side = pick([-1, 1]), dir = Math.random() < .5 ? 1 : -1;
+  const q = pedWalkPoint(p.road, p.idx, dir, side);
+  const who = makePed(q ? q.x : p.x, q ? q.y : p.y, p.road, p.idx, dir, side);
+  who.hurt = 'down';
+  peds.push(who);
+  MISSION.fare = who;
+  MISSION.pick = { x: who.x, y: who.y, road: who.road };
   MISSION.drop = null;
   MISSION.state = 'pickup';
-  const where = p.road && p.road.name;
+  const where = who.road && who.road.name;
   setObjective(where ? 'hud.casualtyOn' : 'hud.casualty', { street: where });
 }
 
@@ -1988,7 +2041,16 @@ function update(dt) {
   const chR = MISSION.state === 'chase' ? CHASE_LEASH : 0;
   traffic = traffic.filter(t => !t.dead &&
     dist2(t.x, t.y, c.x, c.y) < (t === MISSION.chase ? chR * chR : tR * tR));
-  peds = peds.filter(p => !p.dead && dist(p.x, p.y, c.x, c.y) < 500);
+  /* THE ONE YOU HAVE BEEN SENT TO IS NOT CULLED, the same exemption the runaway
+     above gets. The crowd lives within 500 m of the car; a patient is now
+     dispatched to an address up to 1.1 km away, and the block just above ends
+     the job the moment its person leaves this list — so without this the call
+     would be handed out and silently withdrawn on the same frame. It also fixes
+     a fault that was always latent for the taxi: a fare a little under 500 m
+     off, and two seconds of driving the wrong way deleted the passenger and the
+     job with them. */
+  peds = peds.filter(p => !p.dead &&
+    (p === MISSION.fare || dist(p.x, p.y, c.x, c.y) < 500));
   /* Refilling the world is a search over the road index, so it is rate-limited
      rather than run every frame. Traffic tops out at 17 m/s and you now do 100:
      outrun it and both lists empty continuously, and topping them up one per
