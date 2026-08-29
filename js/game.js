@@ -2111,10 +2111,39 @@ function updateCop(k, dt) {
   if (pspd < 4 && d < 50) k.maxSpeed = Math.max(7, d * .45);
   drive(k, gas, brake, steer, 0, dt);
   fence(k);
-  buildingCollide(k);
+  /* A WALL COSTS THEM SOMETHING NOW. buildingCollide was already called here, so
+     a cruiser has always been pushed back out of a building — but its return
+     value, the closing speed into the wall, was thrown away, so the wall was a
+     bumper. Through damageCar, which is the one door every other kind of damage
+     an AI car takes goes through, and which brings its own cooldown with it. */
+  const wall = buildingCollide(k);
+  if (wall > BLD_MIN) damageCar(k, wall);
   for (const o of cops) if (o !== k) {
     const rel = carsCollide(k, o);
     if (rel > 5.5) { damageCar(k, rel); damageCar(o, rel); }
+  }
+  /* AND THE TRAFFIC, WHICH NOTHING IN THE GAME EVER TESTED THEM AGAINST.
+   *
+   * Reported from play: police cars never hit other cars. They never could —
+   * there are four car-on-car tests in this game and not one of them had a cop
+   * on one side and a civilian on the other. trafficCollisions runs off the
+   * bucket grid, which trafficGrid fills from the `traffic` array alone; the
+   * player is tested against traffic and against cops separately; and the loop
+   * above is cop against cop. A cruiser drove through a bus.
+   *
+   * Off the same grid the traffic uses, at the same threshold two AI cars need,
+   * because that is what this is: nose to tail at walking pace is not a crash,
+   * and a patrol car shouldering a civilian aside at speed is. The grid is a
+   * frame stale by the time the police are updated — the traffic has moved since
+   * it was built — which is the arrangement trafficCollisions already lives
+   * with: cells are 26 m and nothing covers a metre in a frame. */
+  for (const o of nearTraffic(k.x, k.y)) {
+    if (o.dead) continue;
+    const rel = carsCollide(k, o);
+    if (rel > AI_HIT) {
+      damageCar(k, rel); damageCar(o, rel);
+      SFX.crash(rel * .6 * earshot(k.x, k.y));
+    }
   }
   k.blink += dt;
 }
