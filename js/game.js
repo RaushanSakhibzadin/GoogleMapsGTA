@@ -1107,25 +1107,96 @@ function newFire() {
   }
   if (!best) { MISSION.state = 'none'; scheduleMission(3000); return; }
   const bd = dist(best.cx, best.cy, P.car.x, P.car.y);
-  MISSION.fire = { x: best.cx, y: best.cy, hp: 100, t: 0 };
+  /* THE BUILDING'S OWN SIZE, carried with the fire.
+   *
+   * Reported from play: you had to come very close to the building to fight the
+   * fire. You had to come INSIDE it — the reach was 16 m measured from the
+   * CENTRE of the footprint, and half the diagonal of an ordinary block is more
+   * than that, so the only place the game accepted was inside the walls, which
+   * on a solid building means nowhere. The radius travels with the fire and
+   * everything that measures against it adds it on. */
+  const bb = best.bb;
+  /* Clamped at both ends: a shed still gets a forecourt's worth of reach, and a
+     two-hundred-metre shopping centre does not get to be extinguished from the
+     next district. */
+  const rad = clamp(bb ? Math.hypot(bb.x1 - bb.x0, bb.y1 - bb.y0) * .5 : 8, 8, 45);
+  MISSION.fire = { x: best.cx, y: best.cy, r: rad, hp: 100, t: 0 };
   MISSION.state = 'fire';
   MISSION.reward = Math.round(260 + bd * 1.1 + MISSION.done * 40);
   setObjective(best.sign ? 'hud.fireAt' : 'hud.fireOut', { street: best.sign || '' });
 }
+/* HOW BIG THE FIRE IS, in flames and in smoke.
+ *
+ * Reported from play: "I didn't see the fires." They were two half-metre
+ * particles every sixteenth of a second inside a seven-metre circle, drawn as
+ * billboards a foot off the ground — from a chase camera behind a car that is a
+ * flicker at the foot of a building, which is not a fire. And the smoke was one
+ * dark speck at the same rate, which is not smoke.
+ *
+ * So: flames across the whole footprint rather than a fixed circle, several
+ * times the size, and a real column of black smoke that RISES. Particles gained
+ * a height for it — z, lifted by vz each frame — which the chase view reads and
+ * the top-down one ignores, because from directly above a column of smoke is a
+ * disc whichever height it is at. */
+const FIRE_PART = .05;          // seconds between emissions
 function emitFire(f, dt) {
   f.t -= dt;
   if (f.t > 0) return;
-  f.t = .06;
+  f.t = FIRE_PART;
   const k = clamp(f.hp / 100, 0, 1);
-  for (let i = 0; i < 2; i++) {
-    const a = rand(0, TAU), r = rand(0, 7) * k;
+  const spread = Math.max(6, (f.r || 8) * .85);
+  /* FLAMES, over the footprint. Three at a time and up to three metres across:
+     a burning building is a wall of fire, and at the size these were it read as
+     a barbecue in the car park. They rise slowly and die low. */
+  for (let i = 0; i < 3; i++) {
+    const a = rand(0, TAU), r = Math.sqrt(Math.random()) * spread * (.35 + .65 * k);
     parts.push({ x: f.x + Math.cos(a) * r, y: f.y + Math.sin(a) * r,
-      vx: rand(-1, 1), vy: rand(-1, 1),
-      life: rand(.4, 1.0), r: rand(.5, 1.5) * (.4 + k),
-      col: pick(['#ff8a2a', '#ff5a1f', '#ffa347', '#ffd06a']) });
+      z: rand(0, 2.5), vz: rand(1.6, 4.2),
+      vx: rand(-1.4, 1.4), vy: rand(-1.4, 1.4),
+      life: rand(.5, 1.2), r: rand(1.1, 3.0) * (.45 + k),
+      col: pick(['#ff8a2a', '#ff5a1f', '#ffa347', '#ffd06a', '#ff3b0f']) });
   }
-  parts.push({ x: f.x + rand(-5, 5), y: f.y + rand(-5, 5), vx: rand(-.6, .6), vy: rand(-.6, .6),
-    life: rand(1.0, 2.0), r: rand(1.2, 2.6), col: '#4a4048' });
+  /* AND BLACK SMOKE ABOVE THEM, which is the half you see from three streets
+     away — it is the tallest thing a fire makes and the only part of it that
+     clears the roofline. Soft, so it is drawn as a swelling disc rather than a
+     square, and long-lived enough to build a column rather than a puff. */
+  for (let i = 0; i < 2; i++) {
+    const a = rand(0, TAU), r = Math.sqrt(Math.random()) * spread * .7;
+    const life = rand(2.2, 4.0);
+    parts.push({ x: f.x + Math.cos(a) * r, y: f.y + Math.sin(a) * r,
+      z: rand(2, 5), vz: rand(4.5, 8),
+      vx: rand(-1.2, 1.2), vy: rand(-1.2, 1.2),
+      life, life0: life, soft: true,
+      r: rand(1.8, 3.6) * (.5 + k * .8),
+      col: pick(['#1c1a1e', '#2b2730', '#141317', '#3a353f']) });
+  }
+}
+
+/* THE WATER, which was simply not there.
+ *
+ * Reported from play: no white spray while extinguishing. There was none to
+ * see — the fire went out on a number with nothing drawn for it, so the one
+ * action the shift is about had no feedback at all beyond the bar going down.
+ *
+ * It comes off the nose of the appliance and is aimed at the fire, so it reads
+ * as YOUR jet rather than as weather: a tight cone, thrown hard, arcing up and
+ * then falling. */
+const WATER_PART = .045;
+function emitWater(c, f, dt) {
+  f.wt = (f.wt || 0) - dt;
+  if (f.wt > 0) return;
+  f.wt = WATER_PART;
+  const nx = Math.cos(c.h) * c.l * .5, ny = Math.sin(c.h) * c.l * .5;
+  const ox = c.x + nx, oy = c.y + ny;
+  const a = Math.atan2(f.y - oy, f.x - ox);
+  for (let i = 0; i < 4; i++) {
+    const th = a + rand(-.16, .16), s = rand(11, 20);
+    const life = rand(.35, .7);
+    parts.push({ x: ox, y: oy, z: rand(1.2, 2.2), vz: rand(2.5, 5.5),
+      vx: Math.cos(th) * s, vy: Math.sin(th) * s,
+      life, life0: life, soft: true,
+      r: rand(.5, 1.1), col: pick(['#eaf6ff', '#ffffff', '#cfe8ff']) });
+  }
 }
 
 /* ---- police: stop that car ----
@@ -1692,7 +1763,12 @@ function update(dt) {
        ground — otherwise the shift is a series of drive-bys. */
     const f = MISSION.fire;
     emitFire(f, dt);
-    const near = dist(c.x, c.y, f.x, f.y) < FIRE_REACH;
+    /* CLEAR OF THE BUILDING, not sixteen metres from the middle of it. The
+       radius of the footprint is added on, so the reach is sixteen metres of
+       street outside whatever is burning rather than sixteen metres from a point
+       you cannot legally stand on. */
+    const near = dist(c.x, c.y, f.x, f.y) < FIRE_REACH + (f.r || 0);
+    if (near) emitWater(c, f, dt);
     f.hp += near ? -FIRE_RATE * dt : FIRE_REGROW * dt;
     if (f.hp > 100) f.hp = 100;
     if (f.hp <= 0) completeJob('toast.fireOut');
@@ -1781,7 +1857,12 @@ function update(dt) {
   // --- effects bookkeeping
   for (const m of marks) m.life -= dt;
   marks = marks.filter(m => m.life > 0);
-  for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .94; p.vy *= .94; p.life -= dt; }
+  for (const p of parts) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .94; p.vy *= .94; p.life -= dt;
+    // only smoke, flame and water carry a height; everything else has no z at
+    // all and pays nothing for this
+    if (p.vz) { p.z = (p.z || 0) + p.vz * dt; p.vz *= .93; }
+  }
   parts = parts.filter(p => p.life > 0);
   for (const b of blasts) { b.life -= dt; b.r += (b.max - b.r) * decay(9, dt); }
   blasts = blasts.filter(b => b.life > 0);

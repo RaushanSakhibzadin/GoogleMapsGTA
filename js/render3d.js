@@ -2830,7 +2830,11 @@ function render3D() {
     const a = clamp(p.life * 2, 0, 1);
     const q = parseColour(p.col) || [255, 200, 120];
     const r = p.soft ? (p.r || .5) * (1 + (1 - p.life / p.life0) * 1.9) : (p.r || .28);
-    bill(p.x, terrainH(p.x, p.y) + .6 + r, p.y, r,
+    /* THE HEIGHT, for the ones that have one. Smoke that does not rise is a
+       stain on the pavement — this is the view a column of smoke exists for, and
+       it is the difference between seeing a fire from three streets away and not
+       knowing there is one. Everything else has no z and sits where it did. */
+    bill(p.x, terrainH(p.x, p.y) + .6 + r + (p.z || 0), p.y, r,
          q[0] / 255, q[1] / 255, q[2] / 255, p.soft ? a * .3 : a);
   }
   for (const b of blasts) {

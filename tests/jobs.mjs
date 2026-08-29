@@ -60,8 +60,6 @@ const streets = () => {
   els.push({ type: 'node', id: 900, ...toLL(0, 0), tags: { place: 'suburb', name: 'Blok' } });
   return { elements: els };
 };
-/* Something to set alight. The fire job looks for a building at least 60 m off,
-   so these sit up the side street. */
 /* Something to set alight. A fire is now a building three hundred to nine
    hundred metres out, so there have to be SEVERAL out there — with one, "picked
    at random from the band" and "always the same building" are indistinguishable,
@@ -658,8 +656,115 @@ out.fires = await p.evaluate(async () => {
 out.firesAreAcrossTown = out.fires.every(d => d !== null && d > 250) &&
   new Set(out.fires).size > 1;
 
+/* ---- 20. the fire is fought from the street, not from inside the building ---- */
+/* Reported from play: "I have to come very close to the building." You had to
+   come INSIDE it. The reach was 16 m from the CENTRE of the footprint, and half
+   the diagonal of an ordinary block is more than that, so the only place the
+   game accepted was within the walls — which on a solid building is nowhere.
+   The footprint's radius is added on now.
+ *
+ * MEASURED AT THREE DISTANCES, because "it works closer" and "it works from
+ * anywhere" are different bugs: hard against the wall, a bus length clear of it,
+ * and far enough away that the fire must still be growing. */
+out.reach = await p.evaluate(async () => {
+  window.__takeJob('fire');
+  await new Promise(r => setTimeout(r, 900));
+  const f = MISSION.fire;
+  if (!f) return { skipped: 'no building' };
+  const at = async d => {
+    f.hp = 60;
+    // straight out along +x from the fire, which is off the footprint either way
+    window.__tp(f.x + d, f.y, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 900));
+    return +(f.hp - 60).toFixed(1);          // negative is going out, positive is growing
+  };
+  /* THE RADIUS IS TAKEN FROM THE BUILDING, not from the fire, so the three
+     distances below are the same on a build that carries the footprint's size
+     and on one that does not — otherwise the A/B compares two different
+     experiments, and on the older build f.r is undefined, which sends the car
+     to NaN and quietly poisons every section after this one. */
+  const b = W.buildings.find(q => Math.abs(q.cx - f.x) < 1 && Math.abs(q.cy - f.y) < 1);
+  const rad = b ? Math.round(Math.hypot(b.bb.x1 - b.bb.x0, b.bb.y1 - b.bb.y0) * .5) : 0;
+  const carried = +(f.r || 0).toFixed(1);
+  const wall = await at(rad + 3);
+  const street = await at(rad + 12);
+  const away = await at(rad + 90);
+  window.__takeJob('courier');
+  return { rad, carried, wall, street, away };
+});
+out.foughtFromTheStreet = !!out.reach.skipped ||
+  (out.reach.rad >= 8 && out.reach.carried >= 8 &&    // the fire carries its building's size
+   out.reach.wall < 0 && out.reach.street < 0 &&   // both work, one of them off the footprint
+   out.reach.away > 0);                            // and it is still a reach, not the whole map
+
+/* ---- 21. and you can see it: a bigger fire, black smoke, and a white jet ---- */
+/* Three separate reports in one sitting — the fire was invisible, there was no
+   smoke, and there was no water. All three are particles, so all three are asked
+   of the particle list rather than of the pixels: what matters is that they
+   exist, that they are the right colour, and that they are in the right PLACE —
+   smoke above the fire and climbing, water leaving the truck and not the
+   building. A pixel test could not tell the last one apart at all. */
+out.spray = await p.evaluate(async () => {
+  window.__takeJob('fire');
+  await new Promise(r => setTimeout(r, 900));
+  const f = MISSION.fire;
+  if (!f) return { skipped: 'no building' };
+  f.hp = 90;
+  /* Parked clear of the building with the nose pointing at it. The distance is
+     worked out from the BUILDING, not from f.r, for the same reason section 20
+     does it: on a build with no radius on the fire, f.r is undefined and the
+     teleport lands the car at NaN, which turns the whole measurement to
+     nonsense instead of to a clean failure. */
+  const b = W.buildings.find(q => Math.abs(q.cx - f.x) < 1 && Math.abs(q.cy - f.y) < 1);
+  const rad = b ? Math.hypot(b.bb.x1 - b.bb.x0, b.bb.y1 - b.bb.y0) * .5 : 8;
+  window.__tp(f.x + rad + 8, f.y, Math.PI, 0);
+  P.car.vx = P.car.vy = 0;
+  parts.length = 0;
+  /* AND WHAT IT COSTS. Three hundred extra particles is the sort of thing that
+     looks free until a phone is drawing every one of them as its own path, so
+     the frames are counted while the fire is at its worst rather than assumed. */
+  let frames = 0;
+  const t0 = performance.now();
+  const tick = () => { frames++; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  await new Promise(r => setTimeout(r, 1200));
+  const fps = Math.round(frames / ((performance.now() - t0) / 1000));
+  const dark = [], pale = [], flame = [];
+  for (const p of parts) {
+    const c = parseColour(p.col) || [0, 0, 0];
+    const near = Math.hypot(p.x - f.x, p.y - f.y);
+    const row = { z: +(p.z || 0).toFixed(1), r: +(p.r || 0).toFixed(1), d: +near.toFixed(1),
+                  fromCar: +Math.hypot(p.x - P.car.x, p.y - P.car.y).toFixed(1) };
+    if (c[0] > 200 && c[1] > 200 && c[2] > 200) pale.push(row);
+    else if (c[0] < 70 && c[1] < 70 && c[2] < 70) dark.push(row);
+    else if (c[0] > 200 && c[1] < 180 && c[2] < 120) flame.push(row);
+  }
+  const top = a => a.length ? Math.max(...a.map(q => q.z)) : 0;
+  const big = a => a.length ? Math.max(...a.map(q => q.r)) : 0;
+  const nearest = a => a.length ? Math.min(...a.map(q => q.fromCar)) : 1e9;
+  window.__takeJob('courier');
+  return { fps, live: parts.length,
+           smoke: dark.length, water: pale.length, flame: flame.length,
+           smokeTop: top(dark), flameTop: top(flame), flameR: big(flame),
+           waterFromCar: nearest(pale), flameFromCar: nearest(flame),
+           spread: flame.length ? Math.max(...flame.map(q => q.d)) : 0 };
+});
+out.youCanSeeTheFire = !!out.spray.skipped ||
+  (/* the flames: many, and metres across rather than centimetres */
+   out.spray.flame > 20 && out.spray.flameR >= 1 &&
+   /* smoke, and it is ABOVE the fire — the whole point of it. Higher than the
+      flames, which is what makes a column rather than a haze. */
+   out.spray.smoke > 20 && out.spray.smokeTop > 4 &&
+   out.spray.smokeTop > out.spray.flameTop &&
+   /* and the jet, which comes off the truck. Asked as a distance from the CAR:
+      white particles centred on the fire would be steam, not a hose. */
+   out.spray.water > 15 && out.spray.waterFromCar < 6 &&
+   out.spray.waterFromCar < out.spray.flameFromCar &&
+   // and the whole blaze still draws at a frame rate
+   out.spray.fps >= 45);
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
