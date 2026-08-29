@@ -1,0 +1,4 @@
+# Built mirrors of the site for a domain of its own — see tools/mirror.mjs.
+# Generated, several megabytes, and stale the moment the source changes: build
+# it when you need it rather than keeping a copy in here.
+dist/

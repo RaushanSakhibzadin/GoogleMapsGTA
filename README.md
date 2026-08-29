@@ -82,7 +82,7 @@ js/render.js top-down view            js/render3d.js  chase view + the dispatche
 js/soft3d.js chase view without a GPU  js/gl.js    WebGL2 plumbing, ear clipping
 js/carmesh.js  the car mesh           js/proctex.js  every texture, from fractals
 js/radio.js  the dial                 js/main.js   the loop, menus, debug hooks
-tools/       buildcity.py, logfixture.py, stamp.mjs, glb2car.py, perkword.mjs
+tools/       buildcity.py, logfixture.py, stamp.mjs, glb2car.py, perkword.mjs, mirror.mjs
 tests/       the suite, and the captured sessions it replays
 ```
 
