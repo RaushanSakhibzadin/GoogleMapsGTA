@@ -2205,7 +2205,8 @@ function updateTraffic(t, dt) {
     ax += -duy * off; ay += dux * off;      // (-uy, ux) is one quarter turn right
   }
   const dx = ax - t.x, dy = ay - t.y;
-  if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); return; }  // nowhere to aim: coast
+  // nowhere to aim: coast — and still not through a wall while doing it
+  if (dx * dx + dy * dy < 1) { drive(t, 0, 1, 0, 0, dt); fence(t); wallStop(t); return; }
   const want = Math.atan2(dy, dx);
   const steer = clamp(angDiff(t.h, want) * 2.2, -1, 1);
   let throttle = 1;
@@ -2249,6 +2250,32 @@ function updateTraffic(t, dt) {
 
   drive(t, brake ? 0 : throttle, brake, steer, 0, dt);
   fence(t);
+  wallStop(t);
+}
+/* WALLS ARE SOLID FOR THE TRAFFIC TOO.
+ *
+ * Reported from play, on the police shift: the car you are chasing drives into
+ * a building and you cannot follow it. It was not the pursuit — buildingCollide
+ * was called for exactly two things, the player and the cruisers, and ordinary
+ * traffic has been driving through walls since there were walls. The runaway is
+ * an ordinary traffic car, so it went through them like all the rest; you just
+ * had a reason to be looking at one of them for once.
+ *
+ * "Unless the building has a road under it" is already the rule buildingCollide
+ * enforces, and it is not an approximation of one: markRoadTunnels walks every
+ * centreline in six-metre steps and flags every footprint it passes through, so
+ * arches, gatehouses and blocks mapped over a street are exempt by
+ * construction. That matters more for the traffic than it does for the player —
+ * traffic FOLLOWS those centrelines, so without the exemption the cars that use
+ * such a street would be shoved out of a building they are meant to drive
+ * through, every frame, for as long as they were in it.
+ *
+ * NO DAMAGE, deliberately, where a cruiser takes it. The police were asked to
+ * hit things and take the consequences; this was asked as a geometry question,
+ * and the two are not the same request. Wall damage on 255 cars is also the
+ * quickest way back to the demolition derby that traffic.mjs exists to catch. */
+function wallStop(t) {
+  buildingCollide(t);
 }
 
 /* CAR ON CAR, ONCE PER PAIR. This used to live at the bottom of updateTraffic,

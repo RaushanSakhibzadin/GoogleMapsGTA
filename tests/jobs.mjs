@@ -999,8 +999,62 @@ out.ambulancesStopAtTheDoor =
   // and the one on the street is not dragged off somewhere else for no reason
   out.door.street.drivable === true && out.door.street.moved < 40;
 
+/* ---- 25. and the runaway cannot hide in a building ---- */
+/* Reported from play, on the police shift: the car you are chasing drives into
+   a building and cannot be caught. It was never about the pursuit —
+   buildingCollide was called for two things, the player and the cruisers, and
+   ordinary traffic has driven through walls since there were walls. A runaway
+   is an ordinary traffic car; chasing one is simply the first time anybody had
+   a reason to watch one closely.
+ *
+ * BOTH HALVES, because "cars cannot enter buildings" alone would be satisfied
+ * by a game that shoves cars out of archways too, and the rule as asked for is
+ * "no car inside a building THAT HAS NO ROAD UNDER IT". The fixture has one of
+ * each without being arranged to: the block at (-100, 180) is crossed by the
+ * street along y = 200, so it is passable, and the one at (450, -300) is not
+ * near any of them.
+ *
+ * Driven, not teleported and measured on the same frame: the car is put in the
+ * middle of the footprint and left to run, because the push-out happens in the
+ * physics step and a check that reads the position back immediately would pass
+ * on a build that does nothing at all. */
+out.walls = await p.evaluate(async () => {
+  const solid = W.buildings.find(b => !b.passable);
+  const arch = W.buildings.find(b => b.passable);
+  if (!solid || !traffic.length) return { skipped: 'no solid building or no traffic' };
+  const run = async b => {
+    /* THE PLAYER PARKS NEXT TO IT FIRST. Traffic is culled by distance from the
+       car, and these blocks are nowhere near wherever the previous section left
+       it — the first draft measured an object that had been culled two frames
+       in and was no longer being updated at all, which reads as "it never moved"
+       or as "it moved" depending only on when the cull ran. */
+    window.__tp(b.cx + 90, b.cy + 90, 0);
+    P.car.vx = P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 400));
+    const t = traffic[0];
+    if (!t) return { skipped: 'no traffic near the block' };
+    t.x = b.cx; t.y = b.cy; t.vx = t.vy = 0;
+    const startedInside = window.__inside(t.x, t.y);
+    await new Promise(r => setTimeout(r, 800));
+    return { startedInside, passable: !!b.passable,
+             stillListed: traffic.indexOf(t) >= 0,
+             endedInside: window.__inside(t.x, t.y),
+             leftBy: Math.round(Math.hypot(t.x - b.cx, t.y - b.cy)) };
+  };
+  return { solid: await run(solid), arch: arch ? await run(arch) : null };
+});
+out.noCarHidesInABuilding = !!out.walls.skipped ||
+  (out.walls.solid.startedInside === true && out.walls.solid.stillListed === true &&
+   // put in the middle of a solid block, it is outside again shortly after
+   out.walls.solid.endedInside === false && out.walls.solid.leftBy > 5 &&
+   /* AND THE ARCHWAY STILL LETS THEM THROUGH. Traffic follows the centrelines
+      that made it passable, so a car shoved out of one every frame would be a
+      street the traffic cannot use — a worse fault than the one being fixed,
+      and invisible without this half. */
+   (!out.walls.arch || out.walls.arch.endedInside === true));
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.noCarHidesInABuilding && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
