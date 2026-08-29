@@ -31,15 +31,20 @@ import gzip, json, math, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(ROOT, 'tests', 'fixtures')
 # Streets and scenery from every capture there is — they are all the same city
-# within a couple of kilometres, the geometry is absolute lat/lon, and the world
-# dedupes ways on their OSM id, so overlapping captures simply fill each other's
-# gaps. The arterials come from the skadarlija session because that one arrived
-# whole (15,574 ways) FROM THE SAME CENTRE: the earlier build had to borrow a
-# skeleton captured 1.14 km away, because the session that had the streets lost
-# its own 44 MB arterials reply to the log's cap.
-SRCS = [os.path.join(FIX, 'autokomanda'), os.path.join(FIX, 'skadarlija')]
+# within a kilometre, the geometry is absolute lat/lon, and the world dedupes
+# ways on their OSM id, so overlapping captures simply fill each other's gaps.
+# Six sessions now: the two newest were played in Savski venac and around
+# Slavija and between them brought seven street tiles and seven of scenery from
+# a centre 21 m from this one.
+SRCS = [os.path.join(FIX, n) for n in
+        ('autokomanda', 'savski-venac', 'london-0829', 'skadarlija',
+         'kneza-danila', 'stari-grad')]
 SRC = SRCS[0]                                   # whose centre the city is built around
-SKEL_SRC = os.path.join(FIX, 'skadarlija')      # and whose arterials it uses
+# THE ARTERIALS COME FROM THE SAME CENTRE NOW. They used to be borrowed from a
+# session 778 m away, because the one that had the streets lost its own 44 MB
+# reply to the log's cap. london-0829 arrived whole -- 15,641 ways -- from a
+# centre 21 m from this one, which is the thing the older comment wished for.
+SKEL_SRC = os.path.join(FIX, 'london-0829')
 DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'data', 'belgrade.js')
 
 # How far the offline horizon reaches, in metres. The online world is 36 km in
@@ -144,11 +149,29 @@ def clip(els, half, nid):
             nid[0] += 1
     return out
 
-streets = [slim(e) for src in SRCS for e in all_of(src, 'streets')]
+def dedupe(els):
+    """one copy of each way.
+
+    The world dedupes on the OSM id when it loads, so shipping the same building
+    six times was invisible in the game and enormous in the file: three of the
+    six sessions were played within 21 m of each other and their tiles overlap
+    almost completely. Six captures came to 16.4 MB with the duplicates in and
+    7.3 without, for exactly the same city. Done BEFORE clip(), which hands split
+    pieces new ids of its own."""
+    seen, out = set(), []
+    for e in els:
+        k = (e.get('type'), e.get('id'))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(e)
+    return out
+
+streets = [slim(e) for e in dedupe([e for src in SRCS for e in all_of(src, 'streets')])]
 # scenery only where you can see it from the middle; the outer tiles keep their
 # streets, which is what the offline city is actually for
-buildings = clip([e for src in SRCS for e in all_of(src, 'buildings')], BLD_HALF, [800000000])
-skeleton = clip(all_of(SKEL_SRC, 'arterials'), SKEL_HALF, [900000000])
+buildings = clip(dedupe([e for src in SRCS for e in all_of(src, 'buildings')]), BLD_HALF, [800000000])
+skeleton = clip(dedupe(all_of(SKEL_SRC, 'arterials')), SKEL_HALF, [900000000])
 
 city = {
     'name': 'Autokomanda, Beograd',

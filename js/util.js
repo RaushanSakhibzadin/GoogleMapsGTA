@@ -178,8 +178,14 @@ const PAL = {
   carBody: ['#ff4fd8', '#33e6ff', '#ffe36a', '#48ff9e', '#ff7043', '#c9a2ff',
             '#f5f5f5', '#7de3ff', '#ff5f8d', '#9be15d']
 };
-let themeName = 'dusk';
-for (const k in THEMES.dusk) if (typeof THEMES.dusk[k] !== 'function') PAL[k] = THEMES.dusk[k];
+/* DAYLIGHT TO START. Asked for: "make daylight view by default when the game
+   starts, I don't like the night view." The night one is still a tap away on
+   the ☾ pad, and the choice was never persisted either way — this is what a new
+   session opens in. Note that daylight is also rush hour: trafficCap() puts
+   three times as many cars on the road in it, which is a deliberate old
+   decision (see TRAFFIC_N) and now the default one. */
+let themeName = 'day';
+for (const k in THEMES.day) if (typeof THEMES.day[k] !== 'function') PAL[k] = THEMES.day[k];
 
 /* ------------- the ink for a name painted on that building -------------
 

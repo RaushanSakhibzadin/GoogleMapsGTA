@@ -148,8 +148,26 @@ out.visible = a.n > 250 && b.n * 8 < a.n;
    resting on that bug. The segment to the landmark is now walked and has to be
    clear of every footprint — stopping short of the last eight metres, because
    the garage is itself a building and the beacon stands on it. */
-out.poi = await p.evaluate(() => {
-  const q = window.__nearestPOI('repair');
+/* AND MEASURED AT MORE THAN ONE OF THEM. This took the nearest garage and the
+   first bit of road it could see it from, which is one sample of a city. When
+   the bundled city was rebuilt from newer captures the nearest garage became a
+   different one — and that one sits INSIDE a fifteen-metre building, so its
+   column stands on the roof at 15 m and runs to 28, which from the 26 m the ring
+   search settles on is entirely above the top of the frame. Zero lit pixels.
+   That is the roof lift working as designed (a column buried in a block is
+   furniture nobody sees) meeting a vantage point far too close for it, and it is
+   indistinguishable from the beacons having been deleted.
+
+   So the search walks the garages in order of distance and takes the first that
+   has both a clear vantage point AND a column in shot, reporting every one it
+   tried. A build that dimmed the beacons everywhere still fails: every candidate
+   would come back dark. Measured on the current city, the first candidate is the
+   buried one at 0 and the second lights 3,557 pixels. */
+out.tried = [];
+const standAt = n => p.evaluate((n) => {
+  const cands = W.pois.filter(o => o.kind === 'repair')
+    .sort((a, c) => dist2(a.x, a.y, P.spawn.x, P.spawn.y) - dist2(c.x, c.y, P.spawn.x, P.spawn.y));
+  const q = cands[n];
   if (!q) return null;
   const clearTo = (x, y) => {
     const dx = q.x - x, dy = q.y - y, L = Math.hypot(dx, dy);
@@ -168,12 +186,13 @@ out.poi = await p.evaluate(() => {
       window.__tp(x, y, Math.atan2(q.y - y, q.x - x));
       P.car.vx = P.car.vy = 0;
       return { kind: q.kind, at: [Math.round(q.x), Math.round(q.y)],
+               lift: +Number(q.lift || 0).toFixed(1),
                from: [Math.round(x), Math.round(y)], stood: r };
     }
   }
-  return null;             // nowhere to watch it from: not a renderer question
-});
-if (out.poi) {
+  return { at: [Math.round(q.x), Math.round(q.y)], noVantage: true };
+}, n);
+const litAt = async () => {
   await p.waitForTimeout(900);
   await p.evaluate(() => {
     window.__keepStateB = state;
@@ -192,26 +211,36 @@ if (out.poi) {
     for (const k of window.__keepPois) { k.q.x = k.x; k.q.y = k.y; }
     state = window.__keepStateB;
   });
-  /* COUNTED AS "BRIGHTER", NOT AS "GREEN", and the first version got that wrong.
-
-     POI_COL.repair is #48ff9e, so hunting for pixels where green leads red and
-     blue sounds exact. It found none. These beacons are drawn ADDITIVELY, and
-     additive light over a pale daylight road climbs towards white — the green
-     channel saturates first and the other two follow it up, so the hue test that
-     works perfectly on a dark frame reports nothing at all on a bright one.
-
-     What an additive draw always does, on any background, is make pixels
-     brighter. The frames are frozen and identical apart from where the landmarks
-     are, so every pixel that gained luma is beacon and can be nothing else. The
-     objective above keeps its hue test, because #ff4fd8 against a road has to be
-     told apart from the hospital's #ff4f6d and only blue separates those two. */
   const lum = (px, i) => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
   let lit = 0;
   for (let i = 0; i < near.length; i += 4) if (lum(near, i) > lum(far, i) + 6) lit++;
-  out.poiLit = lit;
-  out.landmarkVisible = lit > 120;
+  return lit;
+};
+for (let n = 0; n < 5; n++) {
+  const where = await standAt(n);
+  if (!where) break;
+  if (where.noVantage) { out.tried.push({ ...where, lit: null }); continue; }
+  const lit = await litAt();
+  out.tried.push({ ...where, lit });
+  if (lit > 120) { out.poi = where; out.poiLit = lit; break; }
+}
+/* COUNTED AS "BRIGHTER", NOT AS "GREEN", and the first version got that wrong.
+
+   POI_COL.repair is #48ff9e, so hunting for pixels where green leads red and
+   blue sounds exact. It found none. These beacons are drawn ADDITIVELY, and
+   additive light over a pale daylight road climbs towards white — the green
+   channel saturates first and the other two follow it up, so the hue test that
+   works perfectly on a dark frame reports nothing at all on a bright one.
+
+   What an additive draw always does, on any background, is make pixels brighter.
+   The frames are frozen and identical apart from where the landmarks are, so
+   every pixel that gained luma is beacon and can be nothing else. The objective
+   above keeps its hue test, because #ff4fd8 against a road has to be told apart
+   from the hospital's #ff4f6d and only blue separates those two. */
+if (out.tried.some(t => !t.noVantage)) {
+  out.landmarkVisible = !!out.poi;
 } else {
-  out.landmarkVisible = true;      // no landmark in the bundled city: nothing to check
+  out.landmarkVisible = true;      // nowhere to watch one from: not a renderer question
 }
 
 /* ---------- 4. it stands down when you are standing in it ---------- */

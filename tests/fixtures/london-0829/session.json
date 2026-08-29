@@ -1,0 +1,410 @@
+{
+ "source": "in-game LOG button",
+ "build": "fc1922cdb4",
+ "savedAt": "2026-08-29T06:03:25.785Z",
+ "sessionSeconds": 470.16,
+ "capture": {
+  "bytes": 26140643,
+  "cappedAt": 26214400,
+  "repliesDropped": 6,
+  "bytesDropped": 8535198
+ },
+ "snapshot": {
+  "url": "https://raushansakhibzadin.github.io/GoogleMapsGTA/",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+  "screen": "1180x734 @2",
+  "state": "play",
+  "city": "Your neighbourhood",
+  "procedural": false,
+  "world": {
+   "roads": 17442,
+   "drive": 17353,
+   "buildings": 15356,
+   "parks": 515,
+   "pois": 431,
+   "grid": "9000x9000",
+   "bounds": {
+    "x0": -60040,
+    "y0": -60040,
+    "x1": 60040,
+    "y1": 60040
+   },
+   "skeleton": 60000,
+   "wideMap": true
+  },
+  "tiles": {
+   "loaded": 6,
+   "roaded": 6,
+   "failed": 1,
+   "evicted": 0,
+   "live": 6
+  },
+  "car": {
+   "x": -454.4,
+   "y": -73.8,
+   "h": 16.07,
+   "kmh": 15,
+   "hp": 65,
+   "onRoad": true,
+   "onTarmac": true,
+   "roadDataHere": true,
+   "ghost": false,
+   "street": "Aberdareva",
+   "zone": "London",
+   "cash": 1753,
+   "wanted": 0.34
+  },
+  "perf": {
+   "upd": 0.49,
+   "ren": 1.11,
+   "steps": 1.06
+  },
+  "gl": {
+   "mode3d": true,
+   "attempts": 1,
+   "ready": true,
+   "fail": "",
+   "why": "",
+   "webgl1": false,
+   "renderer": "Apple GPU",
+   "lost": 0
+  },
+  "shops": 3493
+ },
+ "replies": [
+  {
+   "kind": "streets",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 255,
+   "bbox": {
+    "s": 44.80199286269421,
+    "w": 20.464797427929113,
+    "n": 44.81827656090301,
+    "e": 20.487589295344293
+   },
+   "chars": 272,
+   "sha256": "3b83900aa72cbff2b5a99e24513b14a9d5caa11239aef5b8c1bb20c39ac8aa16",
+   "elements": 0,
+   "file": "empty.json"
+  },
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 6245,
+   "bbox": {
+    "s": 44.80199286269421,
+    "w": 20.464797427929113,
+    "n": 44.81827656090301,
+    "e": 20.487589295344293
+   },
+   "chars": 948386,
+   "sha256": "a655bbe99c1d5beb55c68424732e5a2b44e085464db4060e3806867b5abe32a4",
+   "elements": 1063,
+   "file": "streets1.json.gz",
+   "bytes": 119395
+  },
+  {
+   "kind": "buildings",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 915,
+   "bbox": {
+    "s": 44.80199286269421,
+    "w": 20.464797427929113,
+    "n": 44.81827656090301,
+    "e": 20.487589295344293
+   },
+   "chars": 3704356,
+   "sha256": "7354e641b18c836128ae608d5dc4626af861af9834c0cf7de03163fcccb1954c",
+   "elements": 4980,
+   "file": "buildings1.json.gz",
+   "bytes": 522230
+  },
+  {
+   "kind": "pois",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 2288,
+   "bbox": {
+    "s": 44.64729772971068,
+    "w": 20.248274687484898,
+    "n": 44.97297169388654,
+    "e": 20.70411203578851
+   },
+   "chars": 399574,
+   "sha256": "4212bd5860a57449f40dde02b616c52181ef7b26cd560676a86bc0b8df15d31c",
+   "elements": 1006,
+   "file": "pois1.json.gz",
+   "bytes": 83356
+  },
+  {
+   "kind": "arterials",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 883,
+   "bbox": {
+    "s": 44.267344771505506,
+    "w": 19.716464447797357,
+    "n": 45.352924652091716,
+    "e": 21.23592227547605
+   },
+   "chars": 272,
+   "sha256": "3b83900aa72cbff2b5a99e24513b14a9d5caa11239aef5b8c1bb20c39ac8aa16",
+   "elements": 0,
+   "file": "empty.json"
+  },
+  {
+   "kind": "arterials",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 13100,
+   "bbox": {
+    "s": 44.267344771505506,
+    "w": 19.716464447797357,
+    "n": 45.352924652091716,
+    "e": 21.23592227547605
+   },
+   "chars": 16547389,
+   "sha256": "af679824a28bf60985a1d488a6f64186ee221b91634e08c61ef91f639678d85e",
+   "elements": 15641,
+   "file": "arterials1.json.gz",
+   "bytes": 2010299
+  },
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 556,
+   "bbox": {
+    "s": 44.80199286269421,
+    "w": 20.442005560513934,
+    "n": 44.81827656090301,
+    "e": 20.464797427929113
+   },
+   "chars": 820898,
+   "sha256": "fed09c422279f51e226bdd3ea8da17c3a6d20668785fdde6598a46ec95635580",
+   "elements": 890,
+   "file": "streets2.json.gz",
+   "bytes": 110107
+  },
+  {
+   "kind": "buildings",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 2280,
+   "bbox": {
+    "s": 44.80199286269421,
+    "w": 20.442005560513934,
+    "n": 44.81827656090301,
+    "e": 20.464797427929113
+   },
+   "chars": 2553005,
+   "sha256": "a51f02191be187182f037d1ed22cec0c42487ed54da0066b91488b55297d25d3",
+   "elements": 3514,
+   "file": "buildings2.json.gz",
+   "bytes": 395468
+  },
+  {
+   "kind": "streets",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 182,
+   "bbox": {
+    "s": 44.81827656090301,
+    "w": 20.464797427929113,
+    "n": 44.834560259111804,
+    "e": 20.487589295344293
+   },
+   "chars": 272,
+   "sha256": "3b83900aa72cbff2b5a99e24513b14a9d5caa11239aef5b8c1bb20c39ac8aa16",
+   "elements": 0,
+   "file": "empty.json"
+  },
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 12037,
+   "bbox": {
+    "s": 44.81827656090301,
+    "w": 20.464797427929113,
+    "n": 44.834560259111804,
+    "e": 20.487589295344293
+   },
+   "chars": 278606,
+   "sha256": "977d145f77fa477f8baa856db99b696725ad1630ddf8afe575afa2aceb8ba03e",
+   "elements": 321,
+   "file": "streets3.json.gz",
+   "bytes": 37020
+  },
+  {
+   "kind": "buildings",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 586,
+   "bbox": {
+    "s": 44.81827656090301,
+    "w": 20.464797427929113,
+    "n": 44.834560259111804,
+    "e": 20.487589295344293
+   },
+   "chars": 835629,
+   "sha256": "1e984fd67e3687693fd8e59fb60b2e96dd1e90345b96ea777a9e6f893dfeed4f",
+   "elements": 1108,
+   "file": "buildings3.json.gz",
+   "bytes": 120466
+  },
+  {
+   "kind": "radio",
+   "host": "https://all.api.radio-browser.info",
+   "status": 200,
+   "ms": 371,
+   "bbox": null,
+   "chars": 51710,
+   "sha256": "8fda4da0e668c1fc4903a56ae56f9564c0e95524888cb7f5ac08502c85c859e7",
+   "elements": null,
+   "file": "radio1.json.gz",
+   "bytes": 9054
+  },
+  {
+   "kind": "streets",
+   "host": "osm.ch",
+   "status": 200,
+   "ms": 164,
+   "bbox": {
+    "s": 44.78570916448542,
+    "w": 20.487589295344293,
+    "n": 44.80199286269421,
+    "e": 20.510381162759472
+   },
+   "chars": 272,
+   "sha256": "3b83900aa72cbff2b5a99e24513b14a9d5caa11239aef5b8c1bb20c39ac8aa16",
+   "elements": 0,
+   "file": "empty.json"
+  }
+ ],
+ "errors": [
+  {
+   "at": 5.68,
+   "level": "mirror",
+   "msg": "streets · kumi.systems: unreachable (292ms)"
+  },
+  {
+   "at": 6.87,
+   "level": "mirror",
+   "msg": "streets · osm.jp: unreachable (1182ms)"
+  },
+  {
+   "at": 7.12,
+   "level": "mirror",
+   "msg": "streets · osm.ch: returned nothing (255ms)"
+  },
+  {
+   "at": 7.24,
+   "level": "mirror",
+   "msg": "streets · private.coffee: unreachable (115ms)"
+  },
+  {
+   "at": 9.47,
+   "level": "mirror",
+   "msg": "streets · api.de: too slow (2230ms)"
+  },
+  {
+   "at": 11.87,
+   "level": "mirror",
+   "msg": "pois · api.de: too slow (135ms)"
+  },
+  {
+   "at": 14.82,
+   "level": "mirror",
+   "msg": "arterials · osm.ch: returned nothing (883ms)"
+  },
+  {
+   "at": 22.81,
+   "level": "mirror",
+   "msg": "arterials · api.de: too slow (11070ms)"
+  },
+  {
+   "at": 27.96,
+   "level": "mirror",
+   "msg": "streets · osm.ch: returned nothing (182ms)"
+  },
+  {
+   "at": 35.42,
+   "level": "mirror",
+   "msg": "streets · api.de: too slow (9847ms)"
+  },
+  {
+   "at": 41.86,
+   "level": "mirror",
+   "msg": "streets · api.de: unreachable (121ms)"
+  },
+  {
+   "at": 78.37,
+   "level": "resource",
+   "msg": "failed to load https://naxidigital-millennium128ssl.streaming.rs:8342/;stream.nsv"
+  },
+  {
+   "at": 78.37,
+   "level": "radio",
+   "msg": "dropped Naxi Millennium Radio: stream failed"
+  },
+  {
+   "at": 88.31,
+   "level": "mirror",
+   "msg": "streets · kumi.systems: unreachable (114ms)"
+  },
+  {
+   "at": 88.9,
+   "level": "mirror",
+   "msg": "streets · osm.jp: unreachable (585ms)"
+  },
+  {
+   "at": 89,
+   "level": "mirror",
+   "msg": "streets · private.coffee: unreachable (104ms)"
+  },
+  {
+   "at": 108.1,
+   "level": "mirror",
+   "msg": "streets · api.de: unreachable (475ms)"
+  },
+  {
+   "at": 395.15,
+   "level": "mirror",
+   "msg": "streets · kumi.systems: unreachable (96ms)"
+  },
+  {
+   "at": 395.73,
+   "level": "mirror",
+   "msg": "streets · osm.jp: unreachable (581ms)"
+  },
+  {
+   "at": 395.82,
+   "level": "mirror",
+   "msg": "streets · private.coffee: unreachable (89ms)"
+  },
+  {
+   "at": 395.98,
+   "level": "mirror",
+   "msg": "streets · osm.ch: returned nothing (164ms)"
+  },
+  {
+   "at": 396.1,
+   "level": "mirror",
+   "msg": "streets · api.de: unreachable (113ms)"
+  },
+  {
+   "at": 422.86,
+   "level": "mirror",
+   "msg": "streets · maps.mail.ru: too slow (30001ms)"
+  },
+  {
+   "at": 422.86,
+   "level": "warn",
+   "msg": "chunk 1,1 failed: all mirrors failed"
+  }
+ ]
+}
