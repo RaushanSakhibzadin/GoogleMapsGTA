@@ -133,13 +133,19 @@ await setGhost(false);
 out.defaultOnRoad = await hold(-600, 0, 0);            // along EW 0
 out.defaultOffRoad = await hold(-600, 60, 0);          // parallel, on the grass
 
-/* The kerb: dropped on grass a little off the road and left alone with the
-   throttle down, the car must end up nearer the tarmac than it started, not
-   just sit there being slow. */
-/* Driven off the road rather than teleported off it. The kerb aims at the last
-   bit of tarmac the car was actually on, so a car placed on grass it never
-   drove to has nothing sensible to aim at — and that never happens in play,
-   because the only way off the road is to drive off it. */
+/* THE KERB PULL, WHICH IS GONE, AND MUST STAY GONE.
+ *
+ * This used to assert the opposite: driven onto the grass and left alone, the
+ * car had to haul itself back towards the tarmac unaided. It was reported from
+ * play as the bug it is — "fix the side moving effect any time the car crawls" —
+ * because from the driving seat a car that is already down to walking pace and
+ * now will not go where it is pointed is not a car that wants the road.
+ *
+ * The staging is worth keeping exactly as it was, so this is inverted rather
+ * than deleted: driven off the road, because that is the only way off it in
+ * play, then hands off entirely, so anything that moves the car sideways is the
+ * game and not the driver. crawl.mjs measures the same thing from a standstill;
+ * this one measures it after a car has actually left the tarmac at speed. */
 out.kerb = await p.evaluate(async () => {
   window.__ghost(false);
   window.__tp(-600, 0, 0);                             // on EW 0, heading east
@@ -168,15 +174,12 @@ out.kerb = await p.evaluate(async () => {
   return { leftAt: +Math.abs(left.y).toFixed(1), wasOffRoad: !left.onRoad,
            nowAt: +Math.abs(q.y).toFixed(1), backOnRoad: q.onRoad };
 });
-/* It has to have genuinely left, and then have hauled itself back out of the
-   punished zone unaided. NOT all the way onto the tarmac: the pull deliberately
-   fades to nothing at the kerb, because a kerb magnet that follows you the last
-   few metres fights you every time you try to park beside a road. Landing back
-   inside the tolerance band — moving again, no longer crawling — is the whole
-   job. */
-out.kerbPullsBack = out.kerb.wasOffRoad && out.kerb.leftAt > 8 &&
-                    (out.kerb.backOnRoad ||
-                     (out.kerb.nowAt <= 14 && out.kerb.nowAt < out.kerb.leftAt - 3));
+/* It has to have genuinely left, and then have STAYED where the driver left it.
+   Three metres of slack, because the ground has a slope on it and a car parked
+   on a grade rolls down one — that is a different feature and it is still there.
+   The pull moved it from 18 m out to inside 14; it now sits at 17.5. */
+out.noKerbMagnet = out.kerb.wasOffRoad && out.kerb.leftAt > 8 &&
+                   !out.kerb.backOnRoad && out.kerb.nowAt > out.kerb.leftAt - 3;
 
 /* Buildings stay solid without the perk. Started close and given time on
    purpose: the block sits in open ground, so the only way to reach it is at
@@ -423,7 +426,7 @@ out.pass =
      actual top speed is render.mjs's job. */
   out.defaultOnRoad.endKmh > 200 &&                  // the road itself is unchanged
   out.defaultOffRoad.topKmh < 25 &&                  // and off it you crawl
-  out.kerbPullsBack &&
+  out.noKerbMagnet &&
   out.buildingStaysSolid &&
   out.ghostOffRoad.endKmh > 60 &&                    // perk gives the speed back
   out.ghostDrivesThrough &&
