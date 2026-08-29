@@ -116,6 +116,103 @@ out.ghostInsideBlock = await hold('inside a building · GHOST', 0, 85, 0);
 await p.evaluate(() => window.__ghost(false));
 
 await p.screenshot({ path: `${OUT}/shot-crawl.png` });
+/* ---- the appliance is allowed off the road ---- */
+/* Reported from play: on the fire shift the car crawls as you close on the
+   burning building, and it should not. A fire is a building, not a street, and
+   the last thirty metres to one are a forecourt or a yard. Measured in the same
+   open field the control above uses, so the only difference is the shift. */
+out.applianceOffRoad = await p.evaluate(async () => {
+  const run = async job => {
+    window.__takeJob(job);
+    await new Promise(r => setTimeout(r, 400));
+    window.__tp(-500, 400, 0);
+    await new Promise(r => requestAnimationFrame(r));
+    /* THE SUSTAINED SPEED, not the peak. A teleport is followed by a frame or two
+       of large integration steps and the clock briefly reads 75 km/h in a field
+       that settles at 14 — the existing rows above show exactly that. What the
+       crawl is, and what the appliance is exempt from, is where it SETTLES, so
+       only the last second counts. */
+    const t0 = performance.now();
+    let sum = 0, n = 0;
+    await new Promise(res => {
+      const tick = () => {
+        window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
+        const el = performance.now() - t0;
+        if (el > 2500) { sum += window.__p().spd; n++; }
+        el < 3500 ? requestAnimationFrame(tick) : res();
+      };
+      requestAnimationFrame(tick);
+    });
+    window.__setInput(null);
+    return Math.round(sum / Math.max(1, n) * 3.6);
+  };
+  const courier = await run('courier');
+  const fire = await run('fire');
+  window.__takeJob('courier');
+  return { courierKmh: courier, fireKmh: fire };
+});
+// the crawl is 4.5 m/s, 16 km/h; the appliance must not be held anywhere near it
+out.applianceGoesOffRoad = out.applianceOffRoad.courierKmh < 25 &&
+                           out.applianceOffRoad.fireKmh > 60;
+
+/* ---- and nothing drags the car sideways while it crawls ---- */
+/* Reported from play: "fix the side moving effect any time the car crawls." The
+   kerb pull leaned the car back towards the nearest road whenever it was off the
+   tarmac — 20 m/s² of it at full strength, which off a 4.5 m/s crawl is a car
+   that will not go where it is pointed. Measured with no input at all: a parked
+   car in a field must stay parked. */
+out.drag = await p.evaluate(async () => {
+  window.__takeJob('courier');
+  /* THIRTY METRES OFF THE ROAD, WHICH IS WHERE THE PULL WAS STRONGEST. Not the
+     open field the rows above use: nearestRoadDir only searches six cells of the
+     mask, about 48 m, and returns null past that — so out in the field the kerb
+     pull never ran at all and this measured the hill. Twenty-five metres clear of
+     the tarmac is full strength on the (d - 4) / 10 ramp, and still inside the
+     search. */
+  window.__tp(-500, 330, 0);
+  P.car.vx = P.car.vy = 0;
+  window.__setInput({ gas: 0, brake: 0, steer: 0, hand: 0 });
+  const x0 = P.car.x, y0 = P.car.y;
+  const n0 = typeof nearestRoadDir === 'function' ? nearestRoadDir(x0, y0) : null;
+  /* MEASURED AS A SPEED, NOT AS A DISTANCE MOVED. The ground here has a slope and
+     a parked car rolls down one — deliberately, and it is worth two or three
+     metres over a few seconds, which swamps a displacement test. The kerb pull
+     was an acceleration of 20 m/s² towards the road against a lateral damping of
+     6.5, so it held the car at about 3 m/s indefinitely; the hill leaves it
+     under half of that and slowing. So: the fastest it ever gets, with nothing
+     touched. */
+  let top = 0;
+  for (let i = 0; i < 25; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    top = Math.max(top, Math.hypot(P.car.vx, P.car.vy));
+  }
+  const slid = Math.hypot(P.car.x - x0, P.car.y - y0);
+  const towardRoad = n0 ? (P.car.x - x0) * n0.x + (P.car.y - y0) * n0.y : 0;
+  window.__setInput(null);
+  return { topSpd: +top.toFixed(2), slid: +slid.toFixed(2),
+           towardRoad: +towardRoad.toFixed(2), toRoad: n0 ? Math.round(n0.d) : null };
+});
+/* ASSERTED ON THE DISPLACEMENT TOWARDS THE ROAD, which is the claim itself and
+   has the room to be sure of: the pull moved a parked car 6.77 m straight at the
+   tarmac and it now moves 0.27, while the peak speed only fell from 2.91 to 1.37
+   because the hill is still there and still rolls it. */
+out.noSidewaysDrag = out.drag.towardRoad < 1.5;
+
 out.errs = errs.slice(0, 5);
+/* A VERDICT, WHICH THIS FILE DID NOT HAVE EITHER. Same fault as crashes.mjs: it
+   printed its findings and exited 0 whatever they were, so the rows below were a
+   diagnostic and nothing more. They are worth asserting — the crawl, GHOST
+   lifting it, and above all that no arrangement of buildings pins the car, which
+   is the bug this file was written for. */
+out.pass =
+  // the road is the game: full speed on it, a crawl off it
+  out.onRoad.topKmh > 250 && out.openGround.endKmh < 25 &&
+  // and nothing pins the car — every case still travels
+  out.insideBlock.movedM > 10 && out.inWedge.movedM > 10 && out.intoWall.movedM > 5 &&
+  // GHOST lifts the crawl, which is the whole perk
+  out.ghostOpenGround.endKmh > 60 && out.ghostInsideBlock.movedM > 40 &&
+  out.applianceGoesOffRoad && out.noSidewaysDrag &&
+  !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();
+process.exit(out.pass ? 0 : 1);

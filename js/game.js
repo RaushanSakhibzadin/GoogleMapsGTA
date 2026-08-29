@@ -793,6 +793,14 @@ const JOBS = {
                   car's own eight corners, so making the car longer, wider and
                   taller here is what makes the appliance an appliance. */
                body: { l: 7.4, w: 2.5, bh: 2.7 },
+               /* AND IT GOES WHERE THE FIRE IS. A fire is a building, not a
+                  street, and the last thirty metres to one are a forecourt or a
+                  yard — the off-road crawl turned the end of every call into a
+                  walk. Reported from play, twice: once for the hospital, which
+                  was fixed by moving the drop to the door, and once here, where
+                  there is no door to move to because the target is the building
+                  itself. */
+               offroad: true,
                /* AND IT WEIGHS WHAT IT LOOKS LIKE. An appliance is fourteen
                   tonnes against a hatchback's one and a half; the player's
                   ordinary car is already three, so eight is the appliance at
@@ -897,6 +905,7 @@ function setJob(id) {
     const s = b || P.car.stock;
     P.car.l = s.l; P.car.w = s.w; P.car.bh = s.bh;
     P.car.mass = JOBS[id].mass || P.car.stock.mass;
+    P.car.offroad = !!JOBS[id].offroad;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
        paint. Everything that damages the player is scaled by this, so a police
        shift can lean on a fleeing driver without ending the shift. */
@@ -1207,6 +1216,21 @@ function emitWater(c, f, dt) {
       vx: Math.cos(th) * s, vy: Math.sin(th) * s,
       life, life0: life, soft: true,
       r: rand(.5, 1.1), col: pick(['#eaf6ff', '#ffffff', '#cfe8ff']) });
+  }
+  /* AND THE FOAM WHERE IT LANDS. Asked for by name. The jet is the half you aim;
+     the foam is the half that tells you it is working — thick white, piling up on
+     the building rather than flying at it, spreading and thinning where it sits.
+     Slow, wide and long-lived, which is the opposite of the jet in all three, so
+     the two read as cause and effect rather than as one spray. */
+  const spread = Math.max(4, (f.r || 8) * .5);
+  for (let i = 0; i < 2; i++) {
+    const th = rand(0, TAU), rr = Math.sqrt(Math.random()) * spread;
+    const life = rand(1.4, 2.6);
+    parts.push({ x: f.x + Math.cos(th) * rr, y: f.y + Math.sin(th) * rr,
+      z: rand(.4, 3.2), vz: rand(.2, 1.1),
+      vx: rand(-.5, .5), vy: rand(-.5, .5),
+      life, life0: life, soft: true,
+      r: rand(1.6, 3.2), col: pick(['#ffffff', '#f2fbff', '#e6f4ff']) });
   }
 }
 

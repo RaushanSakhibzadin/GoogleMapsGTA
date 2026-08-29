@@ -424,7 +424,6 @@ const laneOffset = r => clamp(((r && r.w) || 8) * .25, 1.2, 3.5);
    back towards the road, which reads as the car leaning that way rather than
    being yanked. At 7 it moved the car two metres in five seconds, which is
    indistinguishable from not being there at all. */
-const KERB_PULL = 20;
 function drive(c, throttle, brake, steerIn, hand, dt) {
   /* AIRBORNE. Everything in this function below this line is about tyres on
      tarmac — grip, drag, the kerb pull, the off-road crawl — and there are no
@@ -467,9 +466,17 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      · and only where we actually KNOW there is no road — see roadDataHere().
        Ground that simply hasn't streamed yet must stay fast, or this rebuilds
        the frontier-crawl bug by hand. */
-  /* Where the nearest tarmac is, when it might matter. Computed once and used
-     both to decide the penalty and to aim the kerb. */
-  const maybeStray = c.kind === 'player' && !GHOST && !onTarmac(c.x, c.y) && roadDataHere(c.x, c.y);
+  /* How far the nearest tarmac is, when it might matter. It used to aim a pull
+     back towards the road as well; now it only decides whether this is genuinely
+     off-road or a metre of disagreement between the mask and the drawn width. */
+  /* AND AN APPLIANCE IS ALLOWED OFF THE ROAD. Reported from play: on the fire
+     shift the car crawls as you close on the burning building, and it should
+     not. A fire is not on a street — it is a building, and the last thirty
+     metres to one are a forecourt, a yard or a verge. c.offroad is set by the
+     shift, the same way the livery, the body and the mass are, so drive() needs
+     to know nothing about jobs. */
+  const maybeStray = c.kind === 'player' && !GHOST && !c.offroad &&
+                     !onTarmac(c.x, c.y) && roadDataHere(c.x, c.y);
   const near = maybeStray ? nearestRoadDir(c.x, c.y) : null;
   /* The tolerance is the important part. The mask is 8 m cells stamped along
      centrelines, and the roads are DRAWN from the same widths — but the two do
@@ -570,20 +577,15 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   c.vx = cs2 * vf - sn2 * vl;
   c.vy = sn2 * vf + cs2 * vl;
 
-  /* The kerb: off the tarmac, lean back across towards it. Without this the
-     crawl is just a car that has stopped working; with it, it reads as a car
-     that wants the road. Nothing happens right at the edge, or the last metre
-     turns into a magnet that fights you trying to park. */
-  /* The kerb applies over the whole of the off-tarmac range, not just past the
-     tolerance — the tolerance is there to stop the car being PUNISHED for a
-     metre of disagreement between the mask and the drawn road, not to carve out
-     a band where it drifts into a field with nothing pulling it back. It fades
-     in with distance so it is nothing at the edge, where it would otherwise
-     fight you trying to park, and full strength by the time the crawl starts. */
-  if (maybeStray && near) {
-    const k = KERB_PULL * clamp((near.d - 4) / 10, 0, 1);
-    c.vx += near.x * k * dt; c.vy += near.y * k * dt;
-  }
+  /* THE KERB PULL IS GONE. It leaned the car back across towards the nearest
+     road whenever it was off the tarmac, on the argument that a crawl with
+     nothing pulling you back reads as a car that has simply stopped working.
+     Reported from play as the opposite: "fix the side moving effect any time the
+     car crawls" — being dragged sideways while already down to walking pace is
+     not a car that wants the road, it is a car that will not go where it is
+     pointed, and it is worst in exactly the place you most need control, which
+     is threading between two buildings towards something. The crawl itself
+     stays; the steering is yours. */
 
   c.x += c.vx * dt; c.y += c.vy * dt;
 
