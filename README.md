@@ -38,47 +38,22 @@ check would be a line of JavaScript anyone could flip.
 
 ## What's in it
 
-**The map is real.** Road centrelines carry their OSM classification, so a motorway is wider and
-faster than a service road. Buildings get their real heights from `height` / `building:levels`,
-and their real colours from `building:colour` where a mapper recorded one, then the material,
-then what the building is for. Their names are painted across the widest wall, in the building's
-own colour.
-
-**A 120 km city, and you are driving in about eight seconds.** Two levels of detail: every lane
-across the 5.4 km you start in, and the arterial skeleton across 60 km in each direction. Streets
-keep streaming as you drive, a 1.8 km tile at a time. Six Overpass mirrors, shuffled per session,
-with the request narrowing as it widens so the loading screen stays short.
-
-**Five shifts.** Courier by default; pull up at a taxi rank, police station, fire station or
-hospital and a button appears to take that work. Taxi fares are real pedestrians taken out of the
-crowd and put back on the pavement at the drop. Police work is a car 300–900 m away that runs.
-Fires are real buildings, fought with a hose from the street. The ambulance and the fire engine
-are their own vehicles, not repainted cars — the appliance weighs eight times a hatchback and
-shoves accordingly.
-
-**Three renderers.** The top-down view is Canvas 2D. The chase view is hand-written WebGL2 — real
-footprints extruded to real heights, ear-clipped roofs, window grids computed in the fragment
-shader with no texture at all. And a third, software 3D on a plain canvas, for a browser with
-WebGL switched off; it draws the same street with a painter's algorithm at about thirty frames a
-second. Both main views ship, so a rendering bug can be bisected by pressing a button.
-
-**No image assets.** Every texture — bark, render, asphalt, foliage — is grown from fractal noise
-at load by `js/proctex.js`.
-
-**A radio with the city's own stations.** From the [Radio
-Browser](https://www.radio-browser.info/) community database, filtered to the country and sorted
-by how close each transmitter is to where you are driving. It tunes itself when a city starts;
-switching it off is remembered, and with it off nothing is asked of their servers at all.
-
-**Ten languages**, taken from the browser's own preference list and overridable on the title
-screen. `tests/i18n.mjs` fails the build if a locale is missing a key.
-
-**It works with the map servers down.** Real Belgrade is bundled — 4,939 streets and a 15 km
-arterial skeleton, built by `tools/buildcity.py` out of captured sessions in `tests/fixtures`.
-The pause card says which city you asked for and why you are somewhere else.
-
-**⤓ LOG** saves the raw Overpass replies plus everything that went wrong, which is how most of
-the bugs in this repo were actually found.
+- **Real map.** Road centrelines with their OSM class, buildings at their real heights and
+  colours, names painted across the wall that carries them.
+- **A 120 km city in about eight seconds.** Every lane across the 5.4 km you start in, arterials
+  for 60 km, and more streets streaming in as you drive.
+- **Five shifts** — courier, taxi, police, fire, ambulance. Clock on at a real depot: a taxi rank,
+  a police station, a fire station, a hospital. The engine and the ambulance are their own
+  vehicles, not repainted cars.
+- **Traffic, police, pedestrians, a wanted level**, repair shops, and a day/night switch.
+- **Three renderers**: Canvas 2D top-down, hand-written WebGL2 for the chase view, and software 3D
+  for a browser with WebGL turned off.
+- **No image assets.** Every texture is grown from fractal noise at load.
+- **Local radio**, from the [Radio Browser](https://www.radio-browser.info/) directory, sorted by
+  how close each transmitter is to you.
+- **Ten languages**, taken from your browser's own preferences.
+- **Works with the map servers down** — real Belgrade is bundled.
+- **⤓ LOG** saves the raw map replies and everything that went wrong.
 
 ## How it works
 
