@@ -409,6 +409,39 @@ out.shiftChangeClearsTheHeat =
   out.heat.after.wanted === 0 && out.heat.after.cops === 0 &&
   out.heat.after.bustT === 0;
 
+/* ---- 12b. and it hands you an undamaged one ---- */
+/* Asked for: "when I change the job my car should get full hp because it is a
+   new car". Clocking on already swaps the body, the livery and the mass, so it
+   is a different vehicle — driving a wreck into the hospital and out again as an
+   ambulance still on 12% is the old car's dents following you into somebody
+   else's van.
+ *
+ * BOTH DIRECTIONS, because a fix that reads `hp = max(hp, 100)` and a fix that
+ * reads `hp = 100` are the same on a damaged car and differ on a healthy one,
+ * and neither is what a swap means. Also checked one shift further on, since
+ * the interesting case for a courier arriving at a rank is the SECOND change —
+ * the first could be the game merely starting you off whole. */
+out.fresh = await p.evaluate(async () => {
+  const take = async (job, hp) => {
+    window.__setHp(hp);
+    const before = window.__p().hp;
+    window.__takeJob(job);
+    await new Promise(r => setTimeout(r, 300));
+    return { job, before, after: window.__p().hp };
+  };
+  return { wrecked: await take('courier', 12),
+           second: await take('taxi', 37),
+           // a car that was already fine must not be quietly changed either
+           healthy: await take('police', 100),
+           // and the shift really did change, or the rows above mean nothing
+           endedOn: window.__job().id };
+});
+out.aNewShiftIsANewCar =
+  out.fresh.wrecked.before === 12 && out.fresh.wrecked.after === 100 &&
+  out.fresh.second.before === 37 && out.fresh.second.after === 100 &&
+  out.fresh.healthy.before === 100 && out.fresh.healthy.after === 100 &&
+  out.fresh.endedOn === 'police';
+
 /* ---- 13. and running out of time says what was actually lost ---- */
 /* Reported from play: an ambulance that ran out of time said PACKAGE LOST. One
    failure line was written for the courier run and then inherited by every shift
@@ -915,7 +948,8 @@ out.pass = out.fourDepots && out.ambulancesStopAtTheDoor && out.theApplianceIsHe
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
            out.policeCarIsArmoured && out.thePassengerGetsOut &&
-           out.shiftChangeClearsTheHeat && out.failureFitsTheShift &&
+           out.shiftChangeClearsTheHeat && out.aNewShiftIsANewCar &&
+           out.failureFitsTheShift &&
            out.eachShiftSaysItsOwnWords && out.noShiftBorrowsAnother &&
            out.pursuitStartsFarOff && out.losingItPaysNothing &&
            out.onlyStrongHitsAreNoticed && !out.errs.length;

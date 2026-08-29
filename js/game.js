@@ -971,6 +971,19 @@ function setJob(id) {
   clearMission();
   clearHeat();
   if (P.car) {
+    /* A FRESH VEHICLE, UNDENTED. Clocking on hands you a different vehicle —
+       different body, different livery, different mass — so arriving at the
+       hospital in a wreck and driving out in an ambulance that is still at 12%
+       reads as the dents having followed you into somebody else's van.
+       Deliberately the whole 100 rather than a top-up: this is a swap, not a
+       service.
+
+       It does mean the depots undercut the body shops, since two shifts taken in
+       turn cost nothing and a repair costs money. Small, because you have to
+       drive to the right depot and setJob refuses the shift you are already on,
+       so it is never the nearest fix — and worth it against a brand new
+       ambulance that arrives pre-crashed. */
+    P.car.hp = 100;
     P.car.color = JOBS[id].col;
     P.car.livery = JOBS[id].livery || null;
     /* THE SHAPE, for the one shift that is not a car at all. The stock
