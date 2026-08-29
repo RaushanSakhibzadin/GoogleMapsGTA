@@ -89,12 +89,14 @@ const read2D = job => p.evaluate(new Function('job', `
   const B = grab();
   car.livery = keep;
   render();
-  let n = 0, r = 0, gg = 0, bb = 0;
+  let n = 0, r = 0, gg = 0, bb = 0, pale = 0;
   for (let i = 0; i < A.length; i += 4) {
     if (A[i] === B[i] && A[i+1] === B[i+1] && A[i+2] === B[i+2]) continue;
     n++; r += A[i]; gg += A[i+1]; bb += A[i+2];
+    // the band and the ladder: the only near-white on a red vehicle
+    if (A[i] > 175 && A[i+1] > 175 && A[i+2] > 175) pale++;
   }
-  return { livery: keep, box: w * w, n,
+  return { livery: keep, box: w * w, n, pale,
            r: n ? Math.round(r/n) : 0, g: n ? Math.round(gg/n) : 0,
            b: n ? Math.round(bb/n) : 0 };
 `), job);
@@ -109,7 +111,12 @@ for (const job of ['courier', 'police', 'ambulance', 'taxi', 'fire']) {
 const MIN2D = 100;
 out.flatMarkings =
   // a shift with no markings changes nothing at all: this is the A/B
-  out.flat.courier.n === 0 && out.flat.fire.n === 0 &&
+  out.flat.courier.n === 0 &&
+  /* THE FIRE ENGINE IS A WHOLE VEHICLE, not a marking: taking its livery away
+     leaves an ordinary (if very long) car, so far more of the box changes than
+     any band or cross accounts for, and the white flank stripe and the aluminium
+     ladder are the only near-white on it. */
+  out.flat.fire.n > 300 && out.flat.fire.pale > 20 &&
   out.flat.police.n > MIN2D && out.flat.ambulance.n > MIN2D && out.flat.taxi.n > MIN2D &&
   // the bar is blue at one end and red at the other on purpose, so what has to
   // hold is that the livery as a whole leans blue
@@ -179,7 +186,7 @@ if (!out.mode3d) {
     return { livery: keep, sig: moved(A, B), noise: moved(B, C) };
   `), job);
   out.solid = {};
-  for (const job of ['courier', 'police', 'ambulance', 'taxi']) {
+  for (const job of ['courier', 'police', 'ambulance', 'taxi', 'fire']) {
     await park();
     out.solid[job] = await read3D(job);
   }
@@ -187,6 +194,9 @@ if (!out.mode3d) {
   const S = j => out.solid[j].sig;
   out.solidMarkings =
     loud('police') && loud('ambulance') && loud('taxi') &&
+    /* The appliance replaces the body rather than decorating it, so it moves an
+       order of magnitude more of the box than a livery does. */
+    out.solid.fire.sig.n > out.solid.fire.noise.n + 900 &&
     // the bar and the flank chequer, which lean blue however the sun falls
     S('police').b > S('police').r && S('police').b > S('police').g &&
     // the cross
@@ -212,7 +222,34 @@ out.follows = await p.evaluate(async () => {
 out.liveryFollowsTheJob =
   out.follows.taxi.livery === 'taxi' && out.follows.police.livery === 'police' &&
   out.follows.ambulance.livery === 'ambulance' &&
-  out.follows.fire.livery === null && out.follows.courier.livery === null;
+  out.follows.fire.livery === 'fire' && out.follows.courier.livery === null;
+
+/* ---- and the fire shift changes the vehicle, not the paint ---- */
+/* A saloon in red is a saloon in red. The appliance is longer, wider and taller,
+   and both renderers build it out of the car's own eight corners — so the
+   dimensions are not decoration, they are what makes the truck a truck. Clocking
+   off has to give back the car you arrived in: makeCar randomises the length and
+   the width, so restoring "a default" would quietly hand you a different car
+   every time. */
+out.body = await p.evaluate(async () => {
+  const size = () => ({ l: +P.car.l.toFixed(2), w: +P.car.w.toFixed(2), bh: +P.car.bh.toFixed(2) });
+  window.__takeJob('courier');
+  await new Promise(r => setTimeout(r, 250));
+  const before = size();
+  window.__takeJob('fire');
+  await new Promise(r => setTimeout(r, 250));
+  const truck = size();
+  window.__takeJob('courier');
+  await new Promise(r => setTimeout(r, 250));
+  return { before, truck, after: size() };
+});
+out.theFireShiftIsATruck =
+  out.body.truck.l > out.body.before.l + 2 &&
+  out.body.truck.w > out.body.before.w &&
+  out.body.truck.bh > out.body.before.bh + .8 &&
+  // and the car you arrived in comes back, to the centimetre
+  out.body.after.l === out.body.before.l && out.body.after.w === out.body.before.w &&
+  out.body.after.bh === out.body.before.bh;
 
 /* ---- 4. and the body shop does not repaint a city vehicle ---- */
 /* The respray is a courier thing. An ambulance that comes out of the garage hot
@@ -252,6 +289,7 @@ out.theRunawayIsRed = out.goal.kind !== 'chase' ||
 
 out.errs = errs.slice(0, 4);
 out.pass = out.flatMarkings && out.solidMarkings && out.liveryFollowsTheJob &&
+           out.theFireShiftIsATruck &&
            out.cityVehiclesKeepTheirPaint && out.theRunawayIsRed && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

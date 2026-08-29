@@ -325,11 +325,19 @@ function drawCar(c, isPlayer) {
   ctx.fillStyle = c.color;
   rrect(-L / 2, -Wd / 2, L, Wd, .7); ctx.fill();
 
-  // roof + glass
+  /* THE GREENHOUSE, or the cab. A fire engine is not a car with a roof in the
+     middle of it: the cab is at the front and everything behind it is bodywork,
+     so the two are drawn differently rather than one being painted over the
+     other. */
+  const isFire = c.livery === 'fire';
   ctx.fillStyle = 'rgba(0,0,0,.32)';
-  rrect(-L * .18, -Wd / 2 + .22, L * .46, Wd - .44, .3); ctx.fill();
+  if (isFire) rrect(L * .18, -Wd / 2 + .18, L * .26, Wd - .36, .3);
+  else rrect(-L * .18, -Wd / 2 + .22, L * .46, Wd - .44, .3);
+  ctx.fill();
   ctx.fillStyle = 'rgba(160,240,255,.5)';
-  rrect(L * .12, -Wd / 2 + .3, L * .14, Wd - .6, .18); ctx.fill();
+  if (isFire) rrect(L * .30, -Wd / 2 + .26, L * .11, Wd - .52, .18);
+  else rrect(L * .12, -Wd / 2 + .3, L * .14, Wd - .6, .18);
+  ctx.fill();
 
   // lights
   ctx.fillStyle = '#fff6cf'; ctx.fillRect(L / 2 - .35, -Wd / 2 + .18, .35, .5);
@@ -343,7 +351,35 @@ function drawCar(c, isPlayer) {
      so it turns, brakes and rolls with the body it is painted on. */
   const liv = c.livery || (c.kind === 'cop' ? 'police' : null);
 
-  if (liv === 'taxi') {
+  if (liv === 'fire') {
+    /* THE APPLIANCE, from above: a white band along each flank, the locker
+       shutters down the body, the ladder on the roof and a blue bar over the
+       cab. The body itself is already the right shape — the shift makes the car
+       7.4 m long and 2.5 wide, so this only has to put the details on it. */
+    const on = Math.floor((c.blink || 0) * 7) % 2 === 0;
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = '#f4f6fa';
+      ctx.fillRect(-L * .46, side < 0 ? -Wd / 2 + .1 : Wd / 2 - .42, L * .58, .32);
+    }
+    // the shutters: four lockers down the near flank of the body
+    ctx.fillStyle = 'rgba(20,14,18,.55)';
+    for (let i = 0; i < 4; i++)
+      ctx.fillRect(-L * .44 + i * L * .14, -Wd / 2 + .5, L * .10, Wd - 1.0);
+    /* THE LADDER, which is the one part of a fire engine everybody can name.
+       Two rails and nine rungs, down the middle of the body where a real one is
+       stowed, and the only silver on the vehicle. */
+    ctx.fillStyle = '#c8ccd6';
+    for (const side of [-1, 1]) ctx.fillRect(-L * .46, side * .34 - .07, L * .56, .14);
+    for (let i = 0; i < 9; i++)
+      ctx.fillRect(-L * .45 + i * L * .062, -.34, .1, .68);
+    // and the bar over the cab, which alternates like the police one
+    ctx.fillStyle = '#0b0d12';
+    ctx.fillRect(L * .13, -Wd / 2 - .04, .46, Wd + .08);
+    ctx.fillStyle = on ? '#5fb0ff' : '#123a72';
+    ctx.fillRect(L * .13, -Wd / 2 - .04, .46, Wd * .5);
+    ctx.fillStyle = on ? '#6b1a18' : '#ff544c';
+    ctx.fillRect(L * .13, .04, .46, Wd * .5);
+  } else if (liv === 'taxi') {
     /* THE CHEQUER. Two rows of small squares along each flank is the taxi mark
        everywhere it is used, and unlike a roof sign it is legible from directly
        above, which is the only angle this view has. Only the DARK squares are

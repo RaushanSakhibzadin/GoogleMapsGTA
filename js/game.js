@@ -786,7 +786,13 @@ const JOBS = {
   courier:   { at: null,       emoji: '📦', col: '#ff4fd8' },
   taxi:      { at: 'taxi',     emoji: '🚕', col: '#f2b705', livery: 'taxi' },
   police:    { at: 'police',   emoji: '🚓', col: '#eef1f6', livery: 'police' },
-  fire:      { at: 'fire',     emoji: '🚒', col: '#e0301f' },
+  fire:      { at: 'fire',     emoji: '🚒', col: '#e0301f', livery: 'fire',
+               /* AND THE FIRE SHIFT CHANGES THE VEHICLE, not just its paint. A
+                  saloon in red is not a fire engine, and the body is what makes
+                  the difference — both renderers build the truck out of the
+                  car's own eight corners, so making the car longer, wider and
+                  taller here is what makes the appliance an appliance. */
+               body: { l: 7.4, w: 2.5, bh: 2.7 } },
   ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance' }
 };
 const JOB_AT = {};
@@ -798,6 +804,43 @@ for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
 const JOB_RANGE = 22;
 let JOB = 'courier';
 
+/* THE COUNTER IS ON THE STREET, NOT IN THE APPLIANCE BAY.
+ *
+ * Reported from play: "fire stations have no roads to come close to." Measured
+ * in the capture from Autokomanda, on the fire station the report came from —
+ * Ватрогасни савез Београд, at world (975, -180) — the nearest way of ANY kind
+ * is 60.5 m away, and the nearest one you are allowed to drive on is the same
+ * one. JOB_RANGE is 22. The depot was unreachable by car: the log has the player
+ * stopped 37 m short of it, off the tarmac, doing 9 km/h, which is the off-road
+ * crawl. It is not a fire-station problem either — it is what happens to any
+ * landmark that sits back in its own yard, and stations, hospitals and depots
+ * are exactly the buildings that do.
+ *
+ * So a depot has two places you can be offered its work: the building itself,
+ * and the nearest bit of drivable road to it — its gate. You pull up on the
+ * street outside, which is what you would actually do, and which is the only
+ * thing a car CAN do.
+ *
+ * The search is a widening ring over the road index, so it is done once per
+ * depot and kept. Kept per streaming step rather than forever: roads arrive in
+ * chunks, and a gate worked out before this district's streets landed would be
+ * a worse answer cached for the rest of the session. GATE_MAX is the honest
+ * limit — past it the building really has no road near it and the button says
+ * so by not appearing, rather than lying about where you can stand. */
+const GATE_LOOK = 200, GATE_MAX = 130;
+function depotGate(q) {
+  if (q.gateN === CHUNK.loaded) return q.gate;
+  q.gateN = CHUNK.loaded;
+  /* Bounded on purpose, rather than nearestRoadPoint's widening ladder: the only
+     answer worth having is one inside GATE_MAX, and that ladder ends in a scan
+     of every drivable way in the world — nineteen thousand of them in Belgrade —
+     which is not something to leave reachable from a ten-times-a-second tick,
+     however rarely it would fire. */
+  const g = nearestRoadPointIn(q.x, q.y, driveRoadsNear(q.x, q.y, GATE_MAX + 40));
+  q.gate = (g && dist2(g.x, g.y, q.x, q.y) < GATE_MAX * GATE_MAX) ? { x: g.x, y: g.y } : null;
+  return q.gate;
+}
+
 /* WHICH SHIFT IS ON OFFER WHERE YOU ARE STOPPED. Standing at the depot you
    already work for offers the way out instead, because the alternative is a
    button that does nothing at the one place you are most likely to press it. */
@@ -808,7 +851,11 @@ function jobHere() {
   for (const q of W.pois) {
     const id = JOB_AT[q.kind];
     if (!id) continue;
-    const d = dist2(c.x, c.y, q.x, q.y);
+    let d = dist2(c.x, c.y, q.x, q.y);
+    // the road search is only worth doing for a depot you are anywhere near
+    if (d > GATE_LOOK * GATE_LOOK) continue;
+    const g = depotGate(q);
+    if (g) { const dg = dist2(c.x, c.y, g.x, g.y); if (dg < d) d = dg; }
     if (d < bd) { bd = d; best = id; }
   }
   if (!best) return null;
@@ -831,6 +878,14 @@ function setJob(id) {
   if (P.car) {
     P.car.color = JOBS[id].col;
     P.car.livery = JOBS[id].livery || null;
+    /* THE SHAPE, for the one shift that is not a car at all. The stock
+       dimensions are kept the first time they are replaced, so clocking off
+       gives you back the car you arrived in rather than a slightly different
+       one every time — makeCar randomises the length and width. */
+    const b = JOBS[id].body;
+    if (!P.car.stock) P.car.stock = { l: P.car.l, w: P.car.w, bh: P.car.bh };
+    const s = b || P.car.stock;
+    P.car.l = s.l; P.car.w = s.w; P.car.bh = s.bh;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
        paint. Everything that damages the player is scaled by this, so a police
        shift can lean on a fleeing driver without ending the shift. */
@@ -1020,15 +1075,38 @@ function newCasualty() {
    is drawn by BOTH renderers — a fire only the top-down view could see would be
    no fire at all in the view most people play in. */
 const FIRE_REACH = 16, FIRE_RATE = 26, FIRE_REGROW = 5;
+/* AND IT IS ACROSS TOWN, not next door.
+ *
+ * Reported from play: the fires were too close to the fire station. They were —
+ * the building was the NEAREST one at least 60 m off, and you are standing at
+ * the station when the shift is handed out, so every call was sixty metres from
+ * the front door. Same shape of mistake as the police target being the nearest
+ * car in a band that only reached the end of the street.
+ *
+ * A call is now somewhere in a band three hundred to nine hundred metres out,
+ * and picked at RANDOM from it rather than nearest-first: nearest-first inside a
+ * band puts every fire at exactly the minimum, which is a different constant and
+ * the same complaint. The old near band survives as the fallback for a city with
+ * nothing built that far away. */
+const FIRE_MIN = 300;
 function newFire() {
-  let best = null, bd = Infinity;
-  const reach = missionReach(500);
+  const reach = missionReach(900);
+  const pool = [];
   for (const b of W.buildings) {
     const d = dist(b.cx, b.cy, P.car.x, P.car.y);
-    if (d < 60 || d > reach) continue;
-    if (d < bd) { bd = d; best = b; }
+    if (d >= FIRE_MIN && d <= reach) pool.push(b);
+  }
+  let best = pool.length ? pick(pool) : null;
+  if (!best) {
+    let bd = Infinity;
+    for (const b of W.buildings) {
+      const d = dist(b.cx, b.cy, P.car.x, P.car.y);
+      if (d < 60 || d > reach) continue;
+      if (d < bd) { bd = d; best = b; }
+    }
   }
   if (!best) { MISSION.state = 'none'; scheduleMission(3000); return; }
+  const bd = dist(best.cx, best.cy, P.car.x, P.car.y);
   MISSION.fire = { x: best.cx, y: best.cy, hp: 100, t: 0 };
   MISSION.state = 'fire';
   MISSION.reward = Math.round(260 + bd * 1.1 + MISSION.done * 40);

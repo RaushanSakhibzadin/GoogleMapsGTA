@@ -1959,6 +1959,80 @@ function pushCar(o, src, r, g, b, full) {
   }
 }
 
+/* AN APPLIANCE, WHICH IS NOT A CAR WITH A ROOF IN THE MIDDLE.
+ *
+ * Reported from play: the fire shift only repainted the car. Paint was never
+ * going to do it — what says fire engine is the SHAPE, a tall slab of bodywork
+ * with a small cab stuck on the front of it and a ladder along the top, and a
+ * saloon in red is a saloon in red however much red you use.
+ *
+ * So this replaces pushCar for that one vehicle rather than adding to it: the
+ * glasshouse in the middle, the tapered bonnet and the boot are exactly what a
+ * fire engine does not have. Everything is still built out of the same eight
+ * corners every other livery uses, so it inherits the pitch, the roll and the
+ * airborne spin for free, and it is the SHIFT that makes the vehicle 7.4 m long
+ * and 2.7 tall — the numbers below are fractions of whatever body they are given
+ * and would draw a toy on a car-sized box.
+ *
+ * Three axles, because two on a seven-metre wheelbase reads as a stretched
+ * limousine; the rearmost pair sit together the way a real tender's do. */
+const FIRE_LADDER = [.79, .82, .85];       // rail colour, near enough to aluminium
+const FIRE_AXLES = [[.34, .70], [-.52, -.16], [-.92, -.56]];
+function pushFireEngine(o, src, col) {
+  const r = col[0], g = col[1], b = col[2];
+  const gr = r * .20 + .04, gg = g * .21 + .05, gb = b * .26 + .07;
+  /* THE BODY: full width, full length behind the cab, and TALL — the top of it
+     is where a car's roof would be, which is the whole silhouette. */
+  pushBox(o, subBox(src, SUBTMP, -1, .30, -1, 1, BODY_LO, .74), r, g, b);
+  // the cab, a little narrower and a little shorter, sat on the front
+  pushBox(o, subBox(src, SUBTMP, .28, 1, -.94, .94, BODY_LO, .52), r, g, b);
+  pushBox(o, subBox(src, SUBTMP, .30, .98, -.90, .90, .46, .96), gr, gg, gb);
+  /* THE WHITE BAND down each flank, the one marking every appliance carries, and
+     the locker shutters under it — four dark panels, which is what the side of a
+     pump actually looks like and what stops the body reading as a plain crate. */
+  for (const side of [-1, 1]) {
+    const l0 = side < 0 ? -1.012 : .992, l1 = side < 0 ? -.992 : 1.012;
+    pushBox(o, subBox(src, SUBTMP, -.98, .98, l0, l1, .04, .22), .95, .96, .98);
+    for (let i = 0; i < 4; i++) {
+      const f0 = -.94 + i * .30;
+      pushBox(o, subBox(src, SUBTMP, f0, f0 + .24, l0, l1, .28, .68), .13, .10, .11);
+    }
+  }
+  /* THE LADDER, stowed along the roof. Two rails and nine rungs: the rungs are
+     what make it read as a ladder rather than as a pair of pipes, and at this
+     size they are the cheapest recognisable thing on the whole vehicle. */
+  const [lr, lg, lb] = FIRE_LADDER;
+  for (const side of [-1, 1]) {
+    const c0 = side * .40;
+    pushBox(o, subBox(src, SUBTMP, -.98, .30, c0 - .06, c0 + .06, .76, .86), lr, lg, lb);
+  }
+  for (let i = 0; i < 9; i++) {
+    const f0 = -.94 + i * .145;
+    pushBox(o, subBox(src, SUBTMP, f0, f0 + .05, -.40, .40, .78, .84), lr, lg, lb);
+  }
+  // wheels: three axles, and the pair at the back close together
+  for (const s of [-1, 1]) for (const [f0, f1] of FIRE_AXLES)
+    pushBox(o, subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, -.10),
+            .062, .058, .07);
+  // lamps, on the ends of a body that is longer than a car's
+  for (const s of [-1, 1]) {
+    const [l0, l1] = LAMPS[s < 0 ? 0 : 1];
+    pushBox(o, subBox(src, SUBTMP, -1.02, -.96, l0, l1, .06, .34), .78, .07, .05);
+    pushBox(o, subBox(src, SUBTMP, .96, 1.02, l0, l1, .06, .34), .95, .93, .78);
+  }
+}
+/* And the bar over the cab, which alternates exactly as the patrol cars' does —
+   same clock, same convention, so the two read as the same city's vehicles. */
+function pushFireBar(o, src, blink) {
+  pushBox(o, subBox(src, SUBTMP, .34, .60, -.86, .86, .96, 1.04), .07, .08, .10);
+  for (const side of [-1, 1]) {
+    const lit = (side < 0) === blink;
+    const c = side < 0 ? (lit ? POL_LAMP : POL_DIM) : (lit ? POL_RED_DIM : POL_RED);
+    pushBox(o, subBox(src, SUBTMP, .38, .56, side < 0 ? -.82 : .04, side < 0 ? -.04 : .82,
+                      1.02, 1.14), c[0], c[1], c[2]);
+  }
+}
+
 /* SERBIAN POLICE LIVERY, added on top of whichever body was drawn.
 
    Looked up rather than invented: a Belgrade patrol car is WHITE with a blue
@@ -2328,12 +2402,20 @@ function render3D() {
     if (!near(q)) return;
     const col = carColour(q);
     carBox(q, BOXTMP);
+    const liv = q.livery || (q.kind === 'cop' ? 'police' : null);
+    /* THE FIRE ENGINE IS ITS OWN BODY, so it skips both the car mesh and the
+       plain-box car entirely. The others are markings ON a car; this one is not
+       a car. */
+    if (liv === 'fire') {
+      pushFireEngine(dyn, BOXTMP, col);
+      pushFireBar(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
+      return;
+    }
     if (!G3.plainCars && G3.carVao && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2)
       meshCars.push({ src: BOXTMP.slice(), col });
     else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
     // the livery goes into the plain stream either way — it is the same eight
     // corners, so it lands on the detailed body and the distant one alike
-    const liv = q.livery || (q.kind === 'cop' ? 'police' : null);
     if (liv === 'police') pushPolice(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
     else if (liv === 'taxi') pushTaxi(dyn, BOXTMP);
     else if (liv === 'ambulance') pushAmbulance(dyn, BOXTMP);

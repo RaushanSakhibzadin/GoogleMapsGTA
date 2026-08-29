@@ -33,6 +33,12 @@ const ring = (cx, cy, r) =>
    never standing at another — JOB_RANGE is 22 m and these are 300 apart. */
 const TAXI = { x: -600, y: 0 }, POLICE = { x: -200, y: 0 };
 const FIRE = { x: 200, y: 0 }, HOSP = { x: 600, y: 0 };
+/* AND ONE DEPOT SET BACK IN ITS OWN YARD, which is the shape the report came
+   from. Measured in the capture from Autokomanda: the nearest way of any kind to
+   Ватрогасни савез Београд is 60.5 m, and JOB_RANGE is 22 — the station could
+   not be reached by car at all. This one sits 90 m off the nearest street, far
+   enough that nothing but its gate can offer the shift. */
+const YARD = { x: -400, y: 90 };
 
 const streets = () => {
   const els = []; let id = 1;
@@ -49,15 +55,26 @@ const streets = () => {
              geometry: ring(FIRE.x, FIRE.y, 26) });
   els.push({ type: 'way', id: 803, tags: { amenity: 'hospital', building: 'yes', name: 'Bolnica', 'building:levels': '4' },
              geometry: ring(HOSP.x, HOSP.y, 30) });
+  els.push({ type: 'node', id: 804, ...toLL(YARD.x, YARD.y),
+             tags: { amenity: 'fire_station', name: 'Vatrogasni savez' } });
   els.push({ type: 'node', id: 900, ...toLL(0, 0), tags: { place: 'suburb', name: 'Blok' } });
   return { elements: els };
 };
 /* Something to set alight. The fire job looks for a building at least 60 m off,
    so these sit up the side street. */
+/* Something to set alight. A fire is now a building three hundred to nine
+   hundred metres out, so there have to be SEVERAL out there — with one, "picked
+   at random from the band" and "always the same building" are indistinguishable,
+   which is the thing section 19 is checking. */
 const BUILDINGS = { elements: [
   { type: 'way', id: 5001, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(-100, 180, 24) },
   { type: 'way', id: 5002, tags: { building: 'yes', 'building:levels': '4' }, geometry: ring(100, 180, 24) },
-  { type: 'way', id: 5003, tags: { building: 'yes', 'building:levels': '6' }, geometry: ring(0, -180, 24) }
+  { type: 'way', id: 5003, tags: { building: 'yes', 'building:levels': '6' }, geometry: ring(0, -180, 24) },
+  { type: 'way', id: 5004, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(450, -300, 26) },
+  { type: 'way', id: 5005, tags: { building: 'yes', 'building:levels': '7' }, geometry: ring(-500, 350, 26) },
+  { type: 'way', id: 5006, tags: { building: 'yes', 'building:levels': '4' }, geometry: ring(700, 250, 26) },
+  { type: 'way', id: 5007, tags: { building: 'yes', 'building:levels': '6' }, geometry: ring(-350, -450, 26) },
+  { type: 'way', id: 5008, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(820, -120, 26) }
 ] };
 const json = o => ({ contentType: 'application/json', body: JSON.stringify(o) });
 
@@ -82,6 +99,7 @@ await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { tim
 await p.waitForTimeout(900);
 
 const out = {};
+const JOB_RANGE_M = 22;      // js/game.js — the radius an offer covers
 const at = (x, y) => p.evaluate(([x, y]) => {
   window.__tp(x, y, 0);
   P.car.vx = P.car.vy = 0;
@@ -589,8 +607,59 @@ out.onlyStrongHitsAreNoticed = !!out.hits.light.skipped ||
    out.hits.scrape.wanted === 0 &&
    out.hits.hard.hit > 0 && out.hits.hard.wanted > 0);
 
+/* ---- 18. a depot set back in its own yard is still reachable ---- */
+/* THE BUG THIS FILE EXISTS TO CATCH NEXT TIME. The offer was measured from the
+   building, and a fire station in a yard is 60 to 90 m from the nearest street —
+   so pressing on was something you could only do by driving across the verge at
+   the off-road crawl, which is what the player was doing in the log when they
+   gave up. The offer now also comes from the depot's GATE: the nearest drivable
+   point to it. Parking on the street outside is enough, and parking on the
+   street outside is the only thing a car can do. */
+out.yard = await p.evaluate(async ([yx, yy]) => {
+  const r = {};
+  // on the street outside: 90 m from the building, a few metres from its gate
+  window.__tp(yx, 0, 0); P.car.vx = P.car.vy = 0;
+  await new Promise(res => setTimeout(res, 400));
+  r.outside = window.__jobHere();
+  r.toBuilding = Math.round(Math.hypot(yx - P.car.x, yy - P.car.y));
+  const q = window.__pois().find(o => o.kind === 'fire' && Math.abs(o.y - yy) < 5);
+  r.poi = q ? { x: Math.round(q.x), y: Math.round(q.y) } : null;
+  /* And a long way from both the building and its gate, where it must not be on
+     offer — clear of every OTHER depot too, or this measures the wrong one. */
+  window.__tp(yx, -120, 0); P.car.vx = P.car.vy = 0;
+  await new Promise(res => setTimeout(res, 400));
+  r.downTheRoad = window.__jobHere();
+  return r;
+}, [YARD.x, YARD.y]);
+out.setBackDepotsAreReachable =
+  out.yard.outside === 'fire' && out.yard.toBuilding > JOB_RANGE_M &&
+  out.yard.downTheRoad === null;
+
+/* ---- 19. and a fire is across town, not next door ---- */
+/* Reported from play: the fires were too close to the fire station. They were —
+   the nearest building at least 60 m off, handed out while you stand at the
+   station. Six runs, because the point is not only that they are far but that
+   they VARY: nearest-first inside a band would put every one of them at exactly
+   the minimum, which is the same complaint with a different constant. */
+out.fires = await p.evaluate(async () => {
+  const d = [];
+  for (let i = 0; i < 6; i++) {
+    window.__takeJob('courier');
+    window.__tp(0, 0, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 350));
+    window.__takeJob('fire');
+    await new Promise(r => setTimeout(r, 900));
+    const f = MISSION.fire;
+    d.push(f ? Math.round(Math.hypot(f.x - P.car.x, f.y - P.car.y)) : null);
+  }
+  window.__takeJob('courier');
+  return d;
+});
+out.firesAreAcrossTown = out.fires.every(d => d !== null && d > 250) &&
+  new Set(out.fires).size > 1;
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
