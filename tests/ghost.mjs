@@ -10,7 +10,8 @@
    car that will not move, throttle down, nothing there to explain it. So the
    last scenario drives out past the loaded tiles and insists it stays fast. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, PERK_WORD, ROOT, stubRadio } from './harness.mjs';
+import { CHROME, GAME, PERK_WORD, ROOT, armPerk, stubRadio } from './harness.mjs';
+import { perkDigest, perkNorm } from '../tools/perkword.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8069, LON0 = 20.4735;
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -221,7 +222,13 @@ out.buildingStaysSolid = out.defaultIntoBuilding.reachedIt && !out.defaultIntoBu
  * calling the unlock function directly would test the string compare and not
  * the thing a supporter actually does. The wrong word is asked first — a gate
  * that opens for everything is not a gate, and it is the half that a happy-path
- * test never covers. */
+ * test never covers.
+ *
+ * THE SHIPPED WORD IS NOT KNOWABLE HERE — js/game.js carries a digest of it and
+ * nothing else, which is what stops it being read off GitHub. So armPerk lends
+ * the page a secret this file may contain, and the box, the button, the
+ * normalisation and the comparison below are all the real ones. */
+await armPerk(p);
 out.lock = await p.evaluate(async word => {
   const vis = id => getComputedStyle(document.getElementById(id)).display !== 'none';
   const r = { perkedAtStart: window.__perked() };
@@ -255,6 +262,28 @@ out.lockedUntilTheWord =
   out.lock.wrongPerked === false && !!out.lock.wrongSaid &&
   out.lock.messyPerked === true && out.lock.switchNow && !out.lock.boxNow &&
   out.lock.ghostStillOff;
+
+/* ---- 1c. THE TWO IMPLEMENTATIONS OF THE DIGEST AGREE ----
+ *
+ * There are two, and there have to be: js/game.js hashes in the browser, where
+ * crypto.subtle does not exist on a file:// page, so it carries SHA-256 by
+ * hand; tools/perkword.mjs hashes in node, where it uses the real one. If they
+ * ever disagree, setting a new word writes a digest the game can never match
+ * and locks out every supporter at once, silently, with the only symptom being
+ * that the right word stops working. Nothing else in the suite would notice.
+ *
+ * Checked both ways: against node for real words, and against the published
+ * SHA-256 of the empty string, which catches an implementation that is merely
+ * self-consistent — two identically wrong hashes agree with each other. */
+out.digest = await p.evaluate(words => {
+  const hex = b => { let s = ''; for (const x of b) s += x.toString(16).padStart(2, '0'); return s; };
+  const r = { empty: hex(sha256(new TextEncoder().encode(''))), words: {} };
+  for (const w of words) r.words[w] = perkDigest(perkNorm(w));
+  return r;
+}, [PERK_WORD, 'kalemegdan', 'a', '']);
+out.digestsAgree =
+  out.digest.empty === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' &&
+  [PERK_WORD, 'kalemegdan', 'a', ''].every(w => out.digest.words[w] === perkDigest(perkNorm(w)));
 
 /* ---- 2. GHOST: speed back, walls gone ---- */
 await setGhost(true);
@@ -433,7 +462,7 @@ out.pass =
   out.aiUnaffected &&
   out.frontierStaysFast &&
   out.menuLinkWired && out.emptyHidesEverything && out.pauseWorks &&
-  out.lockedUntilTheWord && out.oldToggleIsRevoked &&
+  out.lockedUntilTheWord && out.digestsAgree && out.oldToggleIsRevoked &&
   out.survivesReload === true &&
   out.fps >= 55 && !errs.length;
 console.log(JSON.stringify(out, null, 1));

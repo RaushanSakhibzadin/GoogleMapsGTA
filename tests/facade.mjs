@@ -27,7 +27,7 @@
    It runs offline on the bundled city — every non-file request is aborted — so
    there are real building footprints and no network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, PERK_WORD, stubRadio } from './harness.mjs';
+import { CHROME, GAME, PERK_WORD, armPerk, stubRadio } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -67,6 +67,9 @@ await p.waitForTimeout(2200);
 
    Stood off the south face by half its depth plus thirty metres and pointed at
    it, so the chase camera is looking straight down the wall. */
+// the shipped word is a digest in the source, so the page is lent a secret this
+// file is allowed to know before it types one in
+await armPerk(p);
 out.parked = await p.evaluate(PERK => {
   let best = null;
   for (const b of W.buildings) {

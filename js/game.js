@@ -28,29 +28,106 @@ const store = {
    thing gave you anything you did not have thirty seconds earlier. Now the word
    goes in the Patreon post and the switch does not exist until it is typed.
 
-   WHAT THIS IS AND IS NOT. It is a courtesy lock. The game is static files on
-   GitHub Pages, the source is public, and PERK_WORD is three lines down in
-   plain text — anybody who opens the console can read it or simply set the flag
-   themselves, and no amount of hashing changes that, because the code doing the
-   comparison is equally readable and equally editable. What it does buy is that
-   the perk is no longer sitting in the menu for every passer-by, and that the
-   word is worth something to the people who paid for it. Obfuscating it would
-   cost the one thing that matters here — being able to test the real path with
-   the real word — and buy nothing but theatre. */
-/* CHANGING THE WORD is this line and nothing else. Case, leading and trailing
-   space and any spaces inside are all ignored, because it gets typed on a phone
-   with autocorrect fighting back. */
-const PERK_WORD = 'kalemegdan';
+   WHAT THIS IS AND IS NOT. It is a courtesy lock, and the honest description of
+   its strength is: it keeps the word out of the shop window. The game is static
+   files on GitHub Pages and the source is public, so anyone who opens a console
+   can set PERK themselves — that was true when the word sat here in plain text
+   and it is true now. What changed is the thing that actually leaked: the word
+   itself. In plain text it could be read straight off GitHub by anyone browsing
+   the repo, and once read it can be posted somewhere, at which point it is
+   worth nothing to the people who paid for it. A digest cannot be read that way.
+
+   It is NOT a password store. The salt and the round count are right here, so
+   someone determined, with a wordlist, gets the word back; the rounds only mean
+   it costs them something rather than nothing. Guard the word the way you would
+   guard the Patreon post it arrives in, not the way you would guard a
+   password. */
+/* THE WORD ITSELF IS NOT IN THIS REPOSITORY — only the digest of it, so
+   changing it means computing a new digest. tools/perkword.mjs takes the new
+   word and prints the line to paste here. Case, leading and trailing space and
+   any spaces inside are all ignored, because it gets typed on a phone with
+   autocorrect fighting back. */
+const PERK_SALT = 'vice-maps/ghost/1';
+const PERK_ROUNDS = 20000;
+/* SHA-256 BY HAND, because the browser will not lend us its own. crypto.subtle
+   exists only in a secure context, and a file:// page is not one — on the very
+   platform this game is built to run on, opened straight off the disk, it is
+   undefined. So: thirty lines of FIPS 180-4, which is a small price for the
+   word not being written down anywhere in here.
+
+   Runs once, on the tap of the UNLOCK button, over 32 bytes. PERK_ROUNDS of it
+   costs a few tens of milliseconds on a phone — unnoticeable against a button
+   press, and enough that a wordlist has to be paid for one word at a time. */
+const K256 = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]);
+const W256 = new Uint32Array(64);
+function sha256(bytes) {
+  const H = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                             0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+  // message, a 0x80 byte, zeroes, then the length in bits as a 64-bit big-endian
+  const n = bytes.length, buf = new Uint8Array((((n + 9) >> 6) + 1) << 6);
+  buf.set(bytes); buf[n] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(buf.length - 8, Math.floor(n / 536870912));   // n * 8 / 2^32
+  dv.setUint32(buf.length - 4, (n * 8) >>> 0);
+  const w = W256;
+  for (let off = 0; off < buf.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const x = w[i - 15], y = w[i - 2];
+      const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
+      const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+    let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+    for (let i = 0; i < 64; i++) {
+      const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+      const t1 = (h + S1 + ((e & f) ^ (~e & g)) + K256[i] + w[i]) >>> 0;
+      const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+      const t2 = (S0 + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0;
+      d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+    H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+  }
+  const out = new Uint8Array(32), ov = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) ov.setUint32(i * 4, H[i]);
+  return out;
+}
+/* Salted so that the same word on some other game does not share this digest,
+   and iterated so that guessing costs. Takes an already-normalised word. */
+function perkDigest(word) {
+  let d = sha256(new TextEncoder().encode(PERK_SALT + '|' + word));
+  for (let i = 1; i < PERK_ROUNDS; i++) d = sha256(d);
+  let hex = '';
+  for (const b of d) hex += b.toString(16).padStart(2, '0');
+  return hex;
+}
+/* let, not const, so a test can install a secret of its own and then unlock
+   through the real path below. The suite cannot know the shipped word — that is
+   the point of it being a digest — but the mechanism still has to be covered,
+   so tests set this and then type their own word into the real box. */
+let PERK_HASH = '7e5a8838ec3d92e93ae588278b274e69c6a4b9c84b2f8978cf846f8cb4e39b5b';
 const perkNorm = w => String(w == null ? '' : w).toLowerCase().replace(/\s+/g, '');
-const perkMatches = w => !!perkNorm(w) && perkNorm(w) === perkNorm(PERK_WORD);
+const perkMatches = w => !!perkNorm(w) && perkDigest(perkNorm(w)) === PERK_HASH;
 
 // Set when the city you are driving is not the one you asked for; read by the
 // pause card so the answer is still there later.
 let FELLBACK = null;
 /* THE STAMP RATHER THAN A '1', so that changing the word re-locks everyone who
    unlocked with the old one. A bare flag would leave last season's word working
-   forever on every phone that had ever typed it. */
-const PERK_STAMP = 'w:' + perkNorm(PERK_WORD);
+   forever on every phone that had ever typed it. Cut from the digest, not from
+   the word — the word is not here to cut from, and the digest changes with it.
+   Nothing is hashed at load; this is a substring. */
+const PERK_STAMP = 'h:' + PERK_HASH.slice(0, 16);
 let PERK = store.get('vm_perk', '') === PERK_STAMP;
 /* AND GHOST IS GATED ON IT AT THE READ, not only at the switch. Every player who
    ever turned the old free toggle on still has vm_ghost=1 sitting in their

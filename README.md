@@ -15,10 +15,9 @@ cd GoogleMapsGTA && open index.html          # or: python3 -m http.server
 
 ## ❤ [Back it on Patreon](https://www.patreon.com/raushanraushan)
 
-Free and always will be. The **$10 tier** gets **GHOST MODE**: full speed across open ground and
+Free and always will be. **Any tier** gets **GHOST MODE**: full speed across open ground and
 straight through buildings, where the car is otherwise a road car that drops to walking pace off
-the tarmac. It's a switch in the menu and it runs on trust — there is no server here, so any
-check would be a line of JavaScript anyone could flip.
+the tarmac. Backers get the word that unlocks it, in a post on the page.
 
 ## Controls
 
@@ -83,7 +82,7 @@ js/render.js top-down view            js/render3d.js  chase view + the dispatche
 js/soft3d.js chase view without a GPU  js/gl.js    WebGL2 plumbing, ear clipping
 js/carmesh.js  the car mesh           js/proctex.js  every texture, from fractals
 js/radio.js  the dial                 js/main.js   the loop, menus, debug hooks
-tools/       buildcity.py, logfixture.py, stamp.mjs, glb2car.py
+tools/       buildcity.py, logfixture.py, stamp.mjs, glb2car.py, perkword.mjs
 tests/       the suite, and the captured sessions it replays
 ```
 
