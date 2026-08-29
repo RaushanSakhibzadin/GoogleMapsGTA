@@ -94,6 +94,26 @@ const runIn = theme => p.evaluate(async name => {
     if (L > bestLen) { bestLen = L; best = { a, b }; }
   }
   if (best) window.__tp(best.a.x, best.a.y, Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x));
+  /* AND NO POLICE, held down for the whole run.
+   *
+   * This test is about traffic left to itself — the report behind it was cars
+   * detonating unprompted and out of sight. A pursuit is a different subsystem
+   * and it was quietly getting into the measurement: sixteen seconds of driving
+   * at a wall of rush-hour cars earns a wanted level, and once the police are
+   * allowed to hit things (they used to drive through them) three cruisers
+   * shouldering their way through daylight traffic will eventually total
+   * somebody. That is the intended behaviour, it is covered in crashes.mjs, and
+   * counting it here read as "the traffic is detonating again" when the traffic
+   * was fine.
+   *
+   * It was also an uncontrolled variable long before it changed anything: how
+   * much heat this run happens to earn depends on how many cars the player
+   * clips, which is not something the test sets. Zeroed every frame rather than
+   * once, because it accrues continuously. Not clearHeat() — that is newer than
+   * some of the builds this file gets pointed at, and these two lines are what
+   * it does. */
+  const calm = () => { P.wanted = 0; cops.length = 0; };
+  calm();
   await new Promise(r => setTimeout(r, 4000));       // let the cap fill
   const w0 = window.__traf().wrecks;
   const t0 = performance.now();
@@ -114,6 +134,7 @@ const runIn = theme => p.evaluate(async name => {
          how much traffic there is. */
       const spd = window.__p().spd;
       window.__setInput({ gas: spd < 19 ? 1 : 0, brake: 0, steer: 0, hand: 0 });
+      calm();
       frames++;
       if (frames % 12 === 0) {
         samples++;
@@ -164,6 +185,8 @@ const runIn = theme => p.evaluate(async name => {
   const el = (performance.now() - t0) / 1000;
   const cars = window.__traffic().length;
   return { secs: +el.toFixed(1), cars,
+           // proof the staging held: a nonzero here invalidates the wreck count
+           cops: window.__p().cops, wanted: window.__p().wanted,
            wrecks: window.__traf().wrecks - w0,
            wrecksPerMin: +((window.__traf().wrecks - w0) / el * 60).toFixed(1),
            minGap: +minGap.toFixed(2),
@@ -205,14 +228,70 @@ out.sound = await p.evaluate(async () => {
   SFX.boom = realBoom; SFX.crash = realCrash;
   return r;
 });
+/* RUSH HOUR, WHERE THE FAULT ACTUALLY LIVED.
+ *
+ * The wreck count above was a guard in name only, and measuring it said so. The
+ * report was "all I hear is explosions", at the daylight cap — 255 cars on the
+ * same streets. This fixture's daylight run stages 25 to 75, and at that density
+ * the fault does not appear: with the look-ahead braking torn out completely,
+ * so that every car drives at full throttle into whatever is in front of it,
+ * the run still comes back with zero wrecks. The threshold could not fail.
+ *
+ * At the cap it separates cleanly — 0 against 48.7 per minute for the same
+ * build with the braking removed — so the count is taken here, where a
+ * regression has somewhere to show itself.
+ *
+ * Last, because it leaves 160-odd cars on the road, and because the runs above
+ * are about how traffic DRIVES, which is a different question from whether it
+ * survives its own rush hour. */
+out.rush = await p.evaluate(async () => {
+  applyTheme('day');
+  window.__trafficCap(255);
+  /* NOT teleported first, though every other section here is. Moving the car
+     culls the ring and respawns it around the new spot, and six seconds only
+     bought 46 cars back — half of what simply staying put gives. Density is the
+     entire point of this section, so it starts from wherever the daylight run
+     finished, which is already full. */
+  const calm = () => { P.wanted = 0; cops.length = 0; };
+  calm();
+  await new Promise(r => setTimeout(r, 8000));            // let the cap fill
+  const w0 = window.__traf().wrecks, t0 = performance.now();
+  let frames = 0;
+  await new Promise(res => {
+    const tick = () => {
+      const spd = window.__p().spd;
+      window.__setInput({ gas: spd < 19 ? 1 : 0, brake: 0, steer: 0, hand: 0 });
+      calm(); frames++;
+      /* Longer than the runs above. What has to separate here is a RATE, and a
+         single wreck in sixteen seconds is already 3.7 a minute — so whether a
+         broken build fails comes down to whether it happened to total one car
+         inside a short window. Twenty-four seconds gives it room to. */
+      if (performance.now() - t0 < 24000) requestAnimationFrame(tick);
+      else { window.__setInput(null); res(); }
+    };
+    requestAnimationFrame(tick);
+  });
+  const el = (performance.now() - t0) / 1000;
+  return { cars: window.__traf().cars, cops: window.__p().cops,
+           wrecks: window.__traf().wrecks - w0,
+           wrecksPerMin: +((window.__traf().wrecks - w0) / el * 60).toFixed(1),
+           fps: Math.round(frames / el) };
+});
+
 // what you can see you can hear; what you cannot, you cannot
 out.quietOffScreen = out.sound.onTheBonnet > .9 && out.sound.halfAScreen > .2 &&
                      out.sound.justOffScreen < .05 && out.sound.twoBlocks === 0;
 
 out.errs = errs.slice(0, 4);
 out.pass =
-  // the reported fault: cars are not blowing each other up any more
+  /* THE REPORTED FAULT: cars are not blowing each other up any more. Measured
+     at the daylight cap, which is the only density where it ever did — see the
+     rush-hour section. The two runs above are held to it as well, but it is
+     out.rush that can actually fail. */
+  out.rush.wrecksPerMin < 2 && out.rush.cars > 120 &&
   out.run.wrecksPerMin < 2 &&
+  // and every one of them was traffic on its own, not a pursuit through it
+  out.run.cops === 0 && out.dusk.cops === 0 && out.rush.cops === 0 &&
   // they keep a gap rather than driving through one another
   /* Never interpenetrating. carsCollide separates to (a.l+b.l)*0.34, which for
      the smallest pair of cars is about 2 m, so this is "the resolver is doing
