@@ -329,13 +329,13 @@ function drawCar(c, isPlayer) {
      middle of it: the cab is at the front and everything behind it is bodywork,
      so the two are drawn differently rather than one being painted over the
      other. */
-  const isFire = c.livery === 'fire';
+  const van = c.livery === 'fire' || c.livery === 'ambulance';
   ctx.fillStyle = 'rgba(0,0,0,.32)';
-  if (isFire) rrect(L * .18, -Wd / 2 + .18, L * .26, Wd - .36, .3);
+  if (van) rrect(L * .18, -Wd / 2 + .18, L * .26, Wd - .36, .3);
   else rrect(-L * .18, -Wd / 2 + .22, L * .46, Wd - .44, .3);
   ctx.fill();
   ctx.fillStyle = 'rgba(160,240,255,.5)';
-  if (isFire) rrect(L * .30, -Wd / 2 + .26, L * .11, Wd - .52, .18);
+  if (van) rrect(L * .30, -Wd / 2 + .26, L * .11, Wd - .52, .18);
   else rrect(L * .12, -Wd / 2 + .3, L * .14, Wd - .6, .18);
   ctx.fill();
 
@@ -403,15 +403,27 @@ function drawCar(c, isPlayer) {
     /* THE CROSS GOES ON THE ROOF, because that is the surface this view can see
        and because that is where a real one puts it — a roof cross is there to be
        read from above by the helicopter, which is exactly the camera. A red band
-       along each flank carries it at the low angle of the chase view. */
+       along each flank carries it at the low angle of the chase view.
+
+       CENTRED ON THE BOX, not on the vehicle: the shift makes the car a six
+       metre van with a cab on the front, and a cross centred on the whole thing
+       would sit half on the windscreen. */
+    const on = Math.floor((c.blink || 0) * 7) % 2 === 0;
     for (const side of [-1, 1]) {
       ctx.fillStyle = '#d8202f';
-      ctx.fillRect(-L * .42, side < 0 ? -Wd / 2 : Wd / 2 - .22, L * .84, .22);
+      ctx.fillRect(-L * .46, side < 0 ? -Wd / 2 + .08 : Wd / 2 - .30, L * .62, .22);
     }
-    const arm = Wd * .21, lx = L * .17, ly = Wd * .38;
+    const cf = -L * .18, arm = Wd * .20, lx = L * .15, ly = Wd * .36;
     ctx.fillStyle = '#d8202f';
-    ctx.fillRect(-lx, -arm / 2, lx * 2, arm);       // along the car
-    ctx.fillRect(-arm / 2, -ly, arm, ly * 2);       // and across it
+    ctx.fillRect(cf - lx, -arm / 2, lx * 2, arm);   // along the van
+    ctx.fillRect(cf - arm / 2, -ly, arm, ly * 2);   // and across it
+    // and the bar over the cab, on the same clock as every other one
+    ctx.fillStyle = '#0b0d12';
+    ctx.fillRect(L * .13, -Wd / 2 - .04, .40, Wd + .08);
+    ctx.fillStyle = on ? '#5fb0ff' : '#123a72';
+    ctx.fillRect(L * .13, -Wd / 2 - .04, .40, Wd * .5);
+    ctx.fillStyle = on ? '#6b1a18' : '#ff544c';
+    ctx.fillRect(L * .13, .04, .40, Wd * .5);
   } else if (liv === 'police') {
     /* SERBIAN LIVERY, looked up rather than invented: white, a blue chequer band
        down each flank, and a blue LED bar. The bar here alternated blue and RED,

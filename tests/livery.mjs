@@ -89,14 +89,16 @@ const read2D = job => p.evaluate(new Function('job', `
   const B = grab();
   car.livery = keep;
   render();
-  let n = 0, r = 0, gg = 0, bb = 0, pale = 0;
+  let n = 0, r = 0, gg = 0, bb = 0, pale = 0, red = 0;
   for (let i = 0; i < A.length; i += 4) {
     if (A[i] === B[i] && A[i+1] === B[i+1] && A[i+2] === B[i+2]) continue;
     n++; r += A[i]; gg += A[i+1]; bb += A[i+2];
     // the band and the ladder: the only near-white on a red vehicle
     if (A[i] > 175 && A[i+1] > 175 && A[i+2] > 175) pale++;
+    // and the cross, which is the only red on a white one
+    if (A[i] > 140 && A[i] > A[i+1] + 60 && A[i] > A[i+2] + 50) red++;
   }
-  return { livery: keep, box: w * w, n, pale,
+  return { livery: keep, box: w * w, n, pale, red,
            r: n ? Math.round(r/n) : 0, g: n ? Math.round(gg/n) : 0,
            b: n ? Math.round(bb/n) : 0 };
 `), job);
@@ -112,18 +114,18 @@ const MIN2D = 100;
 out.flatMarkings =
   // a shift with no markings changes nothing at all: this is the A/B
   out.flat.courier.n === 0 &&
-  /* THE FIRE ENGINE IS A WHOLE VEHICLE, not a marking: taking its livery away
-     leaves an ordinary (if very long) car, so far more of the box changes than
-     any band or cross accounts for, and the white flank stripe and the aluminium
-     ladder are the only near-white on it. */
-  out.flat.fire.n > 300 && out.flat.fire.pale > 20 &&
+  /* THE FIRE ENGINE AND THE AMBULANCE ARE WHOLE VEHICLES, not markings: taking
+     the livery away leaves an ordinary (if very long) car, so far more of the box
+     changes than any band or cross accounts for. Each is checked for the two
+     colours that are actually its own — the appliance's white band and aluminium
+     ladder on red, the ambulance's red cross and bands on white. */
+  out.flat.fire.n > 300 && out.flat.fire.pale > 20 && out.flat.fire.red > 20 &&
+  out.flat.ambulance.n > 300 && out.flat.ambulance.pale > 40 &&
+  out.flat.ambulance.red > 20 &&
   out.flat.police.n > MIN2D && out.flat.ambulance.n > MIN2D && out.flat.taxi.n > MIN2D &&
   // the bar is blue at one end and red at the other on purpose, so what has to
   // hold is that the livery as a whole leans blue
   out.flat.police.b > out.flat.police.r && out.flat.police.b > out.flat.police.g &&
-  // the cross is unmistakably red, which neither of the others is
-  out.flat.ambulance.r > out.flat.ambulance.g + 90 &&
-  out.flat.ambulance.r > out.flat.ambulance.b + 70 &&
   /* And the chequer is dark and warm: black squares laid over yellow paint,
      averaging out well short of the ambulance's red and with none of the police
      car's blue in it. */
@@ -167,13 +169,14 @@ if (!out.mode3d) {
     };
     // a channel sum of 60 is well past dithering and well short of a marking
     const moved = (A, B) => {
-      let n = 0, r = 0, g = 0, u = 0;
+      let n = 0, r = 0, g = 0, u = 0, red = 0;
       for (let i = 0; i < A.length; i += 4) {
         if (Math.abs(A[i]-B[i]) + Math.abs(A[i+1]-B[i+1]) + Math.abs(A[i+2]-B[i+2]) <= 60) continue;
         n++; r += A[i]; g += A[i+1]; u += A[i+2];
+        if (A[i] > 110 && A[i] > A[i+1] + 55 && A[i] > A[i+2] + 45) red++;
       }
-      return n ? { n, r: Math.round(r/n), g: Math.round(g/n), b: Math.round(u/n) }
-               : { n: 0, r: 0, g: 0, b: 0 };
+      return n ? { n, red, r: Math.round(r/n), g: Math.round(g/n), b: Math.round(u/n) }
+               : { n: 0, red: 0, r: 0, g: 0, b: 0 };
     };
     /* Let the cell queue and the camera settle first: a frame that adds a street
        is not a frame you can compare against the one before it. */
@@ -193,14 +196,15 @@ if (!out.mode3d) {
   const loud = j => out.solid[j].sig.n > out.solid[j].noise.n + 250;
   const S = j => out.solid[j].sig;
   out.solidMarkings =
-    loud('police') && loud('ambulance') && loud('taxi') &&
-    /* The appliance replaces the body rather than decorating it, so it moves an
-       order of magnitude more of the box than a livery does. */
+    loud('police') && loud('taxi') &&
+    /* The appliance and the ambulance replace the body rather than decorating
+       it, so each moves an order of magnitude more of the box than a livery
+       does — and each still has to show its own colour in what moved. */
     out.solid.fire.sig.n > out.solid.fire.noise.n + 900 &&
+    out.solid.ambulance.sig.n > out.solid.ambulance.noise.n + 900 &&
+    out.solid.ambulance.sig.red > 20 &&
     // the bar and the flank chequer, which lean blue however the sun falls
     S('police').b > S('police').r && S('police').b > S('police').g &&
-    // the cross
-    S('ambulance').r > S('ambulance').g + 70 && S('ambulance').r > S('ambulance').b + 60 &&
     /* and the roof sign over its dark plinth: warm and dark, which is neither of
        the other two — the police mean has more blue in it than green, and the
        ambulance mean is half as much again in red as this is in anything. */

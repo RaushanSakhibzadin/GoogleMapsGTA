@@ -39,6 +39,12 @@ const FIRE = { x: 200, y: 0 }, HOSP = { x: 600, y: 0 };
    not be reached by car at all. This one sits 90 m off the nearest street, far
    enough that nothing but its gate can offer the shift. */
 const YARD = { x: -400, y: 90 };
+/* AND A HOSPITAL SET BACK THE SAME WAY, because an ambulance has the problem
+   twice over: the depot it clocks on at and the door it delivers to. Measured in
+   the capture from Savski venac, the nearest road to Специјална болница Свети
+   Сава is 26 m — the log has the player 8 m from the building, off the tarmac,
+   at 11 km/h, which is the off-road crawl. */
+const HOSP_YARD = { x: 400, y: -90 };
 
 const streets = () => {
   const els = []; let id = 1;
@@ -57,6 +63,8 @@ const streets = () => {
              geometry: ring(HOSP.x, HOSP.y, 30) });
   els.push({ type: 'node', id: 804, ...toLL(YARD.x, YARD.y),
              tags: { amenity: 'fire_station', name: 'Vatrogasni savez' } });
+  els.push({ type: 'node', id: 805, ...toLL(HOSP_YARD.x, HOSP_YARD.y),
+             tags: { amenity: 'hospital', name: 'Bolnica u dvoristu' } });
   els.push({ type: 'node', id: 900, ...toLL(0, 0), tags: { place: 'suburb', name: 'Blok' } });
   return { elements: els };
 };
@@ -225,11 +233,17 @@ out.amb = await p.evaluate(async () => {
   await new Promise(r => setTimeout(r, 700));
   const d = MISSION.drop;
   const h = window.__pois().filter(q => q.kind === 'hospital');
+  const near = d ? Math.min(...h.map(q => Math.hypot(q.x - d.x, q.y - d.y))) : 1e9;
   return { state: window.__m().state, drop: d && { x: Math.round(d.x), y: Math.round(d.y) },
-           onAHospital: !!d && h.some(q => Math.hypot(q.x - d.x, q.y - d.y) < 1) };
+           toHospital: Math.round(near), drivable: !!d && onTarmac(d.x, d.y) };
 });
+/* NOT "within a metre of the hospital", which is what this asked before and what
+   the bug was: the drop was the centre of the building, and arrival is within
+   eight metres of it, so the last stretch was across a forecourt at the off-road
+   crawl. It is at the hospital's door now — near the building and on ground a
+   car can actually drive on. */
 out.ambulanceGoesToHospital = !!out.amb.skipped ||
-  (out.amb.state === 'deliver' && out.amb.onAHospital);
+  (out.amb.state === 'deliver' && out.amb.toHospital < 130 && out.amb.drivable);
 
 /* ---- 7. a fire burns down only while you are next to it ---- */
 /* The whole shape of the job. Parked inside the reach it comes down; driven
@@ -337,11 +351,21 @@ out.dropOff = await p.evaluate(async () => {
               w: (MISSION.drop.road || {}).w || 6 };
   window.__tp(d.x, d.y, 0); P.car.vx = P.car.vy = 0;   // arrive, and it completes
   await new Promise(r => setTimeout(r, 900));
-  const at0 = { x: who.x, y: who.y };
-  /* The next fare is handed out about now. It cannot be this person — pickFare
-     ignores anyone closer than 70 m and they are standing at the car — so the
-     walk measured below is a walk and not a fresh job freezing them again. */
-  await new Promise(r => setTimeout(r, 1400));
+  /* THE WALK IS A PATH LENGTH SAMPLED OVER THREE SECONDS, not one displacement
+     read at the end of a short one. walkPed legitimately spends whole frames not
+     moving — arriving at a node, or stepping back from a wall it would otherwise
+     walk into — and over 1.4 s that read as a frozen passenger: this measured
+     0.00 on one run and 2.16 on the next, on a passenger walking perfectly well
+     both times.
+     The next fare is handed out during this window. It cannot be this person —
+     pickFare ignores anyone closer than 70 m and they are standing at the car —
+     so what is measured is a walk and not a fresh job freezing them again. */
+  let walked = 0, px = who.x, py = who.y;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    walked += Math.hypot(who.x - px, who.y - py);
+    px = who.x; py = who.y;
+  }
   /* ACROSS the street, measured against the centreline through the drop rather
      than as a plain distance from the pin — walking a couple of metres along the
      kerb is not stepping into the road, and a plain radius cannot tell the two
@@ -351,7 +375,7 @@ out.dropOff = await p.evaluate(async () => {
            riding: MISSION.riding, held: !!MISSION.rider, hurt: who.hurt,
            fromDrop: +Math.hypot(who.x - d.x, who.y - d.y).toFixed(1),
            lat: +lat.toFixed(1), halfRoad: d.w / 2,
-           walked: +Math.hypot(who.x - at0.x, who.y - at0.y).toFixed(2) };
+           walked: +walked.toFixed(2) };
 });
 out.thePassengerGetsOut = !!out.dropOff.skipped ||
   (out.dropOff.inCar === true && out.dropOff.listed === true &&
@@ -855,8 +879,38 @@ out.yourOwnSideLeavesYouAlone =
   out.onDuty.carried.wanted >= 3 &&
   out.onDuty.cleared.wanted === 0 && out.onDuty.cleared.cops === 0;
 
+/* ---- 24. an ambulance stops at the door ---- */
+/* The same gate the depots use, on the other end of the job. Asked of the two
+   shapes a hospital comes in: one that sits on the street, where the door and
+   the building are the same place, and one set back in its own grounds, where
+   they are ninety metres apart and only one of them can be driven to. */
+out.door = await p.evaluate(async ([hx, hy]) => {
+  const look = async (x, y) => {
+    window.__tp(x, y, 0); P.car.vx = P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 300));
+    const h = nearestPOI('hospital', P.car.x, P.car.y);
+    /* Guarded so this section fails rather than throws on a build without the
+       fix: an exception inside evaluate aborts the whole file, which turns one
+       clean A/B failure into no A/B at all. */
+    const d = typeof hospitalDrop === 'function' ? hospitalDrop() : null;
+    return { hospital: h ? { x: Math.round(h.x), y: Math.round(h.y) } : null,
+             drop: d ? { x: Math.round(d.x), y: Math.round(d.y) } : null,
+             moved: h && d ? Math.round(Math.hypot(d.x - h.x, d.y - h.y)) : null,
+             drivable: !!d && onTarmac(d.x, d.y),
+             wasDrivable: !!h && onTarmac(h.x, h.y) };
+  };
+  return { yard: await look(hx, hy - 40), street: await look(600, 40) };
+}, [HOSP_YARD.x, HOSP_YARD.y]);
+out.ambulancesStopAtTheDoor =
+  /* The set-back one: the building itself is not drivable ground, the door is,
+     and the door is a long way from the building — which is the whole point. */
+  out.door.yard.wasDrivable === false && out.door.yard.drivable === true &&
+  out.door.yard.moved > 40 && out.door.yard.moved < 130 &&
+  // and the one on the street is not dragged off somewhere else for no reason
+  out.door.street.drivable === true && out.door.street.moved < 40;
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&

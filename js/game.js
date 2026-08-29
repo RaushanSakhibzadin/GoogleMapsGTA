@@ -798,7 +798,12 @@ const JOBS = {
                   ordinary car is already three, so eight is the appliance at
                   something near the real ratio to the traffic around it. */
                mass: 8 },
-  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance' }
+  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance',
+               /* A VAN, NOT A SALOON. Same reasoning as the appliance: the shape
+                  is what says ambulance, and a red cross on a hatchback is a
+                  hatchback with a sticker. Six metres and two and a half tall is
+                  a box body with a cab on the front of it. */
+               body: { l: 6.0, w: 2.25, bh: 2.55 } }
 };
 const JOB_AT = {};
 for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
@@ -1281,9 +1286,28 @@ function newParcel() {
    function rather than three because the clock, the fee and the arrival test are
    the same in all three cases — only where it is going differs, and that is one
    lookup. */
+/* WHERE AN AMBULANCE ACTUALLY STOPS.
+ *
+ * Reported from play, with the log to prove it: getting close to the hospital
+ * was a crawl. It was — the drop was the hospital's own point, the centre of the
+ * building, and arrival is within eight metres of it. On the hospital the report
+ * came from, Специјална болница Свети Сава in Savski venac, the nearest road is
+ * 26 m away, so the last stretch is across a forecourt at the off-road speed
+ * limit. The log has the player 8 m from the centre, off the tarmac, at 11 km/h.
+ *
+ * The same gate the depots use: the nearest drivable point to the building. An
+ * ambulance stops at the door and the patient goes in from there, which is both
+ * what happens and the only thing a car can do. The hospital itself is the
+ * fallback, for one with no road within reach at all. */
+function hospitalDrop() {
+  const h = nearestPOI('hospital', P.car.x, P.car.y);
+  if (!h) return null;
+  const g = depotGate(h);
+  return g ? { x: g.x, y: g.y, name: h.name } : h;
+}
 function startDelivery() {
   const d = JOB === 'ambulance'
-    ? nearestPOI('hospital', P.car.x, P.car.y)
+    ? hospitalDrop()
     : (roadPoint(P.car.x, P.car.y, 180, missionReach(700))
        || roadPoint(P.car.x, P.car.y, null));
   if (!d) { MISSION.state = 'none'; scheduleMission(2000); return; }

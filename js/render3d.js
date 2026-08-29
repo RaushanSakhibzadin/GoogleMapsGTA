@@ -2119,21 +2119,79 @@ function pushPolice(o, src, blink) {
    reason: to be read from above. */
 const AMB_RED = [.85, .12, .18];
 const ROOF = 1.23;                        // where the glasshouse ends and the sky starts
-function pushAmbulance(o, src) {
-  // a red band along each flank, for the low angle the chase camera actually has
+/* AN AMBULANCE, WHICH IS A VAN.
+ *
+ * Reported from play: it should look more like an ambulance. It was a saloon
+ * with a red cross painted on it, and a red cross on a hatchback is a hatchback
+ * with a sticker — the same thing the fire shift was before it got a body, and
+ * the fix is the same one. A box behind a low cab, which is the silhouette of
+ * every ambulance there is, built out of the car's own eight corners so it
+ * inherits the pitch and the roll like everything else, and sized in fractions
+ * of whatever body the shift gives it: six metres long and two and a half tall.
+ *
+ * The markings still go on top of it, unchanged — pushAmbulance below is the
+ * livery and this is the vehicle, and keeping them apart is what lets the cross
+ * land on the flat side of a van instead of the curved flank of a car. */
+function pushAmbulanceBody(o, src, col) {
+  const r = col[0], g = col[1], b = col[2];
+  const gr = r * .20 + .04, gg = g * .21 + .05, gb = b * .26 + .07;
+  // the box: full width, full height, everything behind the cab
+  pushBox(o, subBox(src, SUBTMP, -1, .10, -1, 1, BODY_LO, .80), r, g, b);
+  // the cab, lower and a shade narrower, and its glasshouse
+  pushBox(o, subBox(src, SUBTMP, .06, 1, -.95, .95, BODY_LO, .40), r, g, b);
+  pushBox(o, subBox(src, SUBTMP, .10, .96, -.90, .90, .34, .82), gr, gg, gb);
+  /* THE WINDOWS IN THE BOX, high up and only at the front of it. A blank white
+     slab reads as a delivery lorry; two panes of glass behind the cab are what
+     make it a vehicle people ride in. */
   for (const side of [-1, 1]) {
-    pushBox(o, subBox(src, SUBTMP, -.86, .86,
-                      side < 0 ? -1.012 : .992, side < 0 ? -.992 : 1.012, .02, .24),
-            AMB_RED[0], AMB_RED[1], AMB_RED[2]);
+    const l0 = side < 0 ? -1.012 : .992, l1 = side < 0 ? -.992 : 1.012;
+    pushBox(o, subBox(src, SUBTMP, -.22, .04, l0, l1, .46, .72), gr, gg, gb);
   }
-  /* THE CROSS, centred on the glasshouse rather than on the car: the roof runs
-     from -.66 to .32 and a cross centred on the body would hang off the back of
-     it into thin air. */
-  const cf = -.17, T = .21;
-  pushBox(o, subBox(src, SUBTMP, cf - .42, cf + .42, -T, T, ROOF, ROOF + .06),
-          AMB_RED[0], AMB_RED[1], AMB_RED[2]);
-  pushBox(o, subBox(src, SUBTMP, cf - T, cf + T, -.62, .62, ROOF, ROOF + .06),
-          AMB_RED[0], AMB_RED[1], AMB_RED[2]);
+  // wheels, and the lamps on a body that is longer than a car's
+  for (const s2 of [-1, 1]) {
+    for (const [f0, f1] of AMB_AXLES)
+      pushBox(o, subBox(src, SUBTMP, f0, f1, s2 < 0 ? -1.06 : .86, s2 < 0 ? -.86 : 1.06, -1, -.12),
+              .062, .058, .07);
+    const [l0, l1] = LAMPS[s2 < 0 ? 0 : 1];
+    pushBox(o, subBox(src, SUBTMP, -1.02, -.96, l0, l1, .06, .32), .78, .07, .05);
+    pushBox(o, subBox(src, SUBTMP, .96, 1.02, l0, l1, .04, .28), .95, .93, .78);
+  }
+}
+const AMB_AXLES = [[.40, .76], [-.80, -.44]];
+/* And the bar over its cab, on the same clock as every other one in the city. */
+function pushAmbulanceBar(o, src, blink) {
+  pushBox(o, subBox(src, SUBTMP, .16, .44, -.84, .84, .82, .90), .07, .08, .10);
+  for (const side of [-1, 1]) {
+    const lit = (side < 0) === blink;
+    const c = side < 0 ? (lit ? POL_LAMP : POL_DIM) : (lit ? POL_RED_DIM : POL_RED);
+    pushBox(o, subBox(src, SUBTMP, .20, .40, side < 0 ? -.80 : .04, side < 0 ? -.04 : .80,
+                      .88, 1.00), c[0], c[1], c[2]);
+  }
+}
+
+/* THE LIVERY, on the van the function above built. Kept separate from the body
+   for the reason the police one is: a marking that knows nothing about the shape
+   under it lands on whichever shape is there. These numbers are the VAN's — the
+   roof of the box is at .80, not at a car's glasshouse — and the cross is on the
+   flank as well as on top, because the flank is what the traffic beside you
+   sees and the roof is what you see of your own vehicle. */
+const AMB_ROOF = .80;
+function pushAmbulance(o, src) {
+  const R = AMB_RED;
+  // the band along each flank, and a cross standing on it
+  for (const side of [-1, 1]) {
+    const l0 = side < 0 ? -1.012 : .992, l1 = side < 0 ? -.992 : 1.012;
+    pushBox(o, subBox(src, SUBTMP, -.98, .98, l0, l1, .10, .30), R[0], R[1], R[2]);
+    pushBox(o, subBox(src, SUBTMP, -.78, -.34, l0, l1, .46, .60), R[0], R[1], R[2]);
+    pushBox(o, subBox(src, SUBTMP, -.63, -.49, l0, l1, .34, .72), R[0], R[1], R[2]);
+  }
+  /* AND ON THE ROOF, centred on the box. The box runs from -1 to .10, so a cross
+     centred on the whole vehicle would hang off the front of it over the cab. */
+  const cf = -.45, T = .19;
+  pushBox(o, subBox(src, SUBTMP, cf - .40, cf + .40, -T, T, AMB_ROOF, AMB_ROOF + .06),
+          R[0], R[1], R[2]);
+  pushBox(o, subBox(src, SUBTMP, cf - T, cf + T, -.66, .66, AMB_ROOF, AMB_ROOF + .06),
+          R[0], R[1], R[2]);
 }
 const TAXI_DARK = [.075, .085, .105];
 const TAXI_SIGN = [1, .84, .30];
@@ -2411,6 +2469,12 @@ function render3D() {
       pushFireBar(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
       return;
     }
+    if (liv === 'ambulance') {
+      pushAmbulanceBody(dyn, BOXTMP, col);
+      pushAmbulance(dyn, BOXTMP);
+      pushAmbulanceBar(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
+      return;
+    }
     if (!G3.plainCars && G3.carVao && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2)
       meshCars.push({ src: BOXTMP.slice(), col });
     else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
@@ -2418,7 +2482,6 @@ function render3D() {
     // corners, so it lands on the detailed body and the distant one alike
     if (liv === 'police') pushPolice(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
     else if (liv === 'taxi') pushTaxi(dyn, BOXTMP);
-    else if (liv === 'ambulance') pushAmbulance(dyn, BOXTMP);
   };
   for (const t of traffic) addCar(t);
   for (const k of cops) addCar(k);
