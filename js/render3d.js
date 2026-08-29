@@ -2903,8 +2903,17 @@ function render3D() {
   for (const b of blasts) {
     const t = clamp(b.life / .55, 0, 1);
     const by = terrainH(b.x, b.y) + b.r * .6;
-    bill(b.x, by, b.y, b.r, 1, .30, 0, t * .7);
-    bill(b.x, by, b.y, b.r * .34, 1, .76, .42, t * t * t * .8);
+    /* DEEPER BY DAY, for the reason the top-down fireball is — the same additive
+       blend over the same brighter ground, which saturates red and carries green
+       up with it until the ball reads yellow. Measured in the 2D view, where
+       crashes.mjs counts the pixels: 419 orange against 346 yellow in daylight,
+       against 1251 and none at dusk, and back to 490 against none with the
+       colours deepened. This is the same correction applied to the same
+       arrangement; the numbers come from the view that has a counter on it. */
+    const day = themeName === 'day';
+    bill(b.x, by, b.y, b.r, 1, day ? .14 : .30, 0, t * .7);
+    bill(b.x, by, b.y, b.r * .34, 1, day ? .56 : .76, day ? .25 : .42,
+         t * t * t * (day ? .4 : .8));
   }
 
   /* THE MARKERS, which the chase view simply did not draw.

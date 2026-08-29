@@ -183,14 +183,23 @@ function render2D() {
     ctx.globalCompositeOperation = 'lighter';
     for (const b of blasts) {
       const t = clamp(b.life / .55, 0, 1);
-      // Additive light adds up: a bright core over a bright body pushes green to
-      // full and the whole thing turns yellow. So the body is a deep red-orange
-      // and the white-hot core is small and gone quickly — it stays orange.
+      /* Additive light adds up: a bright core over a bright body pushes green to
+         full and the whole thing turns yellow. So the body is a deep red-orange
+         and the white-hot core is small and gone quickly — it stays orange.
+
+         AND DEEPER STILL BY DAY, because the background is doing the same thing
+         to it. Adding #ff4d00 to a dark road leaves an orange fireball; adding it
+         to a pale one saturates red and carries green up with it, and the ball
+         goes yellow — measured, 419 orange pixels against 346 yellow, where at
+         dusk the same blast is 1251 against none. The daylight body puts almost
+         no green in to begin with and the core is dimmer, which lands it back
+         where it was. */
+      const day = themeName === 'day';
       ctx.globalAlpha = t;
-      ctx.drawImage(glowFor('#ff4d00'), b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
-      ctx.globalAlpha = t * t * t * .7;
+      ctx.drawImage(glowFor(day ? '#ff2400' : '#ff4d00'), b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+      ctx.globalAlpha = t * t * t * (day ? .30 : .7);
       const c2 = b.r * .34;
-      ctx.drawImage(glowFor('#ffc26a'), b.x - c2, b.y - c2, c2 * 2, c2 * 2);
+      ctx.drawImage(glowFor(day ? '#ff9040' : '#ffc26a'), b.x - c2, b.y - c2, c2 * 2, c2 * 2);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
