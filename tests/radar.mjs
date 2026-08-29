@@ -37,6 +37,10 @@ const pois = () => ({ elements: [
   { type: 'node', id: 7002, ...toLL(FAR.x, FAR.y), tags: { shop: 'car_repair', name: 'Daleko' } },
   { type: 'node', id: 7003, ...toLL(-140, 60), tags: { amenity: 'hospital', name: 'Bolnica' } },
   { type: 'node', id: 7004, ...toLL(60, -160), tags: { amenity: 'police', name: 'Policija' } },
+  /* One right out at the rim — the radar reaches 230 m — so the clip on the
+     face pass is actually exercised. A taxi rank because its yellow matches none
+     of the three hues the counter above keys on. */
+  { type: 'node', id: 7005, ...toLL(0, 216), tags: { amenity: 'taxi', name: 'Taksi' } },
 ] });
 
 const b = await chromium.launch({ executablePath: CHROME });
@@ -192,14 +196,67 @@ out.fps = await p.evaluate(() => new Promise(r => {
 
 await p.screenshot({ path: `${OUT}/shot-radar.png` });
 await p.locator('#mini').screenshot({ path: `${OUT}/shot-radar-mini.png` });
+/* ---- THE FACES THE BIG MAP HAS ---- */
+/* Asked for: the radar had the same coloured dots as the map and none of its
+   emoji, so the surface you look at while driving could not tell a hospital from
+   a garage.
+ *
+ * A/B'd inside one run by emptying POI_EMOJI and drawing the radar again: what
+ * changed between the two frames is the faces and nothing else. Both draws are
+ * synchronous, so no car moves and no pulse advances between them — and this
+ * section runs last, with no mission up, so there is no ring animation to add
+ * noise of its own.
+ *
+ * THE CLIP IS THE PART WORTH TESTING. A blip is culled by its centre, which is
+ * fine for a three-pixel dot; a glyph is four times that wide and would hang off
+ * the rim onto the HUD. The CSS rounds the canvas off, so on screen it would be
+ * hidden and only a pixel reader can see it — which is why the taxi rank in the
+ * fixture sits 216 m out, near enough the 230 m edge that its face lands on the
+ * rim and would spill if the clip were not there. */
+out.faces = await p.evaluate(() => {
+  window.__tp(0, 0, 0);
+  const cv = document.getElementById('mini');
+  const g = cv.getContext('2d');
+  const grab = () => { drawMini(); return g.getImageData(0, 0, cv.width, cv.height).data; };
+  const A = grab();
+  const keep = {};
+  for (const k in POI_EMOJI) { keep[k] = POI_EMOJI[k]; delete POI_EMOJI[k]; }
+  const B = grab();
+  for (const k in keep) POI_EMOJI[k] = keep[k];
+  drawMini();
+  const R = cv.width / 2, cx = R, cy = cv.height / 2;
+  /* MEASURED FROM PIXEL CENTRES, and with a pixel of slack. The first version
+     used the pixel's top-left corner, which overstates the radius by up to 0.7,
+     and duly reported 22 pixels "outside" a disc whose furthest changed pixel
+     was 98.06 from the centre against a radius of 97.5 — half a pixel of clip
+     antialiasing, read as a bug. A spill worth catching is a glyph hanging off
+     the rim, which is tens of pixels, not one. */
+  let n = 0, spilled = 0, atRim = 0, maxR = 0;
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+    const i = (y * cv.width + x) * 4;
+    if (A[i] === B[i] && A[i + 1] === B[i + 1] && A[i + 2] === B[i + 2] &&
+        A[i + 3] === B[i + 3]) continue;
+    n++;
+    const rad = Math.hypot(x + .5 - cx, y + .5 - cy);
+    if (rad > R + 1) spilled++;
+    else if (rad > R * .78) atRim++;
+    if (rad > maxR) maxR = rad;
+  }
+  return { n, spilled, atRim, maxR: +maxR.toFixed(2), R, h: cv.height, size: cv.width };
+});
+out.radarHasTheMapsFaces =
+  out.faces.n > 200 &&           // four landmarks' worth of glyph, not a stray pixel
+  out.faces.spilled === 0 &&     // and none of it outside the dial
+  out.faces.atRim > 0;           // with one of them near the rim, so that means something
+
 out.errs = errs.slice(0, 4);
 out.pass =
-  out.pois.length === 4 && out.nearest && out.nearest.name === 'Blizu' &&
+  out.pois.length === 5 && out.nearest && out.nearest.name === 'Blizu' &&
   out.atStart.green > 6 && out.atStart.red > 4 && out.atStart.blue > 4 &&   // all three kinds visible
   out.away.greenRim > 6 &&                                                  // the rim pointer
   out.pointerTurnsWithTheCar &&
   out.objectiveHasRimPointer && out.objectiveBlipsWhenClose &&
-  out.pointersDoNotHideEachOther &&
+  out.pointersDoNotHideEachOther && out.radarHasTheMapsFaces &&
   out.fps >= 50 && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await b.close();

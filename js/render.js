@@ -868,10 +868,58 @@ function drawMini() {
      pixel dot lands under two pixels. Which is why a player with two hundred
      repair shops around him could not find one. Drawn as blips they are the
      same size as everything else you are meant to see. */
+  /* THE DISC IS SIZED OFF THE FACE THAT SITS ON IT, exactly as the big map sizes
+     its dots, and the face is nudged up by a third of its height so the bottom
+     of the disc stays clear. Concentric and unnudged was the first version and
+     it hid the colour completely: a 14-pixel glyph over a 3-pixel dot leaves
+     nothing of the dot at all, and the objective's pink blip vanished from the
+     radar — caught by radar.mjs, which counts those pixels. */
+  const facePx = clamp(r / DPR * .22, 9, 14);
+  const dotR = Math.max(3, facePx * .30);
   for (const p of W.pois) {
     if (Math.abs(p.x - P.car.x) > showM || Math.abs(p.y - P.car.y) > showM) continue;
-    blip(p.x, p.y, POI_COL[p.kind], 3);
+    blip(p.x, p.y, POI_COL[p.kind], dotR);
   }
+  /* AND THE FACES THE BIG MAP HAS. Asked for: the radar had the same coloured
+     dots as the map and none of the emoji, so the surface you actually look at
+     while driving was the one that could not tell a hospital from a garage —
+     you had to open the map to find out which dot was which.
+
+     THE DOT STAYS UNDER THE FACE, for the same two reasons it does on the big
+     map: it is what reads at a glance across a whole radar, and it is what still
+     reads when the platform has no glyph for one of these and draws a box.
+
+     Sized off the radar rather than fixed, because the radar is anywhere from 96
+     to 178 CSS pixels across depending on the screen, and a glyph that is right
+     on a desktop fills a quarter of a phone's. Drawn UPRIGHT: everything in this
+     pass is already in unrotated screen space, so a face here does not turn
+     upside down when you drive north the way a world-space one would. */
+  const faceAt = (wx, wy, kind, px) => {
+    const e = POI_EMOJI[kind];
+    if (!e) return;
+    const dx = wx - P.car.x, dy = wy - P.car.y;
+    const sx = r + (dx * cs - dy * sn) * (r / showM);
+    const sy = r + (dx * sn + dy * cs) * (r / showM);
+    if (dist2(sx, sy, r, r) > r * r) return;
+    mctx.font = (px * DPR) + 'px ' + POI_FACE_FONT;
+    mctx.lineWidth = Math.max(2, px * .2) * DPR;
+    mctx.strokeText(e, sx, sy - px * .30 * DPR);
+    mctx.fillText(e, sx, sy - px * .30 * DPR);
+  };
+  /* ONE CLIP FOR THE WHOLE PASS. A blip is culled by its centre, which is enough
+     for a three-pixel dot and nowhere near enough for a glyph four times that
+     wide — near the rim it would spill onto the HUD. The CSS rounds the canvas
+     off and would hide it on screen, which is exactly what makes doing it in the
+     canvas worth the trouble: a test reads the pixels, not the border-radius. */
+  mctx.save();
+  mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
+  mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
+  mctx.strokeStyle = 'rgba(0,0,0,.55)';
+  for (const p of W.pois) {
+    if (Math.abs(p.x - P.car.x) > showM || Math.abs(p.y - P.car.y) > showM) continue;
+    faceAt(p.x, p.y, p.kind, facePx);
+  }
+  mctx.restore();
   /* Monuments, in stone. They live in W.buildings rather than in W.pois — a
      memorial is a thing you drive round, not a service you drive to.
 
@@ -904,7 +952,7 @@ function drawMini() {
      canvas — a test reads the pixels, not the border-radius. */
   const goal = missionGoal();
   if (goal) {
-    blip(goal.at.x, goal.at.y, goal.col, 3.4);
+    blip(goal.at.x, goal.at.y, goal.col, dotR * 1.3);
     const dx = goal.at.x - P.car.x, dy = goal.at.y - P.car.y;
     const px = r + (dx * cs - dy * sn) * (r / showM);
     const py = r + (dx * sn + dy * cs) * (r / showM);
@@ -913,6 +961,12 @@ function drawMini() {
       mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
       const k0 = pulseAt();
       for (const off of PULSE_RINGS) pulseRing(mctx, px, py, 3.4 * DPR, goal.col, (k0 + off) % 1);
+      /* The job's own face, over its rings — a shade larger than the landmarks
+         around it, exactly as the big map draws it. Inside the same clip the
+         rings use, and after them, so the glyph is never under its own pulse. */
+      mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
+      mctx.strokeStyle = 'rgba(0,0,0,.55)';
+      faceAt(goal.at.x, goal.at.y, goal.kind, facePx * 1.15);
       mctx.restore();
     }
   }
