@@ -792,7 +792,12 @@ const JOBS = {
                   the difference — both renderers build the truck out of the
                   car's own eight corners, so making the car longer, wider and
                   taller here is what makes the appliance an appliance. */
-               body: { l: 7.4, w: 2.5, bh: 2.7 } },
+               body: { l: 7.4, w: 2.5, bh: 2.7 },
+               /* AND IT WEIGHS WHAT IT LOOKS LIKE. An appliance is fourteen
+                  tonnes against a hatchback's one and a half; the player's
+                  ordinary car is already three, so eight is the appliance at
+                  something near the real ratio to the traffic around it. */
+               mass: 8 },
   ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance' }
 };
 const JOB_AT = {};
@@ -883,9 +888,10 @@ function setJob(id) {
        gives you back the car you arrived in rather than a slightly different
        one every time — makeCar randomises the length and width. */
     const b = JOBS[id].body;
-    if (!P.car.stock) P.car.stock = { l: P.car.l, w: P.car.w, bh: P.car.bh };
+    if (!P.car.stock) P.car.stock = { l: P.car.l, w: P.car.w, bh: P.car.bh, mass: P.car.mass };
     const s = b || P.car.stock;
     P.car.l = s.l; P.car.w = s.w; P.car.bh = s.bh;
+    P.car.mass = JOBS[id].mass || P.car.stock.mass;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
        paint. Everything that damages the player is scaled by this, so a police
        shift can lean on a fleeing driver without ending the shift. */
@@ -1385,6 +1391,20 @@ function setObjective(key, vars) {
 
 /* ------------------------------ 11. wanted level ------------------------------ */
 function addWanted(n) {
+  /* NOT WHILE YOU ARE ONE OF THEM.
+   *
+   * Asked for: on a police shift, other police should not come after you. They
+   * were — the shift is a licence to ram a car off the road, and doing exactly
+   * what the objective asks used to hand you a wanted level, a pursuit and
+   * eventually an arrest by your own colleagues. Ramming the TARGET was already
+   * excused at the collision, but every other source still counted, and there
+   * are five of them.
+   *
+   * One door rather than five, for the same reason hurtPlayer is one door: every
+   * way of earning a star in this game comes through here, so this is the only
+   * place the rule cannot be forgotten in. Any heat already up goes with it —
+   * finishing a pursuit that started before you clocked on. */
+  if (JOB === 'police') { if (P.wanted > 0 || cops.length) clearHeat(); return; }
   const before = P.wanted;
   P.wanted = clamp(P.wanted + n, 0, 5);
   P.cool = 0;
@@ -1643,7 +1663,17 @@ function update(dt) {
     const rel = carsCollide(c, t);
     if (rel > 6 && P.hitCd <= 0) {
       P.hitCd = .6;
-      hurtPlayer(clamp(rel * .7, 0, TRAFFIC_MAX), 'traffic');
+      /* HEFT: how much heavier than an ordinary car the thing you are driving
+         is. One in the car you start in, nearly three in the appliance.
+         Everything about the collision that is not the impulse itself scales
+         with it — the impulse already does, in carsCollide, but only up to a
+         point: `j = rel * 1.56 / (1/ma + 1/mb)` saturates as ma grows, so mass
+         alone buys a heavy vehicle about a fifth more shove and no more. What
+         actually reads as fourteen tonnes is the damage and the push. */
+      const heft = (c.mass || 3) / 3;
+      // and the ratio cuts both ways, which is what mass means: the appliance
+      // takes a fraction of what the hatchback does
+      hurtPlayer(clamp(rel * .7 / heft, 0, TRAFFIC_MAX), 'traffic');
       cam.shake = Math.min(1, cam.shake + .35);
       SFX.crash(rel);
       for (let i = 0; i < 5; i++) parts.push(sparks((c.x + t.x) / 2, (c.y + t.y) / 2));
@@ -1653,13 +1683,13 @@ function update(dt) {
          rather than a scrape, and the damage threshold above is untouched — a
          bump still costs you paint, it just no longer costs you a star.
 
-         AND RAMMING THE CAR YOU WERE SENT TO STOP IS THE JOB. On a police shift
-         the runaway is an ordinary traffic car as far as this code is concerned,
-         so doing exactly what the objective asks was earning you a wanted level
-         of your own. */
-      if (rel > WANTED_HIT && !(JOB === 'police' && t === MISSION.chase)) addWanted(.34);
-      damageCar(t, rel);
-      t.vx += (t.x - c.x) * .5; t.vy += (t.y - c.y) * .5;
+         Ramming the car you were sent to stop used to be excused here by name.
+         It no longer needs to be: addWanted refuses outright on a police shift,
+         which covers the runaway and the other four ways of earning a star with
+         one rule instead of one exception. */
+      if (rel > WANTED_HIT) addWanted(.34);
+      damageCar(t, rel * heft);
+      t.vx += (t.x - c.x) * .5 * heft; t.vy += (t.y - c.y) * .5 * heft;
       /* AND THE RADIO IS LEFT ALONE. A shunt used to knock the dial off its
          station. It reads as the game taking the station away from you at the
          exact moment you are busy, and a crash already has the horn, the bang,

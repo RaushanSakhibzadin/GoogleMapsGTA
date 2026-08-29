@@ -27,6 +27,7 @@ function makeCar(x, y, h, kind) {
        car. Patrol cars carry theirs by kind; the player's is whichever shift
        they are on. */
     livery: isCop ? 'police' : null,
+    mass: kind === 'player' ? 3 : isCop ? 1.35 : 1,
     steer: 0, road: true, dead: false, hitCd: 0,
     /* THE 3D BODY — see body3d.js. Height above the terrain, attitude, and the
        rates that carry a tumble through the air. Declared here so every car has
@@ -777,7 +778,12 @@ function checkWreck(c, dt) {
    The player is simply heavier: it keeps most of its speed and the other car
    takes the shove. Between two AI cars the masses are equal and this is exactly
    the old behaviour. */
-const massOf = c => c.kind === 'player' ? 3 : c.kind === 'cop' ? 1.35 : 1;
+/* CARRIED ON THE CAR RATHER THAN LOOKED UP BY KIND, because the player's mass is
+   no longer one number: a fire appliance is fourteen tonnes against a hatchback's
+   one and a half, and it has to shove like it. setJob writes it, makeCar gives
+   everything a default, and this stays one property read in the hottest loop in
+   the game. */
+const massOf = c => c.mass || 1;
 /* WHERE TWO CARS ACTUALLY TOUCH.
 
    This was a circle: contact when the centres came within (la + lb) * 0.34,

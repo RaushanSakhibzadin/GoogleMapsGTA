@@ -763,8 +763,100 @@ out.youCanSeeTheFire = !!out.spray.skipped ||
    // and the whole blaze still draws at a frame rate
    out.spray.fps >= 45);
 
+/* ---- 22. the appliance weighs what it looks like ---- */
+/* Asked for: a bigger mass on the fire shift, and because of it other cars
+   destroyed faster and shoved further.
+ *
+ * THE SAME COLLISION, TWICE. One car is parked, the player is dropped in front
+ * of it at a fixed speed, and the run is repeated in the courier's car and in
+ * the appliance — so what is compared is one variable. Both the damage dealt and
+ * the distance the other car ends up thrown are read, because they are two
+ * different mechanisms and the request named both: the damage is scaled by heft
+ * in the collision, the throw is partly the impulse (which saturates with mass)
+ * and partly the shove that goes with it. */
+out.heft = await p.evaluate(async () => {
+  const ram = async job => {
+    window.__takeJob(job);
+    await new Promise(r => setTimeout(r, 400));
+    window.__heal();
+    P.wanted = 0; P.cool = 0; P.hitCd = 0; cops = []; peds = [];
+    window.__tp(0, 0, 0);
+    if (!traffic.length) return { skipped: 'no traffic' };
+    window.__putTraffic(0, 12, 0, Math.PI, null, 0, 0);
+    window.__setCarHp('traffic', 0, 100);
+    const id = window.__cars().traffic[0].id;
+    const t0 = traffic.find(q => q.id === id);
+    /* NOT maxSpeed = 0, which was the first version and measured nothing: the
+       speed clamp in drive() applies to a car that has been SHOVED as much as to
+       one that is driving, so pinning the target at zero pinned the throw at
+       zero too. It is left free to be pushed and given no engine of its own, so
+       what is measured is the impulse and nothing else. */
+    t0.maxSpeed = 200; t0.accel = 0;
+    P.car.vx = 26; P.car.vy = 0;
+    await new Promise(r => setTimeout(r, 1400));
+    const t = traffic.find(q => q.id === id);
+    return { mass: P.car.mass, carX: Math.round(P.car.x), carY: Math.round(P.car.y),
+             tX: t ? Math.round(t.x) : null, tY: t ? Math.round(t.y) : null,
+             spd: +Math.hypot(P.car.vx, P.car.vy).toFixed(1),
+             hp: t ? Math.round(t.hp) : 0, gone: !t,
+             thrown: t ? Math.round(Math.hypot(t.x - 12, t.y)) : null,
+             mine: Math.round(window.__p().hp) };
+  };
+  const car = await ram('courier');
+  const truck = await ram('fire');
+  window.__takeJob('courier');
+  return { car, truck };
+});
+out.theApplianceIsHeavy = !!out.heft.car.skipped ||
+  (out.heft.truck.mass > out.heft.car.mass * 2 &&
+   // destroyed faster: less health left, or gone altogether
+   (out.heft.truck.gone || out.heft.truck.hp < out.heft.car.hp - 15) &&
+   // and shoved further by the same impact
+   (out.heft.truck.gone || out.heft.truck.thrown > out.heft.car.thrown + 3) &&
+   // the ratio cuts both ways, so the appliance comes off better than the car did
+   out.heft.truck.mine > out.heft.car.mine);
+
+/* ---- 23. and your own side does not arrest you ---- */
+/* Asked for: on a police shift, other police should not come after you. The
+   shift is a licence to ram a car off the road, and doing what the objective
+   asks used to earn a wanted level, a pursuit and an arrest by your colleagues.
+ *
+ * ASKED OF EVERY SOURCE, not just the one that was already excused. Ramming the
+ * pursuit target had a named exception; running somebody over, hitting a
+ * civilian and leaning on a patrol car did not, and those are the ones that were
+ * still doing it. */
+out.onDuty = await p.evaluate(async () => {
+  const stars = async job => {
+    window.__takeJob(job);
+    await new Promise(r => setTimeout(r, 400));
+    P.wanted = 0; P.cool = 0; cops = [];
+    window.__addWanted(3);                       // the one door every source uses
+    await new Promise(r => setTimeout(r, 400));
+    return { wanted: window.__p().wanted, cops: window.__p().cops };
+  };
+  const courier = await stars('courier');
+  const police = await stars('police');
+  /* And heat that was already up when you clocked on goes with the shift, so a
+     pursuit cannot outlive the moment you put the uniform on. */
+  window.__takeJob('courier');
+  await new Promise(r => setTimeout(r, 300));
+  window.__addWanted(3);
+  await new Promise(r => setTimeout(r, 300));
+  const carried = { wanted: window.__p().wanted, cops: window.__p().cops };
+  window.__takeJob('police');
+  await new Promise(r => setTimeout(r, 400));
+  const cleared = { wanted: window.__p().wanted, cops: window.__p().cops };
+  window.__takeJob('courier');
+  return { courier, police, carried, cleared };
+});
+out.yourOwnSideLeavesYouAlone =
+  out.onDuty.courier.wanted >= 3 && out.onDuty.courier.cops > 0 &&   // the control
+  out.onDuty.police.wanted === 0 && out.onDuty.police.cops === 0 &&
+  out.onDuty.carried.wanted >= 3 &&
+  out.onDuty.cleared.wanted === 0 && out.onDuty.cleared.cops === 0;
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
