@@ -918,8 +918,14 @@ out.heft = await p.evaluate(async () => {
   };
   const car = await ram('courier');
   const truck = await ram('fire');
+  /* AND THE AMBULANCE, which is the one that was actually reported. It had a
+     van's body and no mass at all, so it fell back to the stock 3, heft came out
+     at exactly 1, and every line above applied to it as though it were the
+     hatchback. massFor() weighs it off its body now, so this is the check that
+     a vehicle given a body and no constant still ends up heavy. */
+  const van = await ram('ambulance');
   window.__takeJob('courier');
-  return { car, truck };
+  return { car, truck, van };
 });
 out.theApplianceIsHeavy = !!out.heft.car.skipped ||
   (out.heft.truck.mass > out.heft.car.mass * 2 &&
@@ -929,6 +935,15 @@ out.theApplianceIsHeavy = !!out.heft.car.skipped ||
    (out.heft.truck.gone || out.heft.truck.thrown > out.heft.car.thrown + 3) &&
    // the ratio cuts both ways, so the appliance comes off better than the car did
    out.heft.truck.mine > out.heft.car.mine);
+/* The van sits between the two, and every part of that has to hold: heavier
+   than the car and lighter than the appliance, hitting harder than the car and
+   taking less. Stated as a BAND rather than a threshold because the mass is
+   derived from the body rather than set by hand — a rule that put it above the
+   appliance would be as wrong as the 3 it used to have. */
+out.theVanIsHeavyToo = !!out.heft.car.skipped || !out.heft.van || !!out.heft.van.skipped ||
+  (out.heft.van.mass > out.heft.car.mass * 1.4 && out.heft.van.mass < out.heft.truck.mass &&
+   (out.heft.van.gone || out.heft.van.hp < out.heft.car.hp - 5) &&
+   out.heft.van.mine > out.heft.car.mine);
 
 /* ---- 23. and your own side does not arrest you ---- */
 /* Asked for: on a police shift, other police should not come after you. The
@@ -1054,7 +1069,7 @@ out.noCarHidesInABuilding = !!out.walls.skipped ||
    (!out.walls.arch || out.walls.arch.endedInside === true));
 
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.noCarHidesInABuilding && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.noCarHidesInABuilding && out.theVanIsHeavyToo && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&

@@ -131,7 +131,13 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
    flag where it is going. */
 const POI_EMOJI = {
   police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕',
+  /* THE GOAL LOOKS LIKE WHAT IT IS. Reported from play: on the ambulance shift
+     the casualty was marked with a parcel. Every shift shared one pickup icon,
+     so the taxi went to collect a box as well, and only the courier was ever
+     right. The drop splits the same way — an ambulance finishes at a hospital,
+     not at a chequered flag. */
   pickup: '📦', drop: '🏁',
+  fare: '🧍', patient: '🤕', ward: '🏥',
   // and the two goals that are not a place you drive to and stop at
   blaze: '🔥', chase: '🚨'
 };

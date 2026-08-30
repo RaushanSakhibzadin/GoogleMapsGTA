@@ -887,9 +887,37 @@ const JOBS = {
                /* A VAN, NOT A SALOON. Same reasoning as the appliance: the shape
                   is what says ambulance, and a red cross on a hatchback is a
                   hatchback with a sticker. Six metres and two and a half tall is
-                  a box body with a cab on the front of it. */
+                  a box body with a cab on the front of it.
+                  No mass here on purpose: massFor() below weighs it off this
+                  body, which is the general rule the appliance opts out of. */
                body: { l: 6.0, w: 2.25, bh: 2.55 } }
 };
+/* WHAT A SHIFT'S VEHICLE WEIGHS.
+ *
+ * Reported from play: the ambulance took and dealt exactly what the courier's
+ * hatchback did. It did — it was given a bigger BODY and no mass, so it fell
+ * back to the stock 3 and heft came out at exactly 1, which is the multiplier
+ * that means "nothing applies". The appliance had its 8 and behaved; the van
+ * looked like a van and drove like a car.
+ *
+ * So mass now comes off the body by default rather than from a constant someone
+ * has to remember, which is what makes this hold for a truck added later: give
+ * it a body and it is heavy because it is big.
+ *
+ * The exponent is the point. Straight volume makes the van 2.7 times the car
+ * and heavier than the appliance, because a box body is mostly air; 0.6 pulls
+ * that back to about 1.8, so the ambulance lands near 5 against the car's 3 and
+ * the appliance's 8 — a van between a hatchback and a fire engine, which is
+ * where a van belongs. An explicit mass still wins, and the appliance keeps
+ * one: fourteen tonnes of pump, ladder and water is denser than its own
+ * outline, and no rule about volume is going to guess that. */
+function massFor(job, stock) {
+  if (JOBS[job] && JOBS[job].mass) return JOBS[job].mass;
+  const b = JOBS[job] && JOBS[job].body;
+  if (!b || !stock) return stock ? stock.mass : 3;
+  const vol = q => q.l * q.w * q.bh;
+  return stock.mass * Math.pow(vol(b) / vol(stock), .6);
+}
 const JOB_AT = {};
 for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
 /* Close enough to have pulled up at it. The landmark itself is a point at the
@@ -994,7 +1022,7 @@ function setJob(id) {
     if (!P.car.stock) P.car.stock = { l: P.car.l, w: P.car.w, bh: P.car.bh, mass: P.car.mass };
     const s = b || P.car.stock;
     P.car.l = s.l; P.car.w = s.w; P.car.bh = s.bh;
-    P.car.mass = JOBS[id].mass || P.car.stock.mass;
+    P.car.mass = massFor(id, P.car.stock);
     P.car.offroad = !!JOBS[id].offroad;
     /* THE ARMOURED CAR, which is the half of "special police car" that is not
        paint. Everything that damages the player is scaled by this, so a police

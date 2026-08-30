@@ -737,10 +737,20 @@ function drawBigMap() {
    a fourth about to. The colour is part of the answer: the pickup is the pink
    the arrow uses and the drop-off is GOLD, and getting that pair wrong in one
    of the four is precisely the kind of thing nobody notices for a month. */
+// which glyph each shift's two ends deserve; anything not named keeps the box
+// and the flag, which is what the courier wants
+const PICK_KIND = { taxi: 'fare', ambulance: 'patient' };
+const DROP_KIND = { ambulance: 'ward' };
 function missionGoal() {
   const S = MISSION.state;
-  if (S === 'pickup' && MISSION.pick) return { at: MISSION.pick, col: '#ff4fd8', kind: 'pickup' };
-  if (S === 'deliver' && MISSION.drop) return { at: MISSION.drop, col: GOLD, kind: 'drop' };
+  /* AND IT IS MARKED AS WHAT IT IS. One shared 'pickup' icon meant a parcel was
+     drawn over a casualty and over a waiting fare — reported for the ambulance,
+     true for the taxi in the same breath. The courier keeps the box because for
+     the courier the box was always right. */
+  if (S === 'pickup' && MISSION.pick)
+    return { at: MISSION.pick, col: '#ff4fd8', kind: PICK_KIND[JOB] || 'pickup' };
+  if (S === 'deliver' && MISSION.drop)
+    return { at: MISSION.drop, col: GOLD, kind: DROP_KIND[JOB] || 'drop' };
   if (S === 'fire' && MISSION.fire) return { at: MISSION.fire, col: '#ff6a2b', kind: 'blaze' };
   /* THE RUNAWAY IS RED. It was the same blue the patrol cars and the police
      station blip are drawn in, which put the one car you are chasing in the

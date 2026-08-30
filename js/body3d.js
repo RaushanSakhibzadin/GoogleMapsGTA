@@ -170,7 +170,7 @@ function groundCar(c, throttle, brake, dt) {
        v times the curvature — the same two numbers again, no new constant.
        Halved because a full continuation puts a lot of rotation into a short
        hop, and the tumble is more readable when the ramp only starts it. */
-    c.pv = clamp(spd * curve * 0.5, -1.1, 1.1);
+    c.pv = clamp(spd * curve * 0.5 / pitchResist(c), -1.1, 1.1);
     c.rv = 0;
     return;
   }
@@ -200,6 +200,24 @@ function groundCar(c, throttle, brake, dt) {
   c.pv = c.rv = 0;
 }
 
+/* HOW HARD THIS THING IS TO PITCH.
+ *
+ * Reported from play: at speed the appliance and the ambulance tip nose-down and
+ * tail-up, "never seen this while driving a real car". Measured: the dive always
+ * happens IN THE AIR — over a crest the car launches and c.pv below starts it
+ * rotating nose-down for the whole flight — and that rate was calculated from
+ * the ground alone, with nothing about the vehicle in it. A seven-metre truck
+ * was being spun exactly as eagerly as a hatchback, and reached three times the
+ * angle because it was airborne longer.
+ *
+ * The moment of inertia about the lateral axis goes as mass times length
+ * squared, so this is that, relative to the ordinary car: the appliance comes
+ * out about seven times harder to pitch, the van about three, and the car
+ * itself exactly one — which leaves the handling everybody is used to alone,
+ * jumps and tumbles included. It reads off the body, so a vehicle added later
+ * is stable because it is big rather than because someone remembered. */
+const pitchResist = c => ((c.mass || 3) / 3) * (((c.l || 4.5) / 4.5) ** 2);
+
 /* IN THE AIR. drive() hands over entirely: no grip, no drag against the road, no
    kerb, no off-road penalty — none of those are about a car that is not touching
    anything. What is left is a projectile with attitude. */
@@ -215,7 +233,7 @@ function flyCar(c, throttle, brake, steerIn, dt) {
      does nothing to where the car is going: the momentum is fixed the moment it
      leaves the ground, and this only decides which way up it arrives. */
   if (c.kind === 'player') {
-    c.pv += ((brake ? 1 : 0) - (throttle ? 1 : 0)) * 2.6 * dt;
+    c.pv += ((brake ? 1 : 0) - (throttle ? 1 : 0)) * 2.6 * dt / pitchResist(c);
     c.rv += steerIn * 3.4 * dt;
   }
   c.pv = clamp(c.pv, -AIR_SPIN, AIR_SPIN);
