@@ -59,7 +59,7 @@ en: {
   'menu.blurb': 'Real streets and buildings, pulled live from OpenStreetMap. ' +
                 'Deliver packages for cash, ram a cop and find out what five stars feels like.',
   'menu.ghost': 'GHOST MODE — drive anywhere, through buildings',
-  'menu.patreon': 'Back it on Patreon · $10',
+  'menu.patreon': 'Back it on Patreon · $1',
   'perk.lockedInfo': 'GHOST MODE is a supporter perk — type the word from the Patreon post',
   'perk.word': 'secret word',
   'perk.unlock': 'UNLOCK',
@@ -244,7 +244,7 @@ sr: {
   'menu.blurb': 'Prave ulice i zgrade, povučene uživo sa OpenStreetMap-a. Raznosi pakete ' +
                 'za pare, udari pandura i vidi kako izgleda pet zvezdica.',
   'menu.ghost': 'DUH REŽIM — vozi svuda, kroz zgrade',
-  'menu.patreon': 'Podrži na Patreon-u · $10',
+  'menu.patreon': 'Podrži na Patreon-u · $1',
   'perk.lockedInfo': 'DUH REŽIM je pogodnost za podržavaoce — ukucaj reč iz objave na Patreon-u',
   'perk.word': 'tajna reč',
   'perk.unlock': 'OTKLJUČAJ',
@@ -397,7 +397,7 @@ ru: {
   'menu.blurb': 'Настоящие улицы и здания, прямо из OpenStreetMap. Развози посылки за деньги, ' +
                 'протарань полицейского и узнай, каково это — пять звёзд.',
   'menu.ghost': 'РЕЖИМ ПРИЗРАКА — езда где угодно, сквозь здания',
-  'menu.patreon': 'Поддержать на Patreon · $10',
+  'menu.patreon': 'Поддержать на Patreon · $1',
   'perk.lockedInfo': 'РЕЖИМ ПРИЗРАКА — бонус для подписчиков: введите слово из поста на Patreon',
   'perk.word': 'секретное слово',
   'perk.unlock': 'РАЗБЛОКИРОВАТЬ',
@@ -550,7 +550,7 @@ de: {
   'menu.blurb': 'Echte Straßen und Gebäude, live von OpenStreetMap. Liefere Pakete für Geld, ' +
                 'ramme einen Streifenwagen und finde heraus, wie sich fünf Sterne anfühlen.',
   'menu.ghost': 'GEISTERMODUS — fahre überall hin, mitten durch Gebäude',
-  'menu.patreon': 'Unterstütze es auf Patreon · $10',
+  'menu.patreon': 'Unterstütze es auf Patreon · $1',
   'perk.lockedInfo': 'GEISTERMODUS ist ein Extra für Unterstützer — gib das Wort aus dem Patreon-Beitrag ein',
   'perk.word': 'Geheimwort',
   'perk.unlock': 'FREISCHALTEN',
@@ -704,7 +704,7 @@ fr: {
   'menu.blurb': 'De vraies rues et de vrais bâtiments, tirés en direct d’OpenStreetMap. Livre des colis ' +
                 'pour de l’argent, percute un flic et découvre ce que font cinq étoiles.',
   'menu.ghost': 'MODE FANTÔME — roule partout, à travers les bâtiments',
-  'menu.patreon': 'Soutiens-le sur Patreon · $10',
+  'menu.patreon': 'Soutiens-le sur Patreon · $1',
   'perk.lockedInfo': 'MODE FANTÔME est un bonus pour les soutiens — saisis le mot du billet Patreon',
   'perk.word': 'mot secret',
   'perk.unlock': 'DÉVERROUILLER',
@@ -858,7 +858,7 @@ es: {
   'menu.blurb': 'Calles y edificios reales, sacados en directo de OpenStreetMap. Reparte paquetes ' +
                 'por dinero, embiste a un poli y descubre lo que son cinco estrellas.',
   'menu.ghost': 'MODO FANTASMA — conduce por todas partes, a través de los edificios',
-  'menu.patreon': 'Apóyalo en Patreon · $10',
+  'menu.patreon': 'Apóyalo en Patreon · $1',
   'perk.lockedInfo': 'MODO FANTASMA es una ventaja para mecenas — escribe la palabra de la publicación de Patreon',
   'perk.word': 'palabra secreta',
   'perk.unlock': 'DESBLOQUEAR',
@@ -1011,7 +1011,7 @@ it: {
   'menu.blurb': 'Strade ed edifici veri, presi in diretta da OpenStreetMap. Consegna pacchi per ' +
                 'soldi, sperona una volante e scopri cosa vuol dire cinque stelle.',
   'menu.ghost': 'MODALITÀ FANTASMA — guida ovunque, attraverso gli edifici',
-  'menu.patreon': 'Sostienilo su Patreon · $10',
+  'menu.patreon': 'Sostienilo su Patreon · $1',
   'perk.lockedInfo': 'MODALITÀ FANTASMA è un extra per i sostenitori — scrivi la parola del post su Patreon',
   'perk.word': 'parola segreta',
   'perk.unlock': 'SBLOCCA',
@@ -1164,7 +1164,7 @@ pt: {
   'menu.blurb': 'Ruas e prédios de verdade, puxados ao vivo do OpenStreetMap. Entregue encomendas ' +
                 'por dinheiro, bata numa viatura e descubra como são cinco estrelas.',
   'menu.ghost': 'MODO FANTASMA — dirija por toda parte, atravessando prédios',
-  'menu.patreon': 'Apoie no Patreon · $10',
+  'menu.patreon': 'Apoie no Patreon · $1',
   'perk.lockedInfo': 'MODO FANTASMA é um bônus para apoiadores — digite a palavra do post no Patreon',
   'perk.word': 'palavra secreta',
   'perk.unlock': 'DESBLOQUEAR',
@@ -1318,7 +1318,7 @@ ja: {
   'menu.blurb': '本物の道路と建物を OpenStreetMap からそのまま。荷物を配達して稼ぎ、' +
                 'パトカーに突っ込んで星5つの世界を味わおう。',
   'menu.ghost': 'ゴーストモード — どこでも走れる、建物もすり抜ける',
-  'menu.patreon': 'Patreon で支援する · $10',
+  'menu.patreon': 'Patreon で支援する · $1',
   'perk.lockedInfo': 'ゴーストモードは支援者特典です — Patreon の投稿にある合言葉を入力してください',
   'perk.word': '合言葉',
   'perk.unlock': '解除',
@@ -1471,7 +1471,7 @@ zh: {
   'menu.blurb': '真实的街道和建筑，实时来自 OpenStreetMap。送包裹赚钱，撞警车，' +
                 '看看五颗星是什么滋味。',
   'menu.ghost': '幽灵模式 — 随处可开，直接穿过建筑',
-  'menu.patreon': '在 Patreon 上支持 · $10',
+  'menu.patreon': '在 Patreon 上支持 · $1',
   'perk.lockedInfo': '幽灵模式是支持者特典 — 请输入 Patreon 帖子里的暗号',
   'perk.word': '暗号',
   'perk.unlock': '解锁',
