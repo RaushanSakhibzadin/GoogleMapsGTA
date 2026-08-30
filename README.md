@@ -1,6 +1,6 @@
 # VICE MAPS
 
-## ▶ [**PLAY IT HERE**](https://raushansakhibzadin.github.io/GoogleMapsGTA/)
+## ▶ [**PLAY IT HERE**](https://realcityauto.com/)
 
 A GTA: Vice City–flavoured driving sandbox that runs on **real streets, anywhere on Earth**.
 Type a place — your street, Miami Beach, Shibuya — and it pulls the actual road network and

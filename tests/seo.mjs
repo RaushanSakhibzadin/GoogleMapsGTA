@@ -25,7 +25,6 @@ import { fileURLToPath } from 'url';
 import { chromium } from 'playwright';
 import { CHROME, GAME } from './harness.mjs';
 
-const SITE = 'https://raushansakhibzadin.github.io/GoogleMapsGTA/';
 /* The build under test, honoured for the FILE reads too and not only for the
    browser. GAME is how every other test here is pointed at a build with the fix
    taken out, and the first version of this one read the repo's own index.html
@@ -34,6 +33,23 @@ const SITE = 'https://raushansakhibzadin.github.io/GoogleMapsGTA/';
    GAME names. */
 const BUILD = dirname(fileURLToPath(GAME));
 const at = f => join(BUILD, f);
+/* WHERE THE SITE LIVES, TAKEN FROM THE DEPLOYMENT rather than written out here
+   a second time. CNAME is the file that decides which host GitHub Pages answers
+   on, so it is the fact that cannot be wrong: where it and the canonical link
+   disagree, the canonical link is the one that is wrong.
+
+   This was a literal copy of the URL, which made two places to change and
+   exactly one of them memorable. Moving to a domain is precisely the edit that
+   desyncs them, and a canonical pointing at an address that 301-redirects to
+   the real one is the sort of fault that costs search ranking quietly, for
+   months, while the page looks perfect in a browser.
+
+   No CNAME is a legitimate state — it means no custom domain — so that falls
+   back to the project Pages address the repository would be served from. */
+const CNAME = at('CNAME');
+const SITE = existsSync(CNAME)
+  ? 'https://' + readFileSync(CNAME, 'utf8').trim() + '/'
+  : 'https://raushansakhibzadin.github.io/GoogleMapsGTA/';
 const html = readFileSync(at('index.html'), 'utf8');
 const head = html.slice(0, html.indexOf('</head>'));
 const bad = [];

@@ -31,7 +31,15 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PAGES = 'https://raushansakhibzadin.github.io/GoogleMapsGTA/';
+/* WHATEVER index.html CURRENTLY CLAIMS TO BE, read off its own canonical link
+   rather than written down here. This was a literal of the github.io address,
+   which stopped being true the day the site moved to a domain of its own — and
+   the failure would have been this tool reporting "no urls to rewrite" and
+   refusing to build, which is at least loud. Read from the file, it follows the
+   site wherever it goes next. */
+const canon = /<link rel="canonical" href="([^"]+)"/.exec(readFileSync(join(ROOT, 'index.html'), 'utf8'));
+if (!canon) throw new Error('mirror: no canonical link in index.html to rewrite from');
+const PAGES = canon[1];
 
 const arg = process.argv[2] || 'https://realcityauto.com';
 const origin = arg.replace(/\/+$/, '');                    // no trailing slash

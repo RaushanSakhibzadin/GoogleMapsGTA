@@ -1,0 +1,9 @@
+# The site has a host of its own now, so this file is finally at an address
+# anything will read: robots.txt is only ever fetched from the root of a host,
+# and while this was served from github.io/GoogleMapsGTA/ that root belonged to
+# a different repository. Nothing here is a restriction — the whole site is one
+# page and it is meant to be found. It is here to advertise the sitemap.
+User-agent: *
+Allow: /
+
+Sitemap: https://realcityauto.com/sitemap.xml
