@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- One page, so this is a formality — but it is the thing you hand Search
-     Console. Auto-discovery works now that the site has a host of its own:
-     robots.txt sits beside this file at the root and points at it. That was
-     impossible as a project Pages site, where the host root — and so the only
-     robots.txt anything would read — belonged to a different repository. -->
+     Console, and auto-discovery cannot help here: robots.txt is only read from
+     the root of a host, which for a project Pages site belongs to a different
+     repository. Submit this URL by hand at search.google.com/search-console.
+
+     THIS IS THE github.io ADDRESS ON PURPOSE, even though the site also answers
+     on realcityauto.com. That domain is FORWARDED here by its registrar rather
+     than hosting anything: open it and the address bar ends up showing this URL,
+     which makes this the page's real and only location. A sitemap or canonical
+     naming the forwarding address would point a crawler at a door rather than a
+     room. If the domain is ever pointed at Pages properly — a CNAME file, and
+     A records at 185.199.108-111.153 — this and the metadata in index.html move
+     with it, and tests/seo.mjs reads CNAME so it will hold them to it. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://realcityauto.com/</loc>
+    <loc>https://raushansakhibzadin.github.io/GoogleMapsGTA/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
