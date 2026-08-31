@@ -797,6 +797,7 @@ function resetRun() {
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
   traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
+  for (const k in JOB_DONE) delete JOB_DONE[k];   // a new city starts every shift over
   MISSION.fire = MISSION.chase = MISSION.fare = MISSION.rider = null;
   MISSION.riding = false;
   missionSeq++;                 // the last city's pending next-job call is not this city's
@@ -835,6 +836,47 @@ const trafficCap = () => TRAFFIC_SET || (themeName === 'day' ? TRAFFIC_N * 3 : T
 // Contracts reach further as more of the map streams in, so packets turn up in
 // the new districts instead of clustering in the block you started on.
 const missionReach = base => Math.min(base * (1 + (CHUNK.loaded - 1) * .55), base * 3.2);
+
+/* AND EACH SHIFT STARTS EASY AND GETS HARDER.
+ *
+ * Asked for: the first taxi job should be a short hop and every one after it a
+ * bit further, and the same for the other four. Before this, every job of a
+ * shift was drawn from one fixed band from the first to the fiftieth — the only
+ * thing that grew was the money.
+ *
+ * COUNTED PER SHIFT, not per session. MISSION.done is the whole run's tally and
+ * it never resets when you clock on, so using it would have handed a driver who
+ * had already run twenty parcels a thousand-metre first fare. Each shift keeps
+ * its own count, which means clocking on to something new starts you gently at
+ * that thing — and coming back to a shift you have worked resumes where it was,
+ * so swapping jobs is not a way to make the next one short again.
+ *
+ * IT SURVIVES THE SHIFT AND NOT THE CITY: a new city is a new start, so
+ * resetRun clears it along with everything else.
+ *
+ * The step is deliberately per-job rather than per-minute: the fifth call being
+ * further than the first is something a player can feel and predict, where a
+ * clock they cannot see is just the game getting harder for no stated reason.
+ * Capped, because the delivery clock stops buying time at about 1.7 km — past
+ * that, further is not harder, it is impossible. */
+const JOB_DONE = {};
+const JOB_RAMP_STEP = .30, JOB_RAMP_MAX = 2.4;
+const jobRamp = job => Math.min(1 + (JOB_DONE[job] || 0) * JOB_RAMP_STEP, JOB_RAMP_MAX);
+/* The band this shift's next job draws from, ramped.
+ *
+ * The ceiling still goes through missionReach, which is the streaming guard: on
+ * a city with one tile loaded there is no point sending anyone two kilometres
+ * out, however many jobs they have done, because the roads are not there yet.
+ * The ramp grows into the map as the map arrives.
+ *
+ * The floor is held under the ceiling as well — with a low chunk count the two
+ * could otherwise cross and roadPoint would be asked for a band with nothing
+ * in it, which returns null and reads as a shift that has run out of work. */
+function jobBand(job, minD, maxD) {
+  const r = jobRamp(job);
+  const hi = Math.min(maxD * r, missionReach(maxD));
+  return { lo: Math.min(minD * r, hi * .55), hi, r };
+}
 
 /* ------------------------------ the four shifts ------------------------------
 
@@ -1170,8 +1212,12 @@ function pickFare(minD) {
   return best;
 }
 function newFare() {
-  const who = pickFare(70);
-  const p = who || roadPoint(P.car.x, P.car.y, 90, missionReach(480))
+  /* The waiting fare, in this shift's current band. pickFare takes the nearest
+     one past its floor, which on the first fare of a shift is the point — a
+     first job should be round the corner. */
+  const b = jobBand('taxi', 70, 480);
+  const who = pickFare(b.lo);
+  const p = who || roadPoint(P.car.x, P.car.y, b.lo, b.hi)
                 || roadPoint(P.car.x, P.car.y, null);
   if (!p) { MISSION.state = 'none'; return; }
   if (who) who.hurt = 'wait';                 // stands still until you get there
@@ -1214,25 +1260,33 @@ function newFare() {
  * length of the run — clamp(dd / 13 + 18, 22, 150) and 2.4 a metre — so a
  * longer job already gets the room and already pays for it, and the leg out to
  * the patient is untimed. */
-const CASUALTY_MIN = 420;
+/* THE FIRST PATIENT IS NEARER THAN THE FIFTH, and the floor comes down to 260
+   from the flat 420 this had after the "patients too close to the hospital"
+   report. That is a deliberate softening of that fix, not an accident: what was
+   wrong there was that EVERY call was 60 to 136 m out, so the whole shift was a
+   lap of the car park. A first call at 260 m and a fifth past 600 is a shift
+   that starts gently and grows, which is what was asked for now, and 260 m is
+   still a street away rather than next door. */
+const CASUALTY_MIN = 260;
 /* THE SAME BAND THE FIRES USE, and not a metre wider, because the return leg is
    the one on a clock: MISSION.time is clamp(dd / 13 + 18, 22, 150), so distance
    stops buying time at about 1.7 km and everything past that is a shorter run
    against the same 150 seconds. A fire has no such clock and can afford to be
    further. Handing out a job that cannot be finished is not difficulty. */
 function casualtySpot() {
-  const reach = missionReach(900);
+  const b = jobBand('ambulance', CASUALTY_MIN, 900);
+  const reach = b.hi, floor = b.lo;
   const h = nearestPOI('hospital', P.car.x, P.car.y);
   /* Tried a handful of times rather than once: roadPoint hands back ONE random
      point in the band, and the hospital test can reject it. */
   for (let i = 0; i < 14; i++) {
-    const p = roadPoint(P.car.x, P.car.y, CASUALTY_MIN, reach);
+    const p = roadPoint(P.car.x, P.car.y, floor, reach);
     if (!p) break;
-    if (!h || dist(p.x, p.y, h.x, h.y) >= CASUALTY_MIN) return p;
+    if (!h || dist(p.x, p.y, h.x, h.y) >= floor) return p;
   }
   /* A small city may genuinely have nothing that far from its own hospital, and
      a shift that refuses to hand out work is worse than a short run. */
-  return roadPoint(P.car.x, P.car.y, CASUALTY_MIN, reach)
+  return roadPoint(P.car.x, P.car.y, floor, reach)
       || roadPoint(P.car.x, P.car.y, 80, missionReach(420))
       || roadPoint(P.car.x, P.car.y, null);
 }
@@ -1279,13 +1333,15 @@ const FIRE_REACH = 16, FIRE_RATE = 26, FIRE_REGROW = 5;
  * band puts every fire at exactly the minimum, which is a different constant and
  * the same complaint. The old near band survives as the fallback for a city with
  * nothing built that far away. */
-const FIRE_MIN = 300;
+// the first call of a shift is the nearest fire; the tenth is across town
+const FIRE_MIN = 220;
 function newFire() {
-  const reach = missionReach(900);
+  const band = jobBand('fire', FIRE_MIN, 900);
+  const reach = band.hi;
   const pool = [];
   for (const b of W.buildings) {
     const d = dist(b.cx, b.cy, P.car.x, P.car.y);
-    if (d >= FIRE_MIN && d <= reach) pool.push(b);
+    if (d >= band.lo && d <= reach) pool.push(b);
   }
   let best = pool.length ? pick(pool) : null;
   if (!best) {
@@ -1434,7 +1490,8 @@ function emitWater(c, f, dt) {
    what was asked: arrested if it survives being run off the road, destroyed if
    it does not. */
 const CHASE_STOP = 34;
-const CHASE_MIN = 300, CHASE_MAX = 900;
+// a first shout is a car down the road; a later one starts across the district
+const CHASE_MIN = 220, CHASE_MAX = 900;
 // how far it can get from you before it has got away, and stops being simulated
 const CHASE_LEASH = 1500;
 function newPursuit() {
@@ -1445,17 +1502,18 @@ function newPursuit() {
      so the cull deleted it on the very next frame and the shift reported that it
      had got away before you had touched the accelerator. The two numbers are a
      pair: where it starts has to stay well inside how far it may get. */
-  const far = CHASE_MAX;
+  const band = jobBand('police', CHASE_MIN, CHASE_MAX);
+  const far = band.hi;
   for (const t of traffic) {
     if (t.dead) continue;
     const d = dist(t.x, t.y, P.car.x, P.car.y);
-    if (d < CHASE_MIN || d > far) continue;
+    if (d < band.lo || d > far) continue;
     if (d < bd) { bd = d; best = t; }
   }
   /* Nothing out there yet, which is the usual case: put one there. The last
      fallback is a small map — a city whose roads do not reach three hundred
      metres has to be allowed to hand out police work too. */
-  if (!best) best = spawnOneCar(CHASE_MIN, far) || spawnOneCar(120, far);
+  if (!best) best = spawnOneCar(band.lo, far) || spawnOneCar(120, far);
   if (!best) { MISSION.state = 'none'; scheduleMission(2500); return; }
   best.wanted = true;
   best.maxSpeed = Math.max(best.maxSpeed, 26);
@@ -1501,9 +1559,14 @@ function hospitalDrop() {
   return g ? { x: g.x, y: g.y, name: h.name } : h;
 }
 function startDelivery() {
+  /* WHERE IT IS GOING, ramped for whichever shift is asking. This is the leg
+     that carries the clock and the money, so it is the one that decides whether
+     a job feels like a hop or a haul. The ambulance is exempt: its drop is a
+     hospital, and a hospital is where it is, not a distance. */
+  const db = jobBand(JOB, 180, 700);
   const d = JOB === 'ambulance'
     ? hospitalDrop()
-    : (roadPoint(P.car.x, P.car.y, 180, missionReach(700))
+    : (roadPoint(P.car.x, P.car.y, db.lo, db.hi)
        || roadPoint(P.car.x, P.car.y, null));
   if (!d) { MISSION.state = 'none'; scheduleMission(2000); return; }
   /* THE PASSENGER GETS IN, which is why the street is one person emptier for the
@@ -1533,6 +1596,7 @@ function startDelivery() {
 function completeDelivery() {
   P.cash += MISSION.reward; P.score += MISSION.reward;
   MISSION.done++;
+  JOB_DONE[JOB] = (JOB_DONE[JOB] || 0) + 1;    // this shift's next job reaches further
   releaseRider(MISSION.drop || P.car);
   store.set('vm_cash', P.cash);
   SFX.cash();
@@ -1545,6 +1609,7 @@ function completeDelivery() {
 function completeJob(key) {
   P.cash += MISSION.reward; P.score += MISSION.reward;
   MISSION.done++;
+  JOB_DONE[JOB] = (JOB_DONE[JOB] || 0) + 1;    // fire and police count the same way
   store.set('vm_cash', P.cash);
   SFX.cash();
   toast(txt(key, { n: MISSION.reward }), 2000);

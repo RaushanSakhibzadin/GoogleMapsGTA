@@ -80,7 +80,16 @@ const BUILDINGS = { elements: [
   { type: 'way', id: 5005, tags: { building: 'yes', 'building:levels': '7' }, geometry: ring(-500, 350, 26) },
   { type: 'way', id: 5006, tags: { building: 'yes', 'building:levels': '4' }, geometry: ring(700, 250, 26) },
   { type: 'way', id: 5007, tags: { building: 'yes', 'building:levels': '6' }, geometry: ring(-350, -450, 26) },
-  { type: 'way', id: 5008, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(820, -120, 26) }
+  { type: 'way', id: 5008, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(820, -120, 26) },
+  /* AND FOUR OUT PAST A KILOMETRE. Section 26 measures a band that grows with
+     the shift, and the eight above all sit within 830 m of the middle — so the
+     ramped band came up empty, fell through to the near fallback, and the
+     "later" fire measured CLOSER than the first. That was the fixture failing
+     to express the thing under test, not the ramp failing to work. */
+  { type: 'way', id: 5009, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(1250, 400, 28) },
+  { type: 'way', id: 5010, tags: { building: 'yes', 'building:levels': '6' }, geometry: ring(-1400, -300, 28) },
+  { type: 'way', id: 5011, tags: { building: 'yes', 'building:levels': '4' }, geometry: ring(600, 1500, 28) },
+  { type: 'way', id: 5012, tags: { building: 'yes', 'building:levels': '5' }, geometry: ring(-800, 1700, 28) }
 ] };
 const json = o => ({ contentType: 'application/json', body: JSON.stringify(o) });
 
@@ -1068,8 +1077,109 @@ out.noCarHidesInABuilding = !!out.walls.skipped ||
       and invisible without this half. */
    (!out.walls.arch || out.walls.arch.endedInside === true));
 
+/* ---- 26. each shift starts easy and gets harder ---- */
+/* Asked for: the first taxi job should be a short hop and every one after it a
+   bit further, and the same for the other shifts.
+ *
+ * MEASURED BY FORCING THE COUNTER, not by playing four jobs through. Completing
+ * a run takes a pickup, a drive and a drop, times four, times three shifts —
+ * minutes of wall clock in a file that already runs for one, and every one of
+ * those drives is a chance for traffic to wreck the staging. JOB_DONE is the
+ * one input the ramp reads, so setting it and asking for a fresh job measures
+ * the rule itself.
+ *
+ * THE COUNTER IS PER SHIFT, which is the half that a single-shift check would
+ * miss: the tally is not reset by clocking on, so a driver who had run twenty
+ * parcels would otherwise be handed a kilometre-long first fare.
+ *
+ * Distances are noisy — roadPoint draws at RANDOM inside the band, so a single
+ * pair can come out backwards without the ramp being wrong. So this samples
+ * several times at each step and compares the MEANS, and asks only that the
+ * later band is clearly further out, not that every draw is. */
+out.ramp = await p.evaluate(async () => {
+  const sample = async (job, done, n) => {
+    const ds = [];
+    for (let i = 0; i < n; i++) {
+      window.__takeJob('courier');
+      window.__takeJob(job);
+      /* Guarded, so this section FAILS rather than throws on a build without
+         the ramp: an exception inside evaluate aborts the whole file, which
+         turns one clean A/B failure into no A/B at all. Without JOB_DONE the
+         distances simply come out flat, which is exactly the finding. */
+      if (typeof JOB_DONE !== 'undefined') JOB_DONE[job] = done;
+      clearMission();
+      newMission();
+      await new Promise(r => setTimeout(r, 260));
+      /* WHICH LEG IS "THE JOB" DEPENDS ON THE SHIFT, and getting that wrong
+         measures nothing. For the fire and the police the target IS the job, so
+         it is the distance out to it. For a taxi it is the RIDE: the fare is a
+         pedestrian, the crowd only exists within 500 m of the car, and a first
+         fare being round the corner is correct — what grows is where they are
+         going. Measured from the pickup to the drop, by standing on the pickup
+         so the ride actually starts. */
+      if (job === 'taxi') {
+        const pk = MISSION.pick;
+        if (!pk) continue;
+        window.__tp(pk.x, pk.y - 3, 0); P.car.vx = P.car.vy = 0;
+        await new Promise(r => setTimeout(r, 500));
+        const d = MISSION.drop;
+        if (d) ds.push(Math.hypot(d.x - pk.x, d.y - pk.y));
+        continue;
+      }
+      const goal = MISSION.pick || MISSION.fire || MISSION.chase;
+      if (goal) ds.push(Math.hypot(goal.x - P.car.x, goal.y - P.car.y));
+    }
+    return ds.length ? Math.round(ds.reduce((a, b) => a + b, 0) / ds.length) : null;
+  };
+  const out = {};
+  for (const job of ['taxi', 'ambulance', 'fire']) {
+    window.__tp(0, 0, 0); P.car.vx = P.car.vy = 0;
+    out[job] = { leg: job === 'taxi' ? 'ride' : 'out to the target',
+                 first: await sample(job, 0, 5), later: await sample(job, 6, 5) };
+  }
+  /* AND THE BAND ITSELF, which is the assertion that actually holds.
+   *
+   * The distances above are a sample of a RANDOM draw inside the band, and five
+   * draws are noisy enough that the unramped build cleared a 1.35x bar on two
+   * shifts out of three by luck — only the taxi failed it. A test that passes on
+   * the broken build two times in three proves nothing, so the verdict rests on
+   * the band, which is arithmetic and has no draw in it; the distances stay as
+   * corroboration that the band is actually the thing being drawn from. */
+  out.bands = {};
+  if (typeof jobBand === 'function' && typeof JOB_DONE !== 'undefined') {
+    for (const [job, lo, hi] of [['taxi', 180, 700], ['ambulance', 260, 900], ['fire', 220, 900]]) {
+      JOB_DONE[job] = 0; const a = jobBand(job, lo, hi);
+      JOB_DONE[job] = 6; const b = jobBand(job, lo, hi);
+      JOB_DONE[job] = 0;
+      out.bands[job] = { firstLo: Math.round(a.lo), firstHi: Math.round(a.hi),
+                         laterLo: Math.round(b.lo), laterHi: Math.round(b.hi),
+                         grew: +(b.hi / a.hi).toFixed(2) };
+    }
+  }
+  // and the tally really is kept per shift rather than shared
+  window.__takeJob('courier'); window.__takeJob('taxi');
+  if (typeof JOB_DONE !== 'undefined') {
+    JOB_DONE.taxi = 6; JOB_DONE.fire = 0;
+    out.separate = { taxi: JOB_DONE.taxi, fire: JOB_DONE.fire || 0 };
+  } else out.separate = { missing: true };
+  window.__takeJob('courier');
+  return out;
+});
+out.shiftsRampUp =
+  // the band, which is the mechanism and carries no randomness
+  ['taxi', 'ambulance', 'fire'].every(j => {
+    const b = out.ramp.bands && out.ramp.bands[j];
+    return b && b.laterHi > b.firstHi * 1.8 && b.laterLo > b.firstLo * 1.8;
+  }) &&
+  // and the draws land where the band says, which one noisy sample cannot fake
+  // in all three at once
+  ['taxi', 'ambulance', 'fire'].every(j =>
+    out.ramp[j] && out.ramp[j].first != null && out.ramp[j].later != null &&
+    out.ramp[j].later > out.ramp[j].first * 1.35) &&
+  out.ramp.separate.taxi === 6 && out.ramp.separate.fire === 0;
+
 out.errs = errs.slice(0, 4);
-out.pass = out.fourDepots && out.noCarHidesInABuilding && out.theVanIsHeavyToo && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
+out.pass = out.fourDepots && out.shiftsRampUp && out.noCarHidesInABuilding && out.theVanIsHeavyToo && out.ambulancesStopAtTheDoor && out.theApplianceIsHeavy && out.yourOwnSideLeavesYouAlone && out.foughtFromTheStreet && out.youCanSeeTheFire && out.setBackDepotsAreReachable && out.firesAreAcrossTown && out.buttonFollowsTheDepot && out.pressingItWorks &&
            out.everyShiftHasWork && out.theFareIsAPersonWhoWaits &&
            out.ambulanceGoesToHospital && out.fireNeedsYouThere &&
            out.puttingItOutPays && out.pursuitEndsInAnArrest &&
