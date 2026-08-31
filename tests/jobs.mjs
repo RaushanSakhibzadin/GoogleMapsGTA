@@ -304,9 +304,18 @@ out.far = await p.evaluate(async () => {
   }
   return { calls: calls.filter(Boolean), survived };
 });
+/* 250, NOT 400. This asked for 400 when the ambulance floor was a flat 420, and
+   the difficulty ramp then lowered that floor to 260 for the first call of a
+   shift — so the assertion outlived the rule it was written for and started
+   failing on any draw that landed in the bottom third of the band. It passed
+   the run it was changed in and failed the next one, which is the worst way for
+   this to show up.
+   What this section is FOR is still intact: the fault it was written against
+   was every call landing 60 to 136 m out, and 250 is nowhere near that. How far
+   the band grows from here is section 26's job, and it is measured there. */
 out.patientsAreAcrossTown = !!out.far.skipped ||
   (out.far.calls.length >= 3 &&
-   out.far.calls.every(c => c.fromCar >= 400 && c.fromHosp >= 400 &&
+   out.far.calls.every(c => c.fromCar >= 250 && c.fromHosp >= 250 &&
                             c.isPerson === true && c.listed === true) &&
    // the call is not quietly withdrawn when you are a kilometre from the patient
    (!out.far.survived || (out.far.survived.listed && out.far.survived.state === 'pickup')));
