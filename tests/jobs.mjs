@@ -914,6 +914,15 @@ out.heft = await p.evaluate(async () => {
     P.wanted = 0; P.cool = 0; P.hitCd = 0; cops = []; peds = [];
     window.__tp(0, 0, 0);
     if (!traffic.length) return { skipped: 'no traffic' };
+    /* AND THE STREET IS EMPTIED FIRST, which this said it did and did not.
+       "What is measured is the impulse and nothing else" was true of the target
+       and false of the road behind it: the shoved car sometimes ran into other
+       traffic a few metres on and stopped there. Measured across six runs, the
+       appliance threw it 29-30 m on four and 8-10 m on two — the same collision,
+       and the difference was entirely what happened to be parked downrange.
+       That is a one-in-three false failure in a section about how far a heavy
+       vehicle throws things. */
+    for (let i = 0; i < traffic.length; i++) window.__putTraffic(i, 9000 + i * 14, 9000, 0);
     window.__putTraffic(0, 12, 0, Math.PI, null, 0, 0);
     window.__setCarHp('traffic', 0, 100);
     const id = window.__cars().traffic[0].id;
