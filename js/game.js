@@ -491,6 +491,10 @@ async function startGame(query, lat, lon, label) {
   $('hud').classList.add('on');
   touchUI = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   if (touchUI) $('touch').classList.add('on');
+  /* WHICH TOUCH SCHEME, applied once the HUD is up so the classes land on a
+     body that is about to be visible. Defaults to the stick and remembers what
+     was chosen; the pads are still there, one switch away. */
+  setCtrl(store.get('vm_ctrl', 'stick'), false);
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
   /* THE RADIO COMES ON WITH THE CAR, which is what a car does — unless the

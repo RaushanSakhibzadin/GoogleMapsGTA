@@ -49,6 +49,10 @@ await p.goto(GAME);
 await p.waitForTimeout(300);
 await p.tap('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
+/* THE PADS, EXPLICITLY: they are not the default any more, and this file drives
+   the car by tapping them. Without this the first getBoundingClientRect comes
+   back null on a hidden pad and the run dies before it measures anything. */
+await p.evaluate(() => window.__ctrl && window.__ctrl('pads'));
 await p.waitForTimeout(600);
 if (RATE > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: RATE });
 

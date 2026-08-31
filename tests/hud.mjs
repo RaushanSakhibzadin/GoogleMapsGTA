@@ -70,6 +70,13 @@ for (const [label, ctxOpts] of CASES) {
      is display:none is skipped by the geometry below, so leaving it down would
      mean the one new control in the HUD is the one control never checked for
      landing on a thumb pad. */
+  /* THE PADS, EXPLICITLY. The stick is the default touch control now, and the
+     pads are display:none under it — which the geometry below SKIPS, so leaving
+     the default would quietly drop every pad out of the clash check while the
+     file still reported green. This is the pad-layout test; it asks for the pad
+     layout. The stick needs no equivalent: it is drawn under the thumb wherever
+     that lands, so it has no fixed position to clash with anything. */
+  await p.evaluate(() => window.__ctrl && window.__ctrl('pads'));
   await p.evaluate(() => { document.getElementById('jobBtn').classList.add('on'); });
   // drive briefly so the street label and district banner are both showing
   await p.keyboard.down('w'); await p.waitForTimeout(1500); await p.keyboard.up('w');

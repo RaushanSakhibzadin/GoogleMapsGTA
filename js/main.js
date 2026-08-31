@@ -414,6 +414,17 @@ window.__mission = () => ({ state: MISSION.state,
 window.__onRoad = (x, y) => onRoad(x, y);
 // handling: hold the controls exactly, and read the slide back out
 window.__setInput = o => { inputOverride = o; };
+/* THE STICK, for a test that cannot hold a thumb against glass. __stick reports
+   what the ring is currently feeding the car; __ctrl reads or sets the scheme.
+   The gesture itself is driven through real touch events in the tests — these
+   are for reading the result, not for faking it. */
+window.__stick = () => ({ on: STICK.on, ctrl: CTRL,
+  cx: Math.round(STICK.cx), cy: Math.round(STICK.cy),
+  dx: Math.round(STICK.dx), dy: Math.round(STICK.dy),
+  steer: +STICK.steer.toFixed(3), gas: STICK.gas, brake: STICK.brake, hand: STICK.hand,
+  shown: !!document.getElementById('stick').classList.contains('on'),
+  padsShown: getComputedStyle(document.getElementById('tA')).display !== 'none' });
+window.__ctrl = m => { if (m) setCtrl(m); return CTRL; };
 window.__touch = () => ({ ...touch });          // what the pads currently read
 /* THE PHYSICS FLAG, and it goes through the same gate the button does — so a
    test that wants GHOST has to unlock the perk first, exactly as a player does,
