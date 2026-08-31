@@ -377,7 +377,27 @@ body.theme-day .mixRow>b{color:#07596b}
    it does. In the chase view it also lights up, so there is never a doubt about
    which one you are looking at on a screenshot. */
 body.mode-3d #modeBtn{color:#fff;border-color:var(--pink);background:rgba(255,79,216,.28)}
-body.theme-day #logBtn,body.theme-day #modeBtn{color:#22202a;background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.3)}
+/* ALL THREE, not two. #mixBtn was left out of this rule when it was written and
+   kept its night styling in daylight — the one pill in the row that did not
+   match the other two. */
+body.theme-day #logBtn,body.theme-day #modeBtn,body.theme-day #mixBtn{
+  color:#22202a;background:rgba(255,255,255,.5);border-color:rgba(0,0,0,.3)}
+/* THE DEPOT BUTTON IS GOLD ON GOLD IN DAYLIGHT. Reported: "I cannot see the
+   yellow button on a white background". It is a gold rim over a 16% gold wash,
+   which reads well against the night palette's near-black ground and disappears
+   against a pale road — and a pale road is exactly where a depot button
+   appears, because you have to be parked on one to see it.
+   Dark rim, light fill: the same inversion the two buttons above already get,
+   so the whole HUD changes hands at once rather than one control at a time. */
+body.theme-day #jobBtn{background:rgba(255,255,255,.72);border-color:#6b4a00;
+  box-shadow:0 6px 26px rgba(0,0,0,.28),0 0 0 2px rgba(255,227,106,.55)}
+body.theme-day #jobBtn:active{background:rgba(255,227,106,.55)}
+/* AND THE TOAST, which is the same fault in text. Gold on a pale street is the
+   least readable thing on the screen, and the first thing a new player is shown
+   is now a toast explaining the stick. Dark ink with a white halo in daylight;
+   the gold stays where it belongs, at night. */
+body.theme-day #toast{color:#241a02;
+  text-shadow:2px 2px 0 rgba(255,255,255,.92),0 0 22px rgba(255,255,255,.95)}
 :root{--hudTop:46px}          /* 12px inset + the button + a gap */
 #cash{position:absolute;top:var(--hudTop);right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
 /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
