@@ -56,12 +56,37 @@ await p.waitForTimeout(700);
 /* A finger, in the only way a headless browser has one. Playwright's touchscreen
    API taps; it cannot hold and drag a touch, which is the whole gesture here. */
 const cdp = await ctx.newCDPSession(p);
-const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', {
-  type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }]
-});
-const down = (x, y) => touch('touchStart', x, y);
-const move = (x, y) => touch('touchMove', x, y);
-const up = () => touch('touchEnd', 0, 0);
+const send = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+const down = (x, y) => send('touchStart', [{ x, y, id: 1 }]);
+const move = (x, y) => send('touchMove', [{ x, y, id: 1 }]);
+/* LIFTING BOTH, WHICH TAKES MORE THAN ONE EVENT. A touchEnd with an empty list
+   ends ONE point: after a two-finger gesture the second stick stayed live and
+   every later reading was the mean of a real thumb and a ghost. The game is
+   right to keep it — each stick follows its own finger and drops when that
+   finger goes, which is what a hand does — so it is the release that has to be
+   honest about how many fingers are down. */
+const up = async () => {
+  for (let i = 0; i < 4; i++) {
+    // CDP refuses a touchEnd with nothing down, which is the normal way out of
+    // this loop after the last finger has gone
+    try { await send('touchEnd', []); } catch { return; }
+    await p.waitForTimeout(30);
+    if (await p.evaluate(() => window.__stick().live === 0)) return;
+  }
+};
+/* TWO FINGERS, which is the whole of section 9. CDP wants the full live list on
+   every event, so both points are sent each time and a lift is the remaining
+   one — not an empty list, which would drop both. */
+const down2 = (a, b) => send('touchStart', [{ x: a[0], y: a[1], id: 1 }, { x: b[0], y: b[1], id: 2 }]);
+const move2 = (a, b) => send('touchMove', [{ x: a[0], y: a[1], id: 1 }, { x: b[0], y: b[1], id: 2 }]);
+
+/* A CLEAN SLATE BEFORE EVERY GESTURE. A ring still up from the last one is
+   JOINED by the next finger rather than re-anchored — correct behaviour for a
+   thumb that never left the glass, and wrong for a test that means each of
+   these to be a separate press. Without it every reading after the first was
+   taken against an anchor from two gestures earlier, which showed up as a
+   stick that suddenly did not steer. */
+const reset = async () => { await p.evaluate(() => stickRelease()); await p.waitForTimeout(40); };
 
 const out = {};
 const vp = p.viewportSize();
@@ -75,6 +100,7 @@ out.byDefault = await p.evaluate(() => window.__stick());
    by left hand". There is no setting for that and there should not be: the ring
    is drawn at the thumb, so the side you touch IS the side it appears on. */
 const anchorAt = async (x, y) => {
+  await reset();
   await down(x, y);
   await p.waitForTimeout(80);
   const s = await p.evaluate(() => window.__stick());
@@ -84,9 +110,12 @@ const anchorAt = async (x, y) => {
 };
 out.left = await anchorAt(Math.round(vp.width * .22), Math.round(vp.height * .74));
 out.right = await anchorAt(Math.round(vp.width * .78), Math.round(vp.height * .74));
+/* Read off the ring for the side that was touched: the hook reports the two
+   sticks separately now, and the top-level numbers are the AVERAGE the car is
+   handed rather than either ring's own position. */
 out.eitherHand =
   out.left.on && out.right.on &&
-  Math.abs(out.left.cx - vp.width * .22) < 3 && Math.abs(out.right.cx - vp.width * .78) < 3 &&
+  Math.abs(out.left.L.cx - vp.width * .22) < 3 && Math.abs(out.right.R.cx - vp.width * .78) < 3 &&
   out.left.shown && out.right.shown;
 
 /* ---- 3. steering is analogue, and signed the right way ---- */
@@ -97,13 +126,15 @@ const cx = Math.round(vp.width * .3), cy = Math.round(vp.height * .74);
    a hidden element measures zero — the first version of this read 0 here and
    then pushed the knob zero pixels in every direction, which reported a stick
    that did not steer, drive or drift. */
+await reset();
 await down(cx, cy);
 await p.waitForTimeout(80);
-const R = await p.evaluate(() => document.getElementById('stick').offsetWidth / 2);
+const R = await p.evaluate(() => document.getElementById('stickL').offsetWidth / 2);
 await up();
 await p.waitForTimeout(60);
 out.ringPx = Math.round(R);
 const push = async (ddx, ddy, ms = 120) => {
+  await reset();
   await down(cx, cy);
   await p.waitForTimeout(40);
   await move(cx + ddx, cy + ddy);
@@ -119,7 +150,7 @@ out.leftLock = await push(-Math.round(R * 1.6), 0);
 out.analogue =
   out.half.steer > .2 && out.half.steer < .75 &&    // partial, not full
   out.full.steer > .9 && out.leftLock.steer < -.9 &&
-  Math.abs(out.full.dx) <= out.ringPx + 1;          // the knob stays in its ring
+  Math.abs(out.full.L.dx) <= out.ringPx + 1;        // the knob stays in its ring
 
 /* ---- 4. up is go, down is brake ---- */
 out.up = await push(0, -Math.round(R * .8));
@@ -131,6 +162,7 @@ out.upIsGo = out.up.gas === 1 && out.up.brake === 0 && out.down.brake === 1 && o
    to mean two different things — so the test has to distinguish them by speed
    alone, which means both gestures end at the same place. */
 const flick = async steps => {
+  await reset();
   await down(cx, cy);
   await p.waitForTimeout(40);
   const far = Math.round(R * .9);
@@ -152,6 +184,7 @@ out.flickDrifts = out.flicked.hand === 1 && out.eased.hand === 0;
 /* The flags above are what the stick reports; this is the car answering. Held
    at full lock with the throttle down, the heading has to change. */
 out.drove = await p.evaluate(() => ({ h0: window.__p().h }));
+await reset();
 await down(cx, cy);
 await p.waitForTimeout(40);
 await move(cx + Math.round(R * 1.2), cy - Math.round(R * .9));

@@ -418,12 +418,21 @@ window.__setInput = o => { inputOverride = o; };
    what the ring is currently feeding the car; __ctrl reads or sets the scheme.
    The gesture itself is driven through real touch events in the tests — these
    are for reading the result, not for faking it. */
-window.__stick = () => ({ on: STICK.on, ctrl: CTRL,
-  cx: Math.round(STICK.cx), cy: Math.round(STICK.cy),
-  dx: Math.round(STICK.dx), dy: Math.round(STICK.dy),
-  steer: +STICK.steer.toFixed(3), gas: STICK.gas, brake: STICK.brake, hand: STICK.hand,
-  shown: !!document.getElementById('stick').classList.contains('on'),
-  padsShown: getComputedStyle(document.getElementById('tA')).display !== 'none' });
+window.__stick = () => {
+  const one = s => ({ on: s.on, cx: Math.round(s.cx), cy: Math.round(s.cy),
+                      dx: Math.round(s.dx), dy: Math.round(s.dy),
+                      steer: +s.steer.toFixed(3), ny: +(s.ny || 0).toFixed(3),
+                      gas: s.gas, brake: s.brake, hand: s.hand,
+                      shown: !!document.getElementById(s.el).classList.contains('on') });
+  const st = stickInput();
+  return { ctrl: CTRL, live: st.n,
+           L: one(STICKS[0]), R: one(STICKS[1]),
+           // what the car is actually handed: the mean of whichever are down
+           steer: +st.steer.toFixed(3), gas: st.gas, brake: st.brake, hand: st.hand,
+           on: STICKS.some(s => s.on),
+           shown: STICKS.some(s => document.getElementById(s.el).classList.contains('on')),
+           padsShown: getComputedStyle(document.getElementById('tA')).display !== 'none' };
+};
 window.__ctrl = m => { if (m) setCtrl(m); return CTRL; };
 window.__touch = () => ({ ...touch });          // what the pads currently read
 /* THE PHYSICS FLAG, and it goes through the same gate the button does — so a

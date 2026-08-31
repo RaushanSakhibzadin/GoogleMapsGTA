@@ -681,7 +681,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    and hides five elements and has to remember all five. The pads stay in the
    markup either way, because the setting turns them back on. */
 body.ctrl-stick #touch .pad:not(#tN){display:none}
-body.ctrl-pads #stick{display:none}
+body.ctrl-pads .stick{display:none}
 /* Placed by io.js at the thumb, so it carries no position of its own. Never
    pointer-events:auto — the finger is already tracked from the document, and a
    ring that swallowed its own touches would fight the thing that draws it. */
@@ -690,21 +690,21 @@ body.ctrl-pads #stick{display:none}
    is pushed to the right rather than stretched. */
 .ctrlRow{align-items:center}
 .ctrlRow .tgl{margin-left:auto;font-size:13px;padding:7px 12px}
-#stick{position:fixed;z-index:36;width:var(--stick);height:var(--stick);
+.stick{position:fixed;z-index:36;width:var(--stick);height:var(--stick);
   margin-left:calc(var(--stick) / -2);margin-top:calc(var(--stick) / -2);
   border-radius:50%;pointer-events:none;display:none;
   background:rgba(255,255,255,.10);border:2px solid rgba(255,255,255,.30);
   backdrop-filter:blur(2px)}
-#stick.on{display:block}
-#stickN{position:absolute;left:50%;top:50%;width:calc(var(--stick) * .46);height:calc(var(--stick) * .46);
+.stick.on{display:block}
+.stickN{position:absolute;left:50%;top:50%;width:calc(var(--stick) * .46);height:calc(var(--stick) * .46);
   margin-left:calc(var(--stick) * -.23);margin-top:calc(var(--stick) * -.23);
   border-radius:50%;background:rgba(255,255,255,.30);border:2px solid rgba(255,255,255,.55);
   will-change:transform}
 /* the drift flick, so the thing you just did is visible for as long as it lasts */
-#stick.drift{border-color:var(--pink);background:rgba(255,79,216,.22)}
-#stick.drift #stickN{background:rgba(255,79,216,.55);border-color:var(--pink)}
-body.theme-day #stick{background:rgba(255,255,255,.34);border-color:rgba(24,18,32,.40)}
-body.theme-day #stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,.55)}
+.stick.drift{border-color:var(--pink);background:rgba(255,79,216,.22)}
+.stick.drift .stickN{background:rgba(255,79,216,.55);border-color:var(--pink)}
+body.theme-day .stick{background:rgba(255,255,255,.34);border-color:rgba(24,18,32,.40)}
+body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,.55)}
 #tL{left:var(--edgeL)} #tR{left:calc(var(--edgeL) + 10px + var(--pad))}
 /* REVERSE BELONGS TO THE RIGHT THUMB, NOT TO THE STEERING.
    It used to sit sixteen pixels off the pedal and one pixel off the right-steer

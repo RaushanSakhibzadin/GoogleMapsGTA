@@ -124,27 +124,41 @@ function syncTouches(e) {
   }
   return ours;
 }
-/* ------------------------------ 6b. the stick ------------------------------
+/* ------------------------------ 6b. the sticks ------------------------------
  *
- * Asked for: an on-screen joystick, on by default, usable with either hand,
- * with the old pads still available in the settings, and a fast downward flick
- * for the handbrake.
+ * Asked for, in two rounds: an on-screen joystick as the default touch control,
+ * usable with either hand, with a fast downward flick for the handbrake — and
+ * then TWO of them at once, one per hand, with the car taking the average.
  *
- * IT HAS NO FIXED HOME, and that is the whole answer to "either hand". The ring
- * is drawn wherever the thumb lands and stays there until it lifts, so the left
- * side gives a left-handed stick and the right side a right-handed one, with
- * nothing to configure. A stick pinned to a corner would need an option to move
- * it, and would still be wrong for anyone who switches hands mid-session.
+ * ONE PER SIDE OF THE SCREEN. A touch that starts on the left half raises the
+ * left stick, one on the right raises the right, and either alone drives the
+ * car exactly as a single stick did: the mean of one number is that number. Put
+ * both thumbs down and the car answers to the average of the two.
  *
- * WHAT IT FEEDS. Steering is analogue: the knob's offset across the ring is the
+ * WHY AVERAGING IS THE RIGHT RULE AND NOT A COMPROMISE. Two hands on a wheel
+ * disagree constantly by small amounts, and averaging is what a wheel does with
+ * that — it is one input with two grips, not two inputs racing. It also gives
+ * the thing you would want without being told: hold a steady lock with the left
+ * and make small corrections with the right, and the corrections arrive at half
+ * strength, which is finer control rather than a fight.
+ *
+ * The average is taken on the RAW AXES, before the throttle threshold, so one
+ * thumb pushing up while the other pushes down cancels to neutral rather than
+ * to whichever was read last. The flick is the exception and is OR, not mean: a
+ * yank down with either hand is the handbrake, because half a handbrake is not
+ * a thing anyone is asking for.
+ *
+ * NEITHER HAS A FIXED HOME beyond its half. The ring is drawn where the thumb
+ * lands, so a left-handed player and a right-handed one both get a stick under
+ * the thumb they actually use, with nothing to configure.
+ *
+ * WHAT THEY FEED. Steering is analogue: the knob's offset across the ring is the
  * lock, so a small movement is a small correction, which the pads could never
- * do — they were full lock or nothing. Throttle and brake stay boolean, because
- * drive() reads them as booleans and making them continuous would change the
- * feel of the keyboard and the pads too, which is not what was asked for. So
- * the vertical axis is a threshold, deliberately: past a quarter of the throw
- * it is on.
+ * do. Throttle and brake stay boolean past a threshold, because drive() reads
+ * them as booleans and making them continuous would change the feel of the
+ * keyboard and the pads too, which is not what was asked for.
  *
- * THE DEAD ZONE exists because a thumb resting on glass is never still, and
+ * The dead zone exists because a thumb resting on glass is never still, and
  * without it the car weaves at a standstill. */
 const STICK_DEAD = .16, STICK_GO = .26;
 /* THE FLICK. "The drift should happen when the joystick goes down fast", so it
@@ -158,95 +172,123 @@ const STICK_DEAD = .16, STICK_GO = .26;
  * nothing at all to the car — the slide has to outlive the gesture that asked
  * for it, the way a real handbrake stays up until you drop it. */
 const FLICK_V = 3.4, FLICK_MS = 620;
-const STICK = { on: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0,
-                steer: 0, gas: 0, brake: 0, hand: 0,
-                lastY: 0, lastT: 0, flickT: 0 };
+const mkStick = (side, el, knob) => ({
+  side, el, knob, on: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0,
+  steer: 0, ny: 0, gas: 0, brake: 0, hand: 0, lastY: 0, lastT: 0, flickT: 0
+});
+const STICKS = [mkStick('L', 'stickL', 'stickLN'), mkStick('R', 'stickR', 'stickRN')];
 let CTRL = 'stick';                       // 'stick' | 'pads'; set from storage below
-const stickR = () => {
-  const el = $('stick');
+const stickR = s => {
+  const el = $(s.el);
   const w = el ? el.offsetWidth : 0;
   return (w || 132) / 2;
 };
-function stickShow(on) {
-  const el = $('stick'); if (!el) return;
-  el.classList.toggle('on', !!on);
-}
-function stickPlace() {
-  const el = $('stick'), kn = $('stickN');
+function stickPlace(s) {
+  const el = $(s.el), kn = $(s.knob);
   if (!el || !kn) return;
-  el.style.left = STICK.cx + 'px';
-  el.style.top = STICK.cy + 'px';
-  kn.style.transform = `translate(${STICK.dx}px, ${STICK.dy}px)`;
-  el.classList.toggle('drift', STICK.hand > 0);
+  el.classList.toggle('on', !!s.on);
+  if (!s.on) return;
+  el.style.left = s.cx + 'px';
+  el.style.top = s.cy + 'px';
+  kn.style.transform = `translate(${s.dx}px, ${s.dy}px)`;
+  el.classList.toggle('drift', s.hand > 0);
 }
-function stickRelease() {
-  STICK.on = false; STICK.id = null;
-  STICK.dx = STICK.dy = 0;
-  STICK.steer = STICK.gas = STICK.brake = STICK.hand = 0;
-  STICK.flickT = 0;
-  stickShow(false);
+function stickClear(s) {
+  s.on = false; s.id = null;
+  s.dx = s.dy = 0;
+  s.steer = s.ny = s.gas = s.brake = s.hand = 0;
+  s.flickT = 0;
+  const el = $(s.el);
+  if (el) { el.classList.remove('on'); el.classList.remove('drift'); }
 }
-/* Where the stick may be started. Anywhere on the lower part of the screen that
-   is not already a control: the HUD buttons live along the top and the radio
-   bar along the very bottom, and grabbing a stick out of either would take the
-   tap away from a button that was aimed at. */
+function stickRelease() { for (const s of STICKS) stickClear(s); }
+/* Which half a touch belongs to, and whether it may start a stick at all.
+   Anywhere on the lower part of the screen that is not already a control: the
+   HUD buttons live along the top and the radio bar along the very bottom, and
+   grabbing a stick out of either would take the tap away from a button that was
+   aimed at. */
 function stickZone(x, y) {
-  if (y < innerHeight * .34) return false;
+  if (y < innerHeight * .34) return null;
   const el = document.elementFromPoint(x, y);
-  if (!el) return true;
-  // a real control under the thumb keeps the touch
-  return !el.closest('button, a, input, .pad, #radio, #mix, #jobBtn');
+  if (el && el.closest('button, a, input, .pad, #radio, #mix, #jobBtn')) return null;
+  return x < innerWidth / 2 ? STICKS[0] : STICKS[1];
 }
-function stickFrom(t) {
-  const r = stickR();
-  let dx = t.clientX - STICK.cx, dy = t.clientY - STICK.cy;
+function stickFrom(s, t) {
+  const r = stickR(s);
+  let dx = t.clientX - s.cx, dy = t.clientY - s.cy;
   const m = Math.hypot(dx, dy);
   if (m > r) { dx = dx / m * r; dy = dy / m * r; }
-  STICK.dx = dx; STICK.dy = dy;
+  s.dx = dx; s.dy = dy;
   const nx = dx / r, ny = dy / r;
 
   /* THE FLICK, measured before the axes are read, because a fast drop should
      count even on the frame it arrives — waiting a frame is how a gesture gets
      missed on a phone that is dropping them. */
   const now = performance.now();
-  const dt = (now - STICK.lastT) / 1000;
-  if (STICK.lastT && dt > 0 && dt < .25) {
-    const v = (ny - STICK.lastY) / dt;      // ring-radii a second, downward positive
-    if (v > FLICK_V) STICK.flickT = now + FLICK_MS;
+  const dt = (now - s.lastT) / 1000;
+  if (s.lastT && dt > 0 && dt < .25) {
+    const v = (ny - s.lastY) / dt;          // ring-radii a second, downward positive
+    if (v > FLICK_V) s.flickT = now + FLICK_MS;
   }
-  STICK.lastY = ny; STICK.lastT = now;
+  s.lastY = ny; s.lastT = now;
 
-  STICK.steer = Math.abs(nx) < STICK_DEAD ? 0
+  s.ny = ny;
+  s.steer = Math.abs(nx) < STICK_DEAD ? 0
     : clamp((nx - Math.sign(nx) * STICK_DEAD) / (1 - STICK_DEAD), -1, 1);
-  STICK.gas = ny < -STICK_GO ? 1 : 0;
-  STICK.brake = ny > STICK_GO ? 1 : 0;
-  STICK.hand = now < STICK.flickT ? 1 : 0;
+  s.gas = ny < -STICK_GO ? 1 : 0;
+  s.brake = ny > STICK_GO ? 1 : 0;
+  s.hand = now < s.flickT ? 1 : 0;
 }
-/* The stick's own view of the touch list, run before the pads get theirs. */
+/* WHAT THE CAR IS HANDED: the mean of whichever sticks are live. */
+function stickInput() {
+  const live = STICKS.filter(s => s.on);
+  if (!live.length) return { steer: 0, gas: 0, brake: 0, hand: 0, n: 0 };
+  let steer = 0, ny = 0, hand = 0;
+  for (const s of live) {
+    steer += s.steer; ny += s.ny;
+    hand = Math.max(hand, s.hand);         // either hand's flick is the handbrake
+  }
+  steer /= live.length; ny /= live.length;
+  return { steer, ny,
+           gas: ny < -STICK_GO ? 1 : 0,
+           brake: ny > STICK_GO ? 1 : 0,
+           hand, n: live.length };
+}
+/* The sticks' own view of the touch list, run before the pads get theirs. */
 function syncStick(e) {
-  if (CTRL !== 'stick' || state !== 'play') { if (STICK.on) stickRelease(); return false; }
-  let mine = null;
-  for (const t of e.touches) if (t.identifier === STICK.id) { mine = t; break; }
-  if (STICK.on && !mine) { stickRelease(); return true; }   // the finger left
-  if (!STICK.on) {
-    for (const t of e.changedTouches) {
-      if (!stickZone(t.clientX, t.clientY)) continue;
-      STICK.on = true; STICK.id = t.identifier;
-      STICK.cx = t.clientX; STICK.cy = t.clientY;
-      STICK.dx = STICK.dy = 0;
-      STICK.lastY = 0; STICK.lastT = performance.now(); STICK.flickT = 0;
-      STICK.steer = STICK.gas = STICK.brake = STICK.hand = 0;
-      stickShow(true); stickPlace();
-      return true;
-    }
+  if (CTRL !== 'stick' || state !== 'play') {
+    if (STICKS.some(s => s.on)) stickRelease();
     return false;
   }
-  stickFrom(mine);
-  stickPlace();
-  return true;
+  let ours = false;
+  // a finger that has left the list drops its stick
+  for (const s of STICKS) {
+    if (!s.on) continue;
+    let mine = null;
+    for (const t of e.touches) if (t.identifier === s.id) { mine = t; break; }
+    if (!mine) { stickClear(s); stickPlace(s); ours = true; continue; }
+    stickFrom(s, mine);
+    stickPlace(s);
+    ours = true;
+  }
+  // and a new finger raises the stick for the half it landed on, if it is free
+  for (const t of e.changedTouches) {
+    if (STICKS.some(s => s.on && s.id === t.identifier)) continue;
+    const s = stickZone(t.clientX, t.clientY);
+    if (!s || s.on) continue;
+    s.on = true; s.id = t.identifier;
+    s.cx = t.clientX; s.cy = t.clientY;
+    s.dx = s.dy = 0;
+    s.lastY = 0; s.lastT = performance.now(); s.flickT = 0;
+    s.steer = s.ny = s.gas = s.brake = s.hand = 0;
+    stickPlace(s);
+    ours = true;
+  }
+  return ours;
 }
 /* WHICH SCHEME IS ON. Stored, because it is a preference and not a mode: a
    player who wants the pads back wants them back tomorrow as well. */
+
 function setCtrl(mode, save) {
   CTRL = mode === 'pads' ? 'pads' : 'stick';
   if (save !== false) store.set('vm_ctrl', CTRL);
@@ -330,12 +372,13 @@ function readInput() {
      reading zero. Steering takes whichever is further from centre so a keyboard
      press is still full lock, and the stick's analogue value survives — an
      `||` here would have rounded every partial input up to 1. */
+  const st = stickInput();                 // the mean of whichever sticks are live
   const kSteer = (R ? 1 : 0) - (L ? 1 : 0);
-  const steer = Math.abs(STICK.steer) > Math.abs(kSteer) ? STICK.steer : kSteer;
+  const steer = Math.abs(st.steer) > Math.abs(kSteer) ? st.steer : kSteer;
   return { steer,
-           gas: (U || STICK.gas) ? 1 : 0,
-           brake: (D || STICK.brake) ? 1 : 0,
-           hand: (H || STICK.hand) ? 1 : 0 };
+           gas: (U || st.gas) ? 1 : 0,
+           brake: (D || st.brake) ? 1 : 0,
+           hand: (H || st.hand) ? 1 : 0 };
 }
 
 /* ------------------------------ 7. audio ------------------------------ */
