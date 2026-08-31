@@ -26,14 +26,18 @@ const browser = await chromium.launch({ executablePath: CHROME });
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 30000 });
   await p.waitForTimeout(600);
   const touchOn = await p.evaluate(() => document.getElementById('touch').classList.contains('on'));
-  // hold the on-screen accelerator
-  const box = await p.locator('#tA').boundingBox();
-  await p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-  await p.evaluate(() => {
-    const e = new Touch({ identifier: 1, target: document.getElementById('tA') });
-    document.getElementById('tA').dispatchEvent(new TouchEvent('touchstart', { touches: [e], bubbles: true, cancelable: true }));
-  });
+  /* DRIVEN FROM THE KEYBOARD, and the screen left as a player finds it.
+     This used to hold the on-screen accelerator, which stopped existing when the
+     stick became the default touch control — #tA is display:none and its box
+     came back null, so the file threw four seconds in.
+     Pinning it to pads mode would have fixed the crash and made this shot a
+     picture of controls most players will never see. What this file is for is
+     the mobile HUD as it ships, so the drive moves to the keyboard and the
+     screen keeps the default. That the PADS still work under a thumb is
+     mobile.mjs's job, and it asks for pads mode by name. */
+  await p.keyboard.down('w');
   await p.waitForTimeout(1600);
+  await p.keyboard.up('w');
   const moved = await p.evaluate(() => window.__p());
   out_nav = await p.evaluate(() => window.__nav());
   const overflow = await p.evaluate(() => document.documentElement.scrollWidth > innerWidth);

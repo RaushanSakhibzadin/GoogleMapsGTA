@@ -495,6 +495,15 @@ async function startGame(query, lat, lon, label) {
      body that is about to be visible. Defaults to the stick and remembers what
      was chosen; the pads are still there, one switch away. */
   setCtrl(store.get('vm_ctrl', 'stick'), false);
+  /* AND IT HAS TO ANNOUNCE ITSELF ONCE. The stick is drawn under the thumb and
+     nowhere else, which is what makes it work for either hand — and it means a
+     phone arriving at the game shows no driving controls at all until something
+     touches the glass. The pads were their own instructions; this is not, so it
+     says what it is the first time and then never again. */
+  if (touchUI && CTRL === 'stick' && store.get('vm_stickSeen', '') !== '1') {
+    store.set('vm_stickSeen', '1');
+    setTimeout(() => { if (state === 'play') toast(txt('menu.stick'), 3200); }, 900);
+  }
   resize();                       // the minimap only has a size once the HUD is visible
   state = 'play'; lastT = performance.now(); acc = 0;
   /* THE RADIO COMES ON WITH THE CAR, which is what a car does — unless the
