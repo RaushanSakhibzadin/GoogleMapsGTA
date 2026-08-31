@@ -252,11 +252,41 @@ out.switchReachable =
   out.reach.stillPlaying === 'play';
 await p.evaluate(() => window.__ctrl('stick'));
 
+/* ---- 8b. and a tap anywhere else puts the settings away ---- */
+/* Asked for. Three things have to hold at once and only the first is obvious:
+   it closes; the tap does NOT also plant a joystick, because the panel does not
+   pause the game and a dismissing tap that drove the car would be worse than no
+   dismissal at all; and a tap INSIDE the panel leaves it alone, or the sliders
+   would shut it the moment they were touched. */
+out.dismiss = {};
+await p.evaluate(() => window.__ctrl('stick'));
+await p.tap('#mixBtn');
+await p.waitForTimeout(250);
+out.dismiss.opened = await p.evaluate(() => !document.getElementById('mix').classList.contains('hide'));
+// a tap inside must NOT close it
+await p.tap('#mixSfx');
+await p.waitForTimeout(200);
+out.dismiss.survivesInsideTap = await p.evaluate(() =>
+  !document.getElementById('mix').classList.contains('hide'));
+// and one outside must
+const oy = Math.round(vp.height * .8), ox = Math.round(vp.width * .5);
+await down(ox, oy);
+await p.waitForTimeout(120);
+out.dismiss.stickRaised = await p.evaluate(() => window.__stick().live);
+out.dismiss.closed = await p.evaluate(() => document.getElementById('mix').classList.contains('hide'));
+await up();
+await p.waitForTimeout(120);
+out.dismiss.stillPlaying = await p.evaluate(() => window.__s());
+out.tapAwayCloses =
+  out.dismiss.opened && out.dismiss.survivesInsideTap && out.dismiss.closed &&
+  // the dismissing tap did not become a joystick
+  out.dismiss.stickRaised === 0 && out.dismiss.stillPlaying === 'play';
+
 out.errs = errs.slice(0, 4);
 out.pass = out.byDefault.ctrl === 'stick' && out.byDefault.padsShown === false &&
            out.eitherHand && out.analogue && out.upIsGo && out.flickDrifts &&
            out.itDrives && out.padsBack && out.noStickInPads && out.settingSticks &&
-           out.switchReachable &&
+           out.switchReachable && out.tapAwayCloses &&
            out.backToStick.ctrl === 'stick' && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await br.close();

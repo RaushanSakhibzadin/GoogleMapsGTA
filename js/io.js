@@ -311,8 +311,42 @@ for (const id of ['ctrlM', 'ctrlP', 'ctrlX']) {
     if (state === 'play') toast(txt(CTRL === 'stick' ? 'toast.stickOn' : 'toast.padsOn'), 1500);
   };
 }
+/* TAP ANYWHERE ELSE AND THE SETTINGS GO AWAY.
+ *
+ * Asked for. DONE is still there and still works; this is the gesture everyone
+ * tries first, and on a phone it is the one that costs nothing to reach.
+ *
+ * THE DISMISSING TAP IS SWALLOWED, which is the part that matters. The panel
+ * does not pause the game — you cannot set an engine's level against silence —
+ * so the sticks are live behind it, and a tap that both closed the panel and
+ * planted a joystick would send the car off at the moment you were trying to
+ * put a menu away. It closes, and that is all it does.
+ *
+ * The gear itself is excluded or the button would fight itself: its own click
+ * toggles the panel, and dismissing on the way in would leave it shut. */
+function mixDismiss(x, y) {
+  const el = $('mix');
+  if (!el || el.classList.contains('hide')) return false;
+  const t = document.elementFromPoint(x, y);
+  if (t && (t.closest('#mix') || t.closest('#mixBtn'))) return false;
+  mixOpen(false);
+  return true;
+}
+/* The mouse half of the same thing. Separate because the pads bind mousedown of
+   their own and this has to run whatever else is listening. */
+addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') return;          // the touch path handles those
+  mixDismiss(e.clientX, e.clientY);
+}, true);
 for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
   document.addEventListener(ev, e => {
+    if (ev === 'touchstart') {
+      const t = e.changedTouches[0];
+      if (t && mixDismiss(t.clientX, t.clientY)) {
+        if (e.cancelable) e.preventDefault();
+        return;                                   // consumed: it closed a panel
+      }
+    }
     const s = syncStick(e);
     /* The stick asks first. Both are on the document and the pads are hidden in
        stick mode, so in practice only one of them ever claims a touch — but the
