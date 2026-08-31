@@ -256,13 +256,13 @@ function setCtrl(mode, save) {
   stickRelease();
   for (const [id, prop] of PADS) { touch[prop] = 0; const el = $(id); if (el) el.classList.remove('act'); }
   padBoxes = null;                       // the pads changed size or vanished
-  for (const id of ['ctrlM', 'ctrlP']) {
+  for (const id of ['ctrlM', 'ctrlP', 'ctrlX']) {
     const el = $(id);
     if (el) el.setAttribute('aria-pressed', CTRL === 'stick' ? 'true' : 'false');
   }
 }
 // both copies of the switch, wired the way the GHOST pair is
-for (const id of ['ctrlM', 'ctrlP']) {
+for (const id of ['ctrlM', 'ctrlP', 'ctrlX']) {
   const el = $(id);
   if (el) el.onclick = () => {
     setCtrl(CTRL === 'stick' ? 'pads' : 'stick');

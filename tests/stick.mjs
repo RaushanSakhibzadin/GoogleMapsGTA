@@ -182,10 +182,48 @@ out.settingSticks = out.afterReload.ctrl === 'pads' && out.afterReload.padsShown
 // and back again
 out.backToStick = await p.evaluate(() => { window.__ctrl('stick'); return window.__stick(); });
 
+/* ---- 8. and the switch is REACHABLE ON A PHONE, mid-game ---- */
+/* Reported: "I cannot find a settings button and how to return previous
+   controller type". The switch existed in two places and neither was reachable
+   from a phone in play — the menu is the start screen, gone once you press GO,
+   and the pause card is bound to Escape, which a phone does not have. So this
+   does not check that a button exists; it checks that a THUMB can get to it
+   from a running game and that pressing it brings the pads back. */
+await p.evaluate(() => window.__ctrl('stick'));
+out.reach = {};
+out.reach.state = await p.evaluate(() => window.__s());
+await p.tap('#mixBtn');                       // the one panel a phone can open
+await p.waitForTimeout(300);
+out.reach.panelOpen = await p.evaluate(() =>
+  !document.getElementById('mix').classList.contains('hide'));
+out.reach.switchVisible = await p.evaluate(() => {
+  const el = document.getElementById('ctrlX');
+  if (!el) return false;
+  const b = el.getBoundingClientRect();
+  const top = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+  return b.width > 0 && b.height > 0 && b.bottom <= innerHeight &&
+         !!top && (top === el || el.contains(top));
+});
+/* Guarded, so a build without the switch FAILS here rather than hanging thirty
+   seconds on a locator that will never appear and then throwing — which is how
+   the first version of this reported the very bug it was written for. */
+out.reach.exists = await p.locator('#ctrlX').count() > 0;
+if (out.reach.exists) { await p.tap('#ctrlX'); await p.waitForTimeout(300); }
+out.reach.after = await p.evaluate(() => window.__stick());
+if (out.reach.panelOpen) await p.tap('#mixDone');
+await p.waitForTimeout(200);
+out.reach.stillPlaying = await p.evaluate(() => window.__s());
+out.switchReachable =
+  out.reach.state === 'play' && out.reach.panelOpen && out.reach.exists && out.reach.switchVisible &&
+  out.reach.after.ctrl === 'pads' && out.reach.after.padsShown === true &&
+  out.reach.stillPlaying === 'play';
+await p.evaluate(() => window.__ctrl('stick'));
+
 out.errs = errs.slice(0, 4);
 out.pass = out.byDefault.ctrl === 'stick' && out.byDefault.padsShown === false &&
            out.eitherHand && out.analogue && out.upIsGo && out.flickDrifts &&
            out.itDrives && out.padsBack && out.noStickInPads && out.settingSticks &&
+           out.switchReachable &&
            out.backToStick.ctrl === 'stick' && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await br.close();

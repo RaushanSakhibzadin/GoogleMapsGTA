@@ -685,6 +685,11 @@ body.ctrl-pads #stick{display:none}
 /* Placed by io.js at the thumb, so it carries no position of its own. Never
    pointer-events:auto — the finger is already tracked from the document, and a
    ring that swallowed its own touches would fight the thing that draws it. */
+/* The controls row in the ♪ panel: a label and a toggle, where the volume rows
+   have a label, a slider and a number. The toggle carries its own width, so it
+   is pushed to the right rather than stretched. */
+.ctrlRow{align-items:center}
+.ctrlRow .tgl{margin-left:auto;font-size:13px;padding:7px 12px}
 #stick{position:fixed;z-index:36;width:var(--stick);height:var(--stick);
   margin-left:calc(var(--stick) / -2);margin-top:calc(var(--stick) / -2);
   border-radius:50%;pointer-events:none;display:none;
