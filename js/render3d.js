@@ -1582,9 +1582,22 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
 
 /* Everything in one 512 m square, turned into two GPU meshes. */
 /* pos(3) + nrm(3) + col(3) + wall(4) + tag(1) — 14 floats a vertex, and the one
-   place that layout is written down for the cell meshes. The tag is zero on
-   everything nobody has painted, which is nearly every vertex in the city; it is
-   the building's own random seed on a wall somebody has. */
+   place that layout is written down for ANYTHING THE LIT PROGRAM DRAWS. The tag
+   is zero on everything nobody has painted, which is nearly every vertex in the
+   city; it is the building's own random seed on a wall somebody has.
+
+   THE WORD "ANYTHING" IS THE WHOLE POINT OF THIS COMMENT, and it is here because
+   the layout used to be written down twice — once for the cell meshes and once,
+   spelled out in full, for the moving stream of cars and pedestrians. Two copies
+   of a vertex layout is two things to remember, and adding the tag to one of them
+   was enough to shift every vertex after the first MONUMENT in a cell: monuments
+   are built through pushBox, pushBox serves both streams, and it was still
+   writing thirteen floats into a fourteen-float buffer. A cell with a statue in
+   it drew its buildings as garbage.
+
+   That shipped, and the suite was green, because monuments are the one piece of
+   real-city furniture none of the synthetic fixtures had. So: one list, both
+   streams, and GL.mesh now says so out loud if a buffer ever disagrees with it. */
 const LIT_ATTR = () => [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3],
                         [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4], [G3.lit.a.aTag, 1]];
 /* A PERSON, out of six boxes and a stride.
@@ -2000,10 +2013,13 @@ function pushBox(o, p, r, g, b) {
     let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     const l = Math.hypot(nx, ny, nz) || 1;
     nx /= l; ny /= l; nz /= l;
-    // the trailing zeroes are aWall: nothing in this stream is a facade, and
-    // nothing in it has an archway through it either
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, bx, by, bz, nx, ny, nz, r, g, b, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0);
-    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0, dx, dy, dz, nx, ny, nz, r, g, b, 0, 0, 0, 0);
+    /* Five trailing zeroes: aWall, the archway, and the tag. Nothing built out of
+       boxes is a facade, nothing has a passage cut through it, and nobody paints
+       a car — but the COUNT has to match LIT_ATTR whatever the values are,
+       because this one function feeds two different buffers: the moving stream
+       of cars and people, and the cell a monument is built into. */
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0, bx, by, bz, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0);
+    o.push(ax, ay, az, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0, cx, cy, cz, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0, dx, dy, dz, nx, ny, nz, r, g, b, 0, 0, 0, 0, 0);
   }
 }
 
@@ -2627,8 +2643,8 @@ function render3D() {
     if (!near(p)) continue;
     pushPerson(dyn, p);
   }
-  const LITATTR = [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3], [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
-  if (dyn.length) G3.cars = GL.stream(G3.cars, new Float32Array(dyn), LITATTR);
+  // the same list the cells use, not a second copy of it — see LIT_ATTR
+  if (dyn.length) G3.cars = GL.stream(G3.cars, new Float32Array(dyn), LIT_ATTR());
 
   /* ---- pass one: the world as the sun sees it ----
 

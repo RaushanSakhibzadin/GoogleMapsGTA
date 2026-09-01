@@ -389,27 +389,55 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
    other last time. The container is what moves on a phone; the buttons only ever
    know how to look like buttons. */
 #topBtns{position:fixed;top:12px;right:14px;z-index:70;display:flex;gap:7px;align-items:flex-start}
+/* ONE BOX FOR ALL THREE. They are a row of pills doing the same kind of job, so
+   they are the same pill — and they were not: measured at 44x29, 37x29 and
+   69x30, because the gear carried its own font size and its own padding and the
+   LOG label its own text height. Reported as the settings button being a
+   different size from the ones beside it.
+
+   line-height is what makes the heights agree rather than nearly agree: a 15px
+   glyph and a 13px label in the same padding are two different boxes, and
+   pinning the line box makes the type size a matter of the glyph rather than of
+   the button. min-width brings the gear up to the width of 3D beside it; LOG is
+   wider because its label is longer, which is a label being a label rather than
+   the row being inconsistent. */
 #logBtn,#modeBtn,#mixBtn{
   font-family:var(--hud);font-size:13px;letter-spacing:.12em;color:rgba(255,255,255,.82);
-  padding:6px 11px;border-radius:9px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:44px;padding:7px 11px;line-height:15px;border-radius:9px;cursor:pointer;
   background:rgba(20,10,32,.5);border:1px solid rgba(255,255,255,.3);box-shadow:none;
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none}
 #logBtn:active,#modeBtn:active,#mixBtn:active{transform:translateY(1px)}
-#mixBtn{font-size:15px;line-height:1;padding:6px 10px}
+/* A bigger glyph in the same box: the gear reads small at 13px next to two
+   words of type, and the pinned line box means saying so costs no height. */
+#mixBtn{font-size:16px}
 #mixBtn[aria-expanded="true"]{background:rgba(255,79,216,.5);border-color:var(--pink)}
 
 /* ---------- the mixer ----------
    Anchored under the buttons that opened it rather than centred, so the game is
    still visible behind it while you set a level by ear. */
+/* BLACK ON WHITE, IN BOTH THEMES, AND OPAQUE.
+
+   It was a 92%-opaque near-black card with white type at night and a white one
+   with violet type in daylight — two looks, and the night one sat on top of a
+   near-black city so its own edges were the only thing separating it from the
+   street behind. Asked for directly: more contrast, black on white.
+
+   So it is one card in both themes and it is genuinely white: no alpha, no
+   backdrop blur. A panel you have opened to read a number is not scenery, and
+   the game carrying on visibly behind it is worth less than being able to see
+   it — which is also why the blur went. Everything inside it is restyled below
+   rather than inheriting the HUD's white-on-dark, because white type on a white
+   card is not low contrast, it is nothing at all. */
 #mix{position:fixed;top:52px;right:14px;z-index:71;width:min(280px,84vw);
   display:flex;flex-direction:column;gap:11px;
-  background:rgba(12,6,22,.92);border:1px solid rgba(51,230,255,.35);
-  border-radius:14px;padding:14px 15px;backdrop-filter:blur(3px)}
+  background:#fff;border:2px solid #14101c;color:#14101c;
+  border-radius:14px;padding:14px 15px;box-shadow:0 12px 38px rgba(0,0,0,.55)}
 #mix.hide{display:none}
 .mixRow{display:flex;align-items:center;gap:10px}
 .mixRow>span{font-family:var(--ui);font-weight:800;font-size:10.5px;letter-spacing:.14em;
-  color:rgba(255,255,255,.7);width:46px;flex:0 0 auto}
-.mixRow>b{font-family:var(--hud);font-size:13px;color:var(--cyan);width:30px;
+  color:#14101c;width:46px;flex:0 0 auto}
+.mixRow>b{font-family:var(--hud);font-size:14px;color:#14101c;width:30px;
   text-align:right;flex:0 0 auto}
 /* A track tall enough to hit with a thumb. The default range control on iOS is
    about four pixels of target; this is the whole row. */
@@ -419,15 +447,26 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
   background:linear-gradient(90deg,var(--pink),var(--cyan))}
 .mixRow input[type=range]::-moz-range-track{height:5px;border-radius:3px;
   background:linear-gradient(90deg,var(--pink),var(--cyan))}
+/* A WHITE THUMB ON A WHITE CARD IS AN INVISIBLE THUMB, so it takes a dark rim —
+   and box-sizing keeps the rim inside the twenty pixels, so the negative margin
+   that centres it on a 5 px track is still the right number. */
 .mixRow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
-  width:20px;height:20px;border-radius:50%;background:#fff;margin-top:-7.5px;
-  box-shadow:0 0 8px rgba(255,79,216,.7)}
-.mixRow input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;
-  border-radius:50%;background:#fff;box-shadow:0 0 8px rgba(255,79,216,.7)}
+  box-sizing:border-box;width:20px;height:20px;border-radius:50%;background:#fff;
+  border:2px solid #14101c;margin-top:-7.5px;box-shadow:none}
+.mixRow input[type=range]::-moz-range-thumb{box-sizing:border-box;width:20px;height:20px;
+  border:2px solid #14101c;border-radius:50%;background:#fff;box-shadow:none}
 #mixDone{align-self:stretch}
-body.theme-day #mix{background:rgba(255,255,255,.94);border-color:rgba(0,0,0,.2)}
-body.theme-day .mixRow>span{color:#3a2a55}
-body.theme-day .mixRow>b{color:#07596b}
+/* AND EVERY CONTROL INSIDE IT, because .ghost is white type on a white wash —
+   which is the HUD's styling doing exactly the right thing on a dark screen and
+   disappearing entirely on this one. Scoped to #mix so the same class goes on
+   behaving itself in the menu and the pause card. */
+#mix button.ghost{background:#fff;color:#14101c;border:2px solid #14101c;font-weight:700}
+#mix button.ghost:active{background:#ece9f2}
+#mix button.tgl .dot{background:#fff;border-color:#14101c}
+/* The switch's ON state is a filled black pill rather than the HUD's gold-on-
+   black: gold type on white is the same complaint this panel was opened to fix. */
+#mix button.tgl[aria-pressed=true]{background:#14101c;color:#fff;border-color:#14101c}
+#mix button.tgl[aria-pressed=true] .dot{background:#fff;border-color:#fff;box-shadow:none}
 /* The view you are NOT in is the one on the button, because a button says what
    it does. In the chase view it also lights up, so there is never a doubt about
    which one you are looking at on a screenshot. */

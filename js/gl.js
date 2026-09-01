@@ -256,6 +256,25 @@ const GL = {
     let comps = 0;
     for (const [, n] of attrs) comps += n;
     const stride = comps * 4;
+    /* A BUFFER THAT DOES NOT DIVIDE BY ITS OWN STRIDE IS A CODING ERROR, AND IT
+       IS SILENT. The vertex count is data.length / comps, so a producer writing
+       one float too few per vertex does not fail here — it truncates, and every
+       vertex after the short one reads its position out of the previous one's
+       colour. On screen that is not a missing object, it is the whole mesh
+       smeared across the map.
+
+       That is exactly what shipped when a fourteenth float was added to the cell
+       layout and pushBox — which feeds this and the moving stream of cars — went
+       on writing thirteen. Every cell with a monument in it drew its buildings as
+       garbage, and the suite stayed green because no synthetic fixture has a
+       statue in it.
+
+       console.error rather than a throw: thirty-one tests in this suite already
+       treat a console error as a failure, so this is loud where it needs to be
+       loud, and a player mid-drive gets a bad mesh rather than a dead frame. */
+    if (data.length % comps)
+      console.error('GL.mesh: ' + data.length + ' floats is not a whole number of ' +
+                    comps + '-float vertices — a producer and its layout disagree');
     const vao = gl.createVertexArray();
     const buf = gl.createBuffer();
     gl.bindVertexArray(vao);
