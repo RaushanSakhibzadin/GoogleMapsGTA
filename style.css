@@ -399,6 +399,12 @@ body.theme-day #jobBtn:active{background:rgba(255,227,106,.55)}
 body.theme-day #toast{color:#241a02;
   text-shadow:2px 2px 0 rgba(255,255,255,.92),0 0 22px rgba(255,255,255,.95)}
 :root{--hudTop:46px}          /* 12px inset + the button + a gap */
+/* CLEAR OF THE TOP BUTTON ROW, always. Same arithmetic as --hudTop and the same
+   value on almost every screen — but --hudTop drops to 12px on a landscape
+   phone, where the buttons move to the top centre and the right-hand column is
+   outboard of them. Anything IN the centre has to stay below them there, so it
+   reads this instead. */
+:root{--hudTC:46px;--hudTCW:min(110px,20vw)}
 #cash{position:absolute;top:var(--hudTop);right:14px;font-size:clamp(26px,5.6vw,42px);color:var(--gold)}
 /* The offset has to clear the cash line's rendered HEIGHT, not its font size —
    a 42px figure occupies about 48px once line-height is in, so 6vw left the
@@ -425,7 +431,44 @@ body.theme-day #toast{color:#241a02;
   text-transform:uppercase;color:var(--cyan);text-shadow:0 0 10px rgba(51,230,255,.6);margin-bottom:3px}
 #timer{color:var(--pink)}
 
-#hpWrap{position:absolute;left:14px;bottom:calc(14px + var(--radioBar));width:min(105px,21vw)}
+/* ---------- TOP CENTRE: THE ARMOR BAR AND THE DAY/NIGHT SWITCH ----------
+
+   Both used to live in the bottom-left corner, stacked above the thumb pads.
+   That is the corner the left joystick appears in — the stick is drawn wherever
+   a thumb lands and on a phone held two-handed the left thumb lands exactly
+   there — so the day/night button sat in the steering hand's way and the armor
+   bar spent the drive under the heel of it.
+
+   NOT AT THE VERY TOP, BECAUSE THERE IS NO ROOM AT THE VERY TOP. Measured on a
+   390 point phone: the objective runs to x=177 and the button row starts at
+   x=212, so the centre of that line is thirty-five points wide. The band
+   underneath is the widest clear air on the screen — 233 points on an iPhone,
+   165 on a 320 point Android, between the radar on the left and the cash column
+   on the right — so this is a column below the buttons, not a row beside them.
+
+   ANCHORED TO --hudTC, WHICH IS NOT --hudTop, and the difference is the whole
+   reason this needs its own number. --hudTop means "where the right-hand column
+   starts", and on a landscape phone that drops back to 12px — because there the
+   button row itself moves to the top centre, and cash and stars are outboard of
+   it and can sit level with it quite happily. A column in the middle cannot: at
+   --hudTop it lands squarely on those buttons, 120×30 points of exact overlap,
+   which is what the first version of this did. --hudTC means "clear of the
+   button row" and is never lowered.
+
+   AND STACKED RATHER THAN SIDE BY SIDE: the two of them in a row come to about
+   130 points and the narrowest phone has 96 to put it in. 20vw is what fits
+   there with clear air either side; on anything wider the 110px cap holds it to
+   a bar rather than a banner.
+
+   THE LEFT COLUMN IS SIZED OFF THIS ONE, further down, rather than off a number
+   picked to look right. Being centred, this occupies 50vw ± half its width, so
+   its left edge is at 40vw and everything to the left of it has exactly that
+   much room. The objective was capped at 56vw and would happily grow into it —
+   measured at 46x5 points of overlap on an iPhone and 71x22 on a 320 point
+   Android, and only when the objective text was long enough to wrap, which is
+   the kind of clash that ships. */
+#hpWrap{position:absolute;left:50%;top:var(--hudTC);bottom:auto;
+  transform:translateX(-50%);width:var(--hudTCW);text-align:center}
 #hpLbl{font-family:var(--ui);font-weight:700;font-size:10.5px;letter-spacing:.22em;
   color:rgba(255,255,255,.65);margin-bottom:5px}
 #hpBar{height:13px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.55);
@@ -744,9 +787,18 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
   width:var(--gas);height:var(--gas);font-size:34px}
 #tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;
   padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
-/* day/night, reachable without a keyboard */
-#tN{left:var(--edgeL);bottom:calc(var(--edgeB) + 14px + var(--pad));width:auto;height:auto;
-  padding:9px 15px;border-radius:12px;font-size:20px;line-height:1}
+/* Day/night, reachable without a keyboard — and hung under the armor bar at the
+   top centre rather than left in the steering thumb's corner. It stays a .pad
+   inside #touch so none of the touch machinery has to know it moved, and so it
+   still only exists on a device with a touchscreen.
+
+   --hpH is the armor block's rendered height, which is the one number the two of
+   them share. fixes.mjs asserts they never touch, so it is written down once
+   here rather than folded into a hand-tuned offset that nobody can check. */
+:root{--hpH:31px}
+#tN{left:50%;right:auto;top:calc(var(--hudTC) + var(--hpH) + 9px);bottom:auto;
+  transform:translateX(-50%);width:auto;height:auto;
+  padding:8px 14px;border-radius:12px;font-size:19px;line-height:1}
 
 /* ---------- daylight: the HUD has to survive a light background ---------- */
 body.theme-day #post{
@@ -789,15 +841,21 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
 .credit a{color:rgba(51,230,255,.75)}
 /* Phones: everything has to clear the thumb pads along the bottom edge. */
 @media (max-width:760px),(pointer:coarse){
-  #hudTL{max-width:56vw}
+  /* CAPPED SO IT CANNOT REACH THE TOP-CENTRE COLUMN, and expressed as that
+     column's own left edge rather than as a number that looks about right. The
+     column is centred and --hudTCW wide, so its left edge is at 40vw; this stops
+     26 points short of it. At 56vw the objective ran under the armor bar the
+     moment its text wrapped — which is most missions on a 320 point phone. */
+  #hudTL{max-width:calc(40vw - 26px)}
   #mini{width:clamp(96px,25vw,150px);height:clamp(96px,25vw,150px)}
   /* DRIFT sits just above the accelerator — it's held mid-corner, so it has to
      fall under the same thumb rather than up the screen away from it, but with
      enough of a gap that reaching for one doesn't catch the other. */
   #tH{right:var(--edgeR);left:auto;bottom:calc(var(--edgeB) + 34px + var(--gas))}
-  #tN{left:var(--edgeL);right:auto;bottom:calc(var(--edgeB) + 56px + var(--pad))}
-  /* armor is capped so a wide landscape phone can't run it under the car */
-  #hpWrap{left:14px;bottom:calc(var(--edgeB) + 8px + var(--pad));width:min(22vw,calc(25vw - 30px))}
+  /* The armor bar and the day/night switch used to need a phone override apiece
+     to keep them off the thumb pads. They are at the top centre now, where there
+     are no pads to clear and the 24vw cap already sizes them for a small screen,
+     so both overrides are gone rather than restated. */
   /* Speedo moves up under the star row so the accelerator can't cover it. Its
      offset is built from the two things above it — the cash line's height and
      the star row's — rather than a separately-tuned number, because three
@@ -806,7 +864,6 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
   #speed{top:calc(var(--hudTop) + 8px + clamp(32px,6.6vw,50px) + clamp(22px,4.6vw,32px));
     right:14px;bottom:auto}
   #spdN{font-size:clamp(30px,7.5vw,46px)}
-  /* left column bottom-up: pads, armor, day/night */
   #toast{top:30%}
   /* DRIFT shares the right-hand side, so the district name lifts clear of it */
   #zone{bottom:calc(var(--edgeB) + 94px + var(--gas));max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
@@ -827,7 +884,7 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
   #mini{width:var(--miniS);height:var(--miniS)}
   /* the only case where the column is tall enough to matter, so this is the
      only case that has to be kept out of the car's screen column */
-  #hudTL{gap:6px;max-width:calc(50vw - 56px)}
+  #hudTL{gap:6px;max-width:calc(40vw - 26px)}
   #obj{min-height:2.2em;font-size:clamp(13px,3.4dvh,18px)}
   /* There is no height to spare on a landscape phone, and the menu now carries
      a perk block too. The keyboard hint is the first thing to go — the controls
@@ -843,8 +900,13 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
   #menu .credit{font-size:9.5px;bottom:4px}
   .screen{padding:12px}
   .perk{margin-top:8px;gap:7px}
-  #tN{bottom:calc(var(--edgeB) + 8px + var(--pad))}
-  #hpWrap{left:80px;bottom:calc(var(--edgeB) + 12px + var(--pad));width:min(15vw,calc(25vw - 65px))}
+  /* The armor bar and day/night used to need a floor apiece in the bottom-left
+     stack here, squeezed between the steering pad and the district name. They
+     are at the top centre now and this screen is 750 points wide, so the room
+     they were fighting over is somebody else's problem. Left as a note because
+     restating `bottom` here while the base rule sets `top` anchors both edges
+     and stretches them into 173 point columns — which is what this block did on
+     the first go. */
   /* The right edge cannot hold cash, stars, the district name, the speedo AND
      DRIFT once the pedal is this size — there is 342px of screen. So DRIFT
      clears the pedal, the speedo tucks under the star row, and the district
