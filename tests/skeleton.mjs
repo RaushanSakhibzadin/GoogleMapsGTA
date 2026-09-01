@@ -46,6 +46,20 @@ await p.waitForTimeout(250);
 await p.click('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 90000 });
 playing = true;
+/* THE LADDER NO LONGER RUNS ON THE LOADING SCREEN, so 'play' is no longer the
+   moment it has finished. The screen gives the wide map six seconds and then
+   starts the game, leaving the rungs to walk themselves down behind the wheel —
+   and in `fallback` mode there are four of them, each walking six mirrors that
+   answer 504, which is comfortably more than six seconds. Read at 'play' the
+   world is 2.7 km wide with no skeleton in it, which is not the ladder failing,
+   it is the ladder still going.
+
+   Nothing else here moves. Which rung lands, how wide the world ends up, and the
+   invariant that no road is ever asked for twice are all unchanged — only the
+   moment it is fair to ask, exactly as ring.mjs already had to do for the ring
+   and its scenery. */
+await p.waitForFunction(() => window.__chunks().wideMap, null, { timeout: 90000 })
+  .catch(() => {});
 await p.waitForTimeout(600);
 
 const out = { mode: MODE };

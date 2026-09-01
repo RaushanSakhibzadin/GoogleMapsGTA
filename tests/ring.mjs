@@ -162,6 +162,14 @@ const out = { mode: HEAVY ? 'slow streets' : 'the reported session', centreMs: C
 if (!HEAVY)
   await p.waitForFunction(() => window.__chunks().loaded >= 9, null, { timeout: 90000 })
     .catch(() => {});
+/* AND THE WIDE MAP, for the same reason and for the first time. It also used to
+   be the last thing the loading screen blocked on — so it, too, was always in by
+   the time 'play' arrived. It is raced now: the screen gives it six seconds and
+   then starts the game, and this scenario's mock serves it at eight. Everything
+   below reads the same numbers as before once it lands; without this they are
+   read two seconds early and the wide map simply is not there yet. */
+await p.waitForFunction(() => window.__chunks().wideMap, null, { timeout: 60000 })
+  .catch(() => {});
 out.chunks = await p.evaluate(() => {
   const c = window.__chunks();
   return { loaded: c.loaded, failed: c.failed, live: c.live, roads: c.roads, drive: c.drive };
@@ -178,7 +186,24 @@ out.neighbours = await p.evaluate(() => {
 });
 /* The point of the ring is drivable street detail away from the centre tile, so
    this asks the ground rather than the bookkeeping: sample a band 1.2-2.4 km out
-   and count cells the mask calls road. */
+   and count cells the mask calls road.
+
+   WAITED FOR, LIKE EVERYTHING ELSE HERE. The wide map came in on the loading
+   screen when this was written, so it was always in by the time anything below
+   ran. It is raced now — the screen gives it six seconds and then starts the
+   game, and in this scenario the mock serves it at eight — so the reading has to
+   wait for it or it catches the world two seconds early. Same world either way:
+   694 of 11,160 both before and after, once the arterials are in.
+
+   AND IT IS THE ARTERIALS THIS COUNTS, not the ring, which is worth writing down
+   because the variable name says otherwise. The ring fixture lays its roads every
+   200 m and this samples every 40, so the two lattices are commensurate: the
+   sample points fall in the same place inside every 200 m gap and land on a ring
+   road exactly never. Measured directly — with the ring fully in and the
+   skeleton still out, the band reads 0 of 11,160 while __onRoad(1500, 0) is
+   true. So this line is a real check on the drivable mask out at two kilometres,
+   and it is not the check on the ring that it looks like; that job is done by
+   `neighbours` and `buildingTiles` above and below. */
 out.detailOut = await p.evaluate(() => {
   let hits = 0, tried = 0;
   for (let x = -2400; x <= 2400; x += 40) for (let y = -2400; y <= 2400; y += 40) {
