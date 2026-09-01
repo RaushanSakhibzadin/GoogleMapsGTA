@@ -105,15 +105,21 @@ function syncTouches(e) {
   // last finger — would otherwise never reach padAt, and the loop below would
   // run on a null cache
   const boxes = padBoxes || measurePads();
-  let ours = false;
   const next = { l: 0, r: 0, a: 0, b: 0, h: 0 };
   for (const t of e.touches) {
     const p = padAt(t.clientX, t.clientY);
-    if (p) { next[p.prop] = 1; ours = true; }
+    if (p) next[p.prop] = 1;
   }
-  // the touch being lifted has already left e.touches, so check it separately or
-  // the event that releases a pad wouldn't count as ours
-  for (const t of e.changedTouches) if (padAt(t.clientX, t.clientY)) ours = true;
+  /* WHICH PADS ARE HELD IS EVERY FINGER; WHOSE EVENT THIS IS IS ONLY THE ONES
+     THAT CHANGED IN IT. The two used to be the same loop, and that meant a
+     thumb resting on the accelerator claimed — and cancelled — the touchstart of
+     the OTHER hand pressing a button somewhere else on the screen. A held pad is
+     a state, not a claim on everybody's taps.
+     The touch being lifted has already left e.touches, which is why this reads
+     changedTouches rather than filtering the list above: the event that releases
+     a pad still has to count as ours, or the release is not prevented. */
+  let ours = false;
+  for (const t of e.changedTouches) if (padAt(t.clientX, t.clientY)) { ours = true; break; }
   // a non-cancelable touch is one the browser has already committed to a gesture;
   // calling preventDefault there only earns a console warning
   if (ours && e.cancelable) e.preventDefault();
@@ -254,35 +260,65 @@ function stickInput() {
            brake: ny > STICK_GO ? 1 : 0,
            hand, n: live.length };
 }
-/* The sticks' own view of the touch list, run before the pads get theirs. */
-function syncStick(e) {
+/* The sticks' own view of the touch list, run before the pads get theirs.
+ *
+ * WHAT THIS RETURNS DECIDES WHETHER THE EVENT IS CANCELLED, and preventDefault
+ * on a touchstart or a touchmove is what stops the browser ever synthesising the
+ * click. So the answer is not "is a stick involved in the game right now" — it
+ * is "is one of the fingers THAT CHANGED IN THIS EVENT mine". Two reported
+ * faults came out of getting that wrong, and both read to a player as a button
+ * that does nothing.
+ *
+ * `type` is the event's own name, and it is a parameter rather than something
+ * inferred, because the difference between touchstart and touchmove is the whole
+ * of the first fix. */
+function syncStick(e, type) {
   if (CTRL !== 'stick' || state !== 'play') {
     if (STICKS.some(s => s.on)) stickRelease();
     return false;
   }
+  /* Whose fingers moved, ended or arrived in THIS event. A live stick still has
+     to be updated from e.touches on every event — that is how it follows the
+     thumb — but updating it is not a reason to cancel somebody else's tap. */
+  const changed = new Set();
+  for (const t of e.changedTouches) changed.add(t.identifier);
   let ours = false;
   // a finger that has left the list drops its stick
   for (const s of STICKS) {
     if (!s.on) continue;
+    const mineChanged = changed.has(s.id);
     let mine = null;
     for (const t of e.touches) if (t.identifier === s.id) { mine = t; break; }
-    if (!mine) { stickClear(s); stickPlace(s); ours = true; continue; }
+    if (!mine) { stickClear(s); stickPlace(s); if (mineChanged) ours = true; continue; }
     stickFrom(s, mine);
     stickPlace(s);
-    ours = true;
+    if (mineChanged) ours = true;
   }
-  // and a new finger raises the stick for the half it landed on, if it is free
-  for (const t of e.changedTouches) {
-    if (STICKS.some(s => s.on && s.id === t.identifier)) continue;
-    const s = stickZone(t.clientX, t.clientY);
-    if (!s || s.on) continue;
-    s.on = true; s.id = t.identifier;
-    s.cx = t.clientX; s.cy = t.clientY;
-    s.dx = s.dy = 0;
-    s.lastY = 0; s.lastT = performance.now(); s.flickT = 0;
-    s.steer = s.ny = s.gas = s.brake = s.hand = 0;
-    stickPlace(s);
-    ours = true;
+  /* AND A NEW FINGER RAISES A STICK ONLY WHERE IT LANDS.
+   *
+   * touchstart and nothing else. This used to run on every event, so the zone
+   * test was re-asked wherever the finger had got to — and a tap that lands on a
+   * button and drifts four pixels off it mid-press finds open ground under the
+   * new position, raises a ring, claims the touchmove and cancels the click that
+   * was coming. Reported as buttons that cannot be pressed, "maybe because
+   * fingers slide a little bit", which is exactly what it was.
+   *
+   * A press is a gesture that begins somewhere. The ring is drawn where the
+   * thumb LANDS — that is the whole design of it — and nothing in that design
+   * ever starts a stick halfway through a movement. */
+  if (type === 'touchstart') {
+    for (const t of e.changedTouches) {
+      if (STICKS.some(s => s.on && s.id === t.identifier)) continue;
+      const s = stickZone(t.clientX, t.clientY);
+      if (!s || s.on) continue;
+      s.on = true; s.id = t.identifier;
+      s.cx = t.clientX; s.cy = t.clientY;
+      s.dx = s.dy = 0;
+      s.lastY = 0; s.lastT = performance.now(); s.flickT = 0;
+      s.steer = s.ny = s.gas = s.brake = s.hand = 0;
+      stickPlace(s);
+      ours = true;
+    }
   }
   return ours;
 }
@@ -342,12 +378,22 @@ for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
   document.addEventListener(ev, e => {
     if (ev === 'touchstart') {
       const t = e.changedTouches[0];
+      tapEaten = null;
       if (t && mixDismiss(t.clientX, t.clientY)) {
         if (e.cancelable) e.preventDefault();
+        /* AND THE REST OF THIS GESTURE IS SPOKEN FOR. Preventing the touchstart
+           used to be enough on its own to swallow the whole tap, because the
+           click was the browser's to synthesise and a prevented touchstart
+           stopped it. The tap handler further down now makes that click itself,
+           from the touchend — a different event, which this one's preventDefault
+           says nothing about — so the finger that closed the panel would also
+           press whatever was under it. Naming the finger keeps the rule that was
+           asked for: it closes, and that is all it does. */
+        tapEaten = t.identifier;
         return;                                   // consumed: it closed a panel
       }
     }
-    const s = syncStick(e);
+    const s = syncStick(e, ev);
     /* The stick asks first. Both are on the document and the pads are hidden in
        stick mode, so in practice only one of them ever claims a touch — but the
        order is stated rather than left to which listener was added first. */
@@ -355,6 +401,73 @@ for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
     if ((s || p) && e.cancelable) e.preventDefault();
     if ((s || p) && ev === 'touchstart') audioStart();
   }, { passive: false });
+
+/* ---------------------------------------------------------------------------
+   A TAP THAT THE BROWSER WILL NOT TURN INTO A CLICK.
+
+   Reported: "some UI buttons cannot be pressed after joysticks were added,
+   maybe it is because fingers slide a little bit". The sliding was a real fault
+   and is fixed above. This is the other half, and it is the bigger one.
+
+   A CLICK IS NOT AN EVENT A TOUCHSCREEN HAS. It is something the browser
+   SYNTHESISES afterwards from a touch that looked like a tap, and one of the
+   things that stops it looking like a tap is another finger already being on the
+   glass. Measured here, with nothing prevented and every event arriving: the
+   button gets pointerdown, touchstart, pointerup and touchend, all untouched by
+   this file, and no click ever follows.
+
+   Which is exactly why this arrived with the joystick. The pads were pressed and
+   released; a stick is HELD, for the whole time you are driving, so from the
+   moment the game got a joystick every other button on the screen was being
+   pressed as a second finger. Nothing was wrong with the buttons.
+
+   So the tap is turned into a click here rather than waited for. The pattern is
+   the one #tN has used since it was added — fire on whichever of the two arrives
+   first and swallow the other for 450 ms — generalised to every control instead
+   of being copied onto each new one, because it was already copied twice and the
+   third omission is what was reported.
+
+   THE SLOP IS DELIBERATE. A touch's target is the element it STARTED on, so a
+   thumb that drifts still lands here; the box test then asks whether it drifted
+   a LITTLE or walked away, and 22 px is about a thumb's own wobble. Dragging off
+   a button still cancels it, which is what a button is supposed to do.
+
+   Sliders are excluded: a range control is a drag, and a click at the end of one
+   is at best a no-op and at worst a second jump of the value. */
+const TAPPABLE = 'button, a, canvas#mini';
+const TAP_SLOP = 22;
+// the finger that closed the settings panel, which does nothing else on its way
+let tapEaten = null;
+document.addEventListener('touchend', e => {
+  // the driving controls run first and say so by cancelling; that finger is theirs
+  if (e.defaultPrevented) return;
+  const t = e.changedTouches[0];
+  if (t && t.identifier === tapEaten) { tapEaten = null; return; }
+  if (!t || !t.target || !t.target.closest) return;
+  const el = t.target.closest(TAPPABLE);
+  if (!el || el.disabled) return;
+  const b = el.getBoundingClientRect();
+  if (t.clientX < b.left - TAP_SLOP || t.clientX > b.right + TAP_SLOP ||
+      t.clientY < b.top - TAP_SLOP || t.clientY > b.bottom + TAP_SLOP) return;
+  /* NOT CANCELLABLE MEANS THE BROWSER HAS ALREADY COMMITTED, and it will send
+     its own click in its own time. Doing nothing is then exactly right: this is
+     the case that always worked, and adding a second click to it is the one way
+     this could be worse than what it replaces. */
+  if (!e.cancelable) return;
+  /* AND PREVENTING THE touchend IS WHAT MAKES THIS SAFE RATHER THAN A RACE.
+     A prevented touchend produces no synthesised click at all — that is what
+     preventing it is FOR — so there is exactly one click, the one dispatched on
+     the next line, and no window of milliseconds to get right.
+
+     The first version did use a window: fire on whichever arrived first and
+     swallow the other for 450 ms, copying the pattern #tN has used for a year.
+     It is the wrong mechanism and the measurement says so — headless Chromium
+     sent its click 826 ms after the touchend, so the second half arrived outside
+     the window and every tap fired twice. A doubled tap on the day/night switch
+     is invisible; a doubled one on a bet is ten percent of your money. */
+  e.preventDefault();
+  el.click();
+}, false);
 
 // mouse, for driving it on a desktop
 for (const [id, prop] of PADS) {
