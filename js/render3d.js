@@ -229,7 +229,39 @@ vec4 fogged(vec3 c) {
 
 const SH_LIT_V = VS_COMMON + `in vec3 aCol;
 in vec4 aWall;
-out vec3 vC; out highp vec3 vW; out highp vec2 vGate;
+/* WHETHER SOMEBODY HAS PAINTED THIS WALL, and if so, with which seed.
+
+   Zero on everything nobody has touched, which is nearly every wall in the city
+   — a roof, a car, a pedestrian and a tunnel soffit all pass zero and take the
+   plain path. Anything else is a tag, and the VALUE is the building's own random
+   number: the fragment shader builds its letters out of it, so one block's tag
+   differs from the next one's and neither changes as you drive past it.
+
+   One float rather than a colour, because the ink is derived from the wall it is
+   on rather than carried alongside it — see the tag block in the fragment
+   shader. Slot 8, which was the first free one.
+
+   TWO NUMBERS IN ONE FLOAT: whole part and fraction. The fraction is the seed.
+   The whole part is HOW FAR THE PAVEMENT IS ABOVE THIS BUILDING'S FOOT, in
+   metres, and without it the tag is underground.
+
+   A wall is built from the LOWEST corner of its footprint, a metre further down
+   again — see the cell builder's own base, which sinks it into the hill on
+   purpose so a block on a slope has no gap under its high side. On the
+   procedural terrain this game generates, that is 0.4 to 3.5 m below the ground
+   you actually walk on beside it, measured across the first eight buildings of a
+   fixture city. A band at 0.35 to 2.45 m up the wall is therefore, most of the
+   time, entirely buried — which is exactly what the first version of this drew,
+   and it took a height ramp rendered as colour bands to see that the strip was
+   not missing but under the grass.
+
+   Whole metres is enough. The band is a little over two metres tall, so half a
+   metre of rounding still leaves it over the ground floor, and a float carries a
+   two-digit whole part and a usable fraction without either intruding on the
+   other. Declared highp for the same reason vW is: at mediump a value of 30.9
+   resolves to about 0.03, and the fraction is the whole point of it. */
+in float aTag;
+out vec3 vC; out highp vec3 vW; out highp vec2 vGate; out highp float vTag;
 void main() {
   vec4 p = uVP * vec4(aPos, 1.0);
   gl_Position = p; vN = aNrm; vC = aCol; vD = p.w; vL = uLVP * vec4(aPos, 1.0);
@@ -257,6 +289,7 @@ void main() {
      wall's own line and the road's crossing point are both to hand, and zero on
      every wall that has no road through it. */
   vGate = aWall.zw;
+  vTag = aTag;
 }`;
 /* vW IS DECLARED highp AND HAS TO BE. It carries a world coordinate, and this
    world is thirty-six kilometres across — so that number reaches ±18000, and the
@@ -328,6 +361,7 @@ void main() {
    The two are linked from one source and share fixed attribute slots, so the
    same vertex arrays feed either. */
 const SH_LIT_F = gate => FS_HEAD + `in vec3 vC; in highp vec3 vW; in highp vec2 vGate;
+in highp float vTag;
 uniform float uPaint;
 uniform vec3 uGlass, uWinCol;
 /* The render: a grey tile cut from a photograph of a Belgrade wall, tiled off the
@@ -358,6 +392,43 @@ float h21(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
   q += dot(q, q.yzx + 33.33);
   return fract((q.x + q.y) * q.z);
+}
+
+/* ONE UNREADABLE LETTER, BUILT RATHER THAN DRAWN.
+
+   The obvious way to put text on a wall is a texture atlas of an alphabet, and
+   it is the wrong way here twice over: this game ships no font file, and what is
+   wanted is not an alphabet. Real graffiti on a real ground floor is a name
+   written fast in one movement by somebody who already knows what it says — the
+   letters are the shape of the hand rather than of the alphabet, and a stranger
+   reads them as three angry strokes.
+
+   So that is what this is: THREE STROKES at angles and offsets drawn from the
+   hash, clipped to the letter's own cell. Each is the distance to an infinite
+   line, thresholded with smoothstep so it antialiases for free, and the maximum
+   of the three is the ink. It costs no texture, no font and no memory, it is
+   different in every cell and identical every frame, and at a glance down a
+   street it reads as somebody's tag.
+
+   uv is 0..1 across the cell and 0..1 up the band. seed is the cell's own
+   number — the building's random value folded with which letter along the wall
+   this is, so the tag does not repeat along a long block and does not change as
+   you drive. */
+float tagInk(vec2 uv, float seed) {
+  float m = 0.0;
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float a = h21(vec2(seed + fi * 7.1, 11.7)) * 3.14159;
+    float o = h21(vec2(seed + fi * 13.3, 23.9)) - 0.5;
+    vec2 d = vec2(cos(a), sin(a));
+    // distance to a line through the cell centre, offset across its own normal
+    float t = abs(dot(uv - 0.5, vec2(-d.y, d.x)) - o * 0.52);
+    m = max(m, 1.0 - smoothstep(0.055, 0.105, t));
+  }
+  /* And the stroke stops at the edge of its cell rather than running into the
+     next letter, which is what turns a field of crossing lines into writing. */
+  vec2 e = min(uv, 1.0 - uv);
+  return m * smoothstep(0.0, 0.05, min(e.x, e.y));
 }
 
 void main() {
@@ -409,6 +480,41 @@ void main() {
   if (uGrimeK > 0.0 && uPaint < 0.5 && abs(nn.y) < 0.5 && vW.z > 0.001) {
     float grime = texture(uGrime, vec2(vW.x, vW.y) * 0.25).r;
     base *= mix(1.0, grime * 2.0, uGrimeK);
+  }
+
+  /* THE TAG, ACROSS THE GROUND FLOOR.
+
+     Put exactly where the windows are NOT: the block below already leaves
+     everything under uLowH plain, because a real ground floor is shopfronts and
+     shutters rather than the same window repeated — which is also precisely the
+     part of a building that gets painted. So the two never fight for the same
+     band and neither had to be moved to make room for the other.
+
+     THE INK COMES OFF THE WALL IT IS ON rather than being carried with the tag.
+     A tag has to read against its own wall, and the two sides are a dark red and
+     a near-black: one ink cannot serve both, and a second attribute to carry it
+     would be a whole vertex channel for a colour that is a function of one the
+     buffer already holds. Mixing towards white by a fixed amount gives pale pink
+     on the red and pale grey on the black, which is what both of them want.
+
+     Skipped on everything that is not a painted facade: vTag is zero on every
+     wall nobody has sprayed, on every roof, on every car and on every tunnel
+     soffit, so this is one comparison against zero for the whole city. */
+  if (vTag > 0.0 && abs(nn.y) < 0.5 && vW.z > 0.001) {
+    /* Whole part: how far the pavement is above this wall's buried foot. The
+       band is measured from there rather than from zero, or it is underground —
+       see the note on aTag. Fraction: the seed the letters are built from. */
+    float bury = floor(vTag);
+    float seed = fract(vTag);
+    float lo = bury + 0.4;
+    float hi = min(bury + 2.7, vW.z * 0.72);
+    if (vW.y > lo && vW.y < hi) {
+      float gx = vW.x * 0.645;                    // about 1.55 m to a letter
+      float cell = floor(gx);
+      vec2 uv = vec2(fract(gx), (vW.y - lo) / max(hi - lo, 0.001));
+      float ink = tagInk(uv, seed * 97.0 + cell * 3.7);
+      base = mix(base, mix(vec3(1.0), base, 0.42), ink * 0.95);
+    }
   }
 
   /* WINDOWS, which is the whole difference between a city and a heap of boxes.
@@ -496,7 +602,15 @@ void main() {
 
   vec3 lit = base * (uAmb * (1.0 + s) + uLcol * d * sh);
   vec3 paint = base * (0.55 + 0.45 * d * sh);
-  vec3 c = mix(lit, paint, uPaint);
+  /* A SPRAYED WALL IS PAINT, ON THE SAME REASONING AS A CAR — and it has to be,
+     rather than being a nicety. The dusk theme lands every masonry wall in the
+     city within a few points of the same violet-grey, because after dark the
+     colour is meant to come from the neon and the street lights; a red block run
+     through that is a violet-grey block, and the whole feature is invisible from
+     sunset to sunrise. The uniform does it for cars, per draw call; this does it
+     for the handful of walls somebody has painted, per fragment, in the middle of
+     a batch of masonry that must go on being masonry. */
+  vec3 c = mix(lit, paint, max(uPaint, step(0.0001, vTag)));
 
   if (fascia > 0.004) {
     /* FIVE COLOURS A SHOP MIGHT ACTUALLY HAVE PAINTED, not a hash spread over
@@ -1467,10 +1581,12 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
 }
 
 /* Everything in one 512 m square, turned into two GPU meshes. */
-/* pos(3) + nrm(3) + col(3) + wall(4) — 13 floats a vertex, and the one place
-   that layout is written down for the cell meshes. */
+/* pos(3) + nrm(3) + col(3) + wall(4) + tag(1) — 14 floats a vertex, and the one
+   place that layout is written down for the cell meshes. The tag is zero on
+   everything nobody has painted, which is nearly every vertex in the city; it is
+   the building's own random seed on a wall somebody has. */
 const LIT_ATTR = () => [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3],
-                        [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4]];
+                        [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4], [G3.lit.a.aTag, 1]];
 /* A PERSON, out of six boxes and a stride.
 
    They were one box: 0.64 m square, 1.7 m tall, in one of the six fluorescent
@@ -1627,7 +1743,26 @@ function buildCell(kx, kz) {
     const top = terrainH(b.cx, b.cy) + b.h;
     note(base); note(top);
     const fp = b.pts;
-    const wall = b.mWall, roof = b.mRoof;
+    /* A PAINTED WALL BRINGS ITS OWN MATERIAL AND ITS OWN SEED.
+
+       The material, because the shader is about to light this as paint rather
+       than as masonry (see the vTag branch beside uPaint) and paint is a colour
+       rather than a stone the evening acts on. The seed, because the tag's
+       letters are built from it in the fragment shader — nonzero is the whole
+       signal that this wall has been sprayed at all.
+
+       `tag` is deliberately not the side: which colour it is is already in the
+       three floats beside it, and the ink is derived from those. */
+    const team = b.turf && typeof TEAMS !== 'undefined' ? TEAMS[b.turf] : null;
+    const wall = team ? team.mWall : b.mWall, roof = team ? team.mRoof : b.mRoof;
+    /* HOW FAR THE PAVEMENT IS ABOVE THE FOOT OF THIS WALL, in whole metres,
+       carried in the whole part of the tag with the seed in the fraction. `base`
+       is the lowest corner of the footprint less a metre; the ground somebody
+       stands on to paint it is the terrain at the centre, which is what the roof
+       is measured from too. On this game's procedural terrain the gap runs from
+       0.4 to 3.5 m, which is more than the height of the band. */
+    const bury = team ? clamp(Math.round(terrainH(b.cx, b.cy) - (base + 1)), 0, 30) : 0;
+    const tag = team ? bury + (b.tagSeed == null ? .5 : .05 + b.tagSeed * .9) : 0;
     const wr = wall[0] / 255, wg = wall[1] / 255, wb = wall[2] / 255;
     /* WHICH WAY ROUND THE OUTLINE IS LISTED, and why both the normal and the
        triangles have to be told.
@@ -1706,12 +1841,12 @@ function buildCell(kx, kz) {
       }
       // gw is non-zero only where the road genuinely crosses THIS wall
       const into = gw > 0 ? litG : lit;
-      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-                bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
-      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw,
-                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw,
-                ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw);
+      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw, tag,
+                bx, base, bz, nx, 0, nz, wr, wg, wb, -1, H, gc, gw, tag,
+                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw, tag);
+      into.push(ax, base, az, nx, 0, nz, wr, wg, wb, -1, H, gc, gw, tag,
+                bx, top, bz, nx, 0, nz, wr, wg, wb, H, H, gc, gw, tag,
+                ax, top, az, nx, 0, nz, wr, wg, wb, H, H, gc, gw, tag);
     }
     /* THE INSIDE OF THE ARCHWAY.
 
@@ -1741,12 +1876,14 @@ function buildCell(kx, kz) {
       // a shaded interior: the same masonry, minus the daylight it never gets
       const ir = wr * 0.62, ig = wg * 0.62, ib = wb * 0.62;
       const quad = (x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2) => {
-        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
-                 x1, y1, z1, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
-                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0);
-        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
-                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0,
-                 x3, y3, z3, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0);
+        // no aWall, no gate and no tag: a tunnel wall has no window grid, nothing
+        // may cut a hole in the hole, and nobody paints the inside of a passage
+        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
+                 x1, y1, z1, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
+                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0);
+        lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
+                 x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
+                 x3, y3, z3, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0);
       };
       // the two jambs, each facing the middle of the passage
       quad(ax0 + px * w, foot, az0 + pz * w, ax1 + px * w, foot, az1 + pz * w,
@@ -1766,7 +1903,7 @@ function buildCell(kx, kz) {
       const p0 = fp[tri[i]], p1 = fp[tri[i + 1]], p2 = fp[tri[i + 2]];
       const cr = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
       for (const p of cr > 0 ? [p0, p2, p1] : [p0, p1, p2])
-        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0, 0, 0);   // a roof has no facade
+        lit.push(p.x, top, p.y, 0, 1, 0, rr, rg, rb, 0, 0, 0, 0, 0);   // no facade, no tag
     }
     // and its name across the widest wall, if OSM gave it one
     if (b.sign) pushSign(sgn, b, fp, wind, top, base + 1);

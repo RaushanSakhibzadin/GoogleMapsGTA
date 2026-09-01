@@ -45,6 +45,12 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
   a police station, a fire station, a hospital. The engine and the ambulance are their own
   vehicles, not repainted cars.
 - **Traffic, police, pedestrians, a wanted level**, repair shops, and a day/night switch.
+- **Red or black.** OpenStreetMap knows where the casinos are, so they are on the map where they
+  really are — Belgrade has dozens. Two buttons at the table, a tenth of your money on a fair
+  coin, and whichever colour you pick more is the side you are on. From the first bet you carry
+  a spray can: a wall you paint goes your colour in the street, in the chase view and on the
+  radar, with an unreadable tag across its ground floor. Every so often the other side takes one
+  back. A city with no casinos in OSM simply has none, and nothing else changes.
 - **Three renderers**: Canvas 2D top-down, hand-written WebGL2 for the chase view, and software 3D
   for a browser with WebGL turned off.
 - **No image assets.** Every texture is grown from fractal noise at load.
@@ -66,7 +72,7 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
 | Streaming | 1.8 km tiles, geometry batched per 512 m cell, one cell built per frame |
 | Loading | The screen waits 9 s for the streets and 6 for the wide map, then starts you in the bundled city and keeps the request running — if it lands, the real city swaps in behind the wheel. Silent mirrors cost 10 s instead of 42 |
 | Cache | Every script is fetched with `?v=<hash>` over the contents of all of them, so a deploy is never invisible |
-| Tests | 84 Playwright suites — `node tests/run.mjs`, about fifty minutes |
+| Tests | 85 Playwright suites — `node tests/run.mjs`, about fifty minutes |
 
 Everything is plain `<script>` files sharing one global scope, deliberately **not** ES modules:
 modules are blocked over `file://`, and opening the game straight off disk is the point. Load
@@ -77,6 +83,7 @@ index.html   markup      style.css    styling      data/belgrade.js  the offline
 js/i18n.js   ten languages            js/util.js   palette, theme
 js/geo.js    network: Overpass, Nominatim         js/log.js    the session log
 js/world.js  OSM parsing, indexes, streaming      js/terrain.js  the heightfield
+js/turf.js   casinos, the bet, the spray can
 js/entities.js  cars, traffic, police, physics    js/body3d.js   the car as a cuboid
 js/game.js   state, shifts, missions, wanted      js/io.js     input, audio, canvas
 js/render.js top-down view            js/render3d.js  chase view + the dispatcher

@@ -109,6 +109,13 @@ function mapPulseOff() {
    offer here, so a stale button cannot hand out a shift you have driven away
    from. */
 $('jobBtn').onclick = () => { const j = jobHere(); if (j) setJob(j); };
+/* The table and the can. placeBet refuses anything that is not at a casino and
+   sprayPaint refuses a can with no side behind it, so a stale button cannot spend
+   money at a table you have driven away from — same contract as the depot button
+   above. */
+$('betRed').onclick = () => placeBet('red');
+$('betBlack').onclick = () => placeBet('black');
+$('sprayBtn').onclick = () => sprayPaint();
 $('mini').onclick = openMap;
 $('mapClose').onclick = closeMap;
 /* PUT THE CAR BACK IN THE MIDDLE, and touch nothing else.
@@ -402,6 +409,31 @@ window.__chunks = () => ({ loaded: CHUNK.loaded, failed: CHUNK.failed, busy: CHU
   vbuckets: W.vbuckets.size, dbuckets: W.dbuckets.size, lights: (W.lights || []).length });
 /* The retry scheduler: what is still missing, when the next attempt is due, and
    what every attempt so far did. */
+/* THE CASINOS AND THE WAR OVER THE WALLS.
+
+   `bet` drives the real button path rather than a shortcut into placeBet, because
+   what a test needs to know is that the button is up when it should be and does
+   what it says — the arithmetic underneath is the easy half. `raid` fires the
+   rival's next visit now, so nothing has to sit through ninety seconds to watch
+   one land. */
+window.__turf = () => ({
+  team: TURF.team, picks: { ...TURF.picks }, bets: TURF.bets, taken: TURF.taken,
+  lastBet: TURF.lastBet, stake: betStake(),
+  casinos: W.pois.filter(p => p.kind === 'casino').length,
+  at: !!casinoHere(),
+  betRow: $('betRow').classList.contains('on'),
+  can: $('sprayBtn').classList.contains('on'),
+  owned: { red: turfCount('red'), black: turfCount('black') },
+  tagged: W.buildings.filter(b => b.turf).map(b => ({ x: Math.round(b.cx), y: Math.round(b.cy),
+                                                      turf: b.turf, tag: b.tag,
+                                                      wall: b.wall, roof: b.roof }))
+});
+window.__bet = col => placeBet(col);
+window.__spray = () => sprayPaint();
+window.__raidNow = () => { TURF.raidAt = Date.now() - 1; updateTurf(); return TURF.taken; };
+window.__turfReset = () => { TURF.picks.red = 0; TURF.picks.black = 0; TURF.bets = 0;
+  TURF.team = null; TURF.last = null; TURF.taken = 0; TURF.raidAt = 0; saveTurf(); };
+
 window.__retry = () => ({ wanted: retryWanted(), n: RETRY.n, busy: RETRY.busy,
   inMs: RETRY.at ? RETRY.at - Date.now() : null, delays: RETRY_DELAYS,
   city: RETRY.city && (RETRY.city.label || RETRY.city.query), log: RETRY.log,

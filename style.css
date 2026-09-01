@@ -276,6 +276,61 @@ body.perked .perk .keyRow{display:none}
   #jobBtnE{font-size:34px}
 }
 
+/* ---------- THE TABLE ----------
+
+   Two buttons, in the depot button's strip and on its z-index, because they are
+   the same kind of thing: the contextual action for the place you have stopped
+   at. A casino is not a depot so the two do not come up together, and if a taxi
+   rank ever shares a doorway with one this is in front.
+
+   RED IS RED AND BLACK IS BLACK, filled rather than outlined, because the colour
+   IS the choice — this is the one place in the game where the button's colour
+   carries the meaning rather than decorating it. Black gets a pale rim and pale
+   type so it is a button rather than a hole in the screen, which is exactly what
+   the first version of it looked like against a dusk street. */
+#betRow{position:fixed;left:50%;transform:translateX(-50%);z-index:46;
+  bottom:calc(var(--edgeB) + var(--pad) + 22px);
+  display:none;gap:12px;pointer-events:auto}
+#betRow.on{display:flex}
+#betRow button{font-family:var(--hud);font-size:20px;letter-spacing:.14em;
+  min-width:104px;padding:15px 18px;border-radius:16px;cursor:pointer;
+  box-shadow:0 6px 26px rgba(0,0,0,.5);touch-action:none}
+#betRed{background:#c9202f;border:2px solid #ff8a96;color:#fff;
+  text-shadow:0 2px 4px rgba(0,0,0,.6)}
+#betBlack{background:#15151b;border:2px solid #b9b9d0;color:#e8e8f4;
+  text-shadow:0 2px 4px rgba(0,0,0,.8)}
+#betRed:active{background:#e6303f}
+#betBlack:active{background:#2b2b36}
+@media (max-height:520px){
+  #betRow{bottom:calc(var(--edgeB) + var(--pad) + 8px)}
+  #betRow button{font-size:16px;min-width:84px;padding:11px 14px}
+}
+
+/* ---------- THE CAN ----------
+
+   Under the day/night switch, in the top-centre column, which is where the two
+   things that are neither driving nor a readout now live. Not in the bottom
+   corners: those are the joystick's, and this is a button pressed while stopped
+   at a wall rather than one pressed mid-corner.
+
+   It carries the side you are on as its rim, so which colour you are about to
+   spray is answerable without pressing it. --hpH and the moon's own height are
+   the two numbers above it; see the top-centre block further down. */
+#sprayBtn{position:fixed;left:50%;transform:translateX(-50%);
+  top:calc(var(--hudTC) + var(--hpH) + var(--tNH) + 18px);z-index:46;
+  display:none;align-items:center;justify-content:center;pointer-events:auto;
+  padding:8px 14px;border-radius:12px;cursor:pointer;font-size:19px;line-height:1;
+  background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.35);
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
+#sprayBtn.on{display:flex}
+#sprayBtn[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
+#sprayBtn[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
+#sprayBtn:active{transform:translateX(-50%) translateY(1px)}
+body.theme-day #sprayBtn{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,.45)}
+body.theme-day #sprayBtn[data-team="red"]{background:rgba(201,32,47,.4);border-color:#8f1622}
+body.theme-day #sprayBtn[data-team="black"]{background:rgba(255,255,255,.5);border-color:#15151b}
+
 /* GHOST is a big change to how the car behaves, so it says so while it's on. */
 #ghostTag{position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:36;display:none;
   font-family:var(--hud);font-size:13px;letter-spacing:.22em;color:var(--gold);
@@ -795,7 +850,11 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
    --hpH is the armor block's rendered height, which is the one number the two of
    them share. fixes.mjs asserts they never touch, so it is written down once
    here rather than folded into a hand-tuned offset that nobody can check. */
-:root{--hpH:31px}
+/* --hpH is the armor block, --tNH the day/night button under it. Two numbers
+   because there are two things above the spray can, and they are written down
+   rather than added into one offset so that changing either moves everything
+   below it by the right amount. hud.mjs is the guard. */
+:root{--hpH:31px;--tNH:39px}
 #tN{left:50%;right:auto;top:calc(var(--hudTC) + var(--hpH) + 9px);bottom:auto;
   transform:translateX(-50%);width:auto;height:auto;
   padding:8px 14px;border-radius:12px;font-size:19px;line-height:1}

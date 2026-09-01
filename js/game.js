@@ -962,6 +962,10 @@ function resetRun() {
   P.car = makeCar(sp.x, sp.y, sp.h, 'player');
   P.spawn = { x: sp.x, y: sp.y, h: sp.h };
   P.cash = +store.get('vm_cash', 0) || 0;
+  /* Read here rather than at load, for the same reason the cash is: `store` is
+     declared in this file and js/turf.js is evaluated before it, so touching it
+     from up there is a dead-zone error before the game has drawn a frame. */
+  loadTurf();
   P.score = 0; P.wanted = 0; P.cool = 0; P.dead = false; P.deadT = 0; P.bustT = 0;
   traffic = []; cops = []; peds = []; marks = []; parts = []; blasts = [];
   MISSION.state = 'none'; MISSION.done = 0;
@@ -971,6 +975,15 @@ function resetRun() {
   missionSeq++;                 // the last city's pending next-job call is not this city's
   JOB = 'courier'; jobOffer = null;
   if ($('jobBtn')) $('jobBtn').classList.remove('on');
+  /* WHICH SIDE YOU ARE ON SURVIVES; THE WALLS DO NOT. The tally is a fact about
+     the player and is read back out of storage like the cash; the painted
+     buildings were buildings, and this is a different set of them. All that
+     needs clearing is the raid clock, so the other side does not turn up in the
+     first second of a new city holding a grudge from the last one. */
+  resetTurfWalls();
+  casinoAt = null; sprayShown = null;
+  if ($('betRow')) $('betRow').classList.remove('on');
+  if ($('sprayBtn')) $('sprayBtn').classList.remove('on');
   // otherwise a new city opens still showing the last one's street and district
   NAV.street = NAV.zone = NAV.cand = ''; NAV.candT = NAV.showT = 0;
   $('street').textContent = ''; $('street').classList.remove('on');
@@ -1989,6 +2002,8 @@ function updateNav(dt) {
   // the depot button, on the same tick: it is a proximity test against every
   // landmark in the city and nothing about it needs sixty answers a second
   syncJobBtn();
+  // and the casino's two, which is the same test against the same list
+  syncTurfUI();
 
   // district: persistent, flashes when you cross into a new one
   const z = zoneAt(c.x, c.y);
@@ -2374,6 +2389,7 @@ function update(dt) {
   updateNav(dt);
   updateChunks();
   updateRetries();
+  updateTurf();          // the other side comes round; see js/turf.js
   updateMapWindow();
 
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }

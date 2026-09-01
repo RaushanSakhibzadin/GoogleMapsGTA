@@ -213,7 +213,8 @@ const GL = {
     const gl = this.gl;
     /* aKind is gone with the two house inks it used to choose between: a sign
        carries its building's own colour now, in aInk0 and aInk1, one per theme. */
-    const SLOT = { aPos: 0, aNrm: 1, aCol: 2, aPal: 3, aUV: 4, aWall: 5, aInk0: 6, aInk1: 7 };
+    const SLOT = { aPos: 0, aNrm: 1, aCol: 2, aPal: 3, aUV: 4, aWall: 5, aInk0: 6, aInk1: 7,
+                   aTag: 8 };
     const sh = (type, src) => {
       const s = gl.createShader(type);
       gl.shaderSource(s, src); gl.compileShader(s);

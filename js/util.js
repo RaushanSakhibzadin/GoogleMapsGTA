@@ -237,6 +237,19 @@ function signInk(mat, theme) {
 function resolveColours(list) {
   const t = THEMES[themeName];
   for (const b of list || []) {
+    /* A PAINTED WALL IS PAINT, NOT MASONRY, and that is why it short-circuits the
+       theme rather than being tinted by it. Everything below runs the mapper's
+       concrete through the hour of the day; a wall somebody has just covered in
+       one colour out of a can is that colour at noon and at dusk alike, the same
+       way a car's lacquer is (see uPaint in the chase view). Running the dusk
+       light over it turned a red block into a dark grey one, which is the whole
+       point of the feature going missing at night.
+
+       Handled HERE rather than at the call sites because there are four of them —
+       the theme switch, the chunk merge, the opening build and the can itself —
+       and three of them do not know this feature exists. */
+    const paint = typeof turfPaint === 'function' ? turfPaint(b) : null;
+    if (paint) { b.roof = paint.roof; b.wall = paint.wall; continue; }
     let roof = t.roofT(b.mRoof), wall = t.wallT(b.mWall);
     // the extrusion only reads as a solid while the roof stays brighter than the wall
     if (lum(roof) < lum(wall) + 18) wall = mul(wall, (lum(roof) - 18) / Math.max(lum(wall), 1));

@@ -280,8 +280,62 @@ function drawBuilding(b) {
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
+  /* THE TAG, ON THE ROOF, WHICH IS WHERE IT CAN BE SEEN FROM UP HERE.
+
+     Sprayed on the ground floor in the world, and the chase view draws it
+     there — but the top-down view is looking straight down at a roof, and a
+     ground floor in it is three pixels of silhouette wall at the near edge. A
+     tag written across those is a smear. So this view puts it on the face it
+     actually shows, which is the same choice the game already makes for the
+     landmark emoji: draw the thing where the camera can read it rather than
+     where it would be if the camera were somewhere else.
+
+     CLIPPED TO THE ROOF, so a short tag on a narrow block does not run out over
+     the street, and scaled off the footprint rather than off a fixed size, so it
+     is a tag on a corner shop and a tag on a block of flats. Skipped entirely
+     below about twenty pixels: at that size it is one dark smudge, and the
+     colour of the building is already saying whose it is. */
+  const paint = b.turf && typeof turfPaint === 'function' ? turfPaint(b) : null;
+  if (paint && b.tag) {
+    let rx0 = tx[0], rx1 = tx[0], ry0 = ty[0], ry1 = ty[0];
+    for (let i = 1; i < n; i++) {
+      if (tx[i] < rx0) rx0 = tx[i]; else if (tx[i] > rx1) rx1 = tx[i];
+      if (ty[i] < ry0) ry0 = ty[i]; else if (ty[i] > ry1) ry1 = ty[i];
+    }
+    const w = rx1 - rx0, h = ry1 - ry0;
+    if (w > 20 && h > 12) {
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(tx[0], ty[0]);
+      for (let i = 1; i < n; i++) ctx.lineTo(tx[i], ty[i]);
+      ctx.closePath(); ctx.clip();
+      /* Leaning, because nobody writes a tag square to the wall, and leaning by
+         an amount that is the building's own rather than the clock's — b.tagSeed
+         is fixed when it is painted, so the letters do not wobble as you drive
+         past. */
+      const seed = b.tagSeed == null ? .5 : b.tagSeed;
+      ctx.translate((rx0 + rx1) / 2, (ry0 + ry1) / 2);
+      ctx.rotate((seed - .5) * .5);
+      const size = Math.min(h * .8, w * 1.5 / Math.max(b.tag.length, 1));
+      ctx.font = `900 ${size.toFixed(1)}px ${TAG_FONT}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.globalAlpha = .92;
+      ctx.lineWidth = Math.max(size * .12, 1.4);
+      ctx.strokeStyle = 'rgba(0,0,0,.55)';
+      ctx.strokeText(b.tag, 0, 0);
+      ctx.fillStyle = paint.ink;
+      ctx.fillText(b.tag, 0, 0);
+      ctx.restore();
+    }
+  }
   ctx.globalAlpha = 1;
 }
+
+/* The HUD's own condensed face, named here rather than read off the stylesheet:
+   a canvas takes a font STRING, and --hud is a CSS custom property that
+   ctx.font will not resolve. Same list, and the same reason for it — no web font,
+   because this game runs from file:// with nothing installed. */
+const TAG_FONT = "'Impact','Haettenschweiler','Arial Narrow Bold'," +
+                 "'Franklin Gothic Bold','Roboto Condensed','Liberation Sans Narrow',sans-serif";
 
 function marker(m, col, kind) {
   const t = performance.now() / 1000;

@@ -190,6 +190,12 @@ function overpassQL(s, w, n, e, kind, opt) {
          a company office, which is where a shift starts. */
       `nwr["amenity"~"^(police|hospital|fire_station|taxi)$"](${bb});` +
       `nwr["shop"="car_repair"](${bb});` +
+      /* AND THE CASINOS, which ride along for nothing. This union is already
+         tag-indexed over a 45 km box, and amenity=casino is one more indexed tag
+         — Belgrade, which has more of them than anywhere else this game gets
+         played, returns a few dozen. Unlike everything above it, a city that
+         answers with none is not a city that needs asking again: see POI_KIND. */
+      `nwr["amenity"="casino"](${bb});` +
       /* MONUMENTS, which are scenery rather than services — but they ride with
          the landmark sweep because they want the same treatment: sparse,
          tag-indexed, and worth finding well outside the streets we could load.

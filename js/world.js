@@ -112,7 +112,9 @@ function buildingColours(t, area, h, seed) {
 
 // police reuses the blue the cop blips already use, so the radar reads consistently
 const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
-                  fire: '#ff6a2b', taxi: '#f2b705' };
+                  fire: '#ff6a2b', taxi: '#f2b705',
+                  // the colour of a roulette layout, which is what it is for
+                  casino: '#c81e3c' };
 /* AND A FACE FOR EACH, because three coloured dots are three coloured dots.
 
    The colours are the same three a player has to learn and then remember, and
@@ -130,7 +132,7 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
    The mission markers are here too: the package you are going to collect and the
    flag where it is going. */
 const POI_EMOJI = {
-  police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕',
+  police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕', casino: '🎰',
   /* THE GOAL LOOKS LIKE WHAT IT IS. Reported from play: on the ambulance shift
      the casualty was marked with a parcel. Every shift shared one pickup icon,
      so the taxi went to collect a box as well, and only the courier was ever
@@ -163,10 +165,27 @@ const FOOD_AMENITY = /^(restaurant|cafe|fast_food|bar|pub|biergarten|food_court|
 const IS_FOOD = t => FOOD_AMENITY.test(t.amenity || '') ||
                      /^(bakery|deli|coffee|pastry|confectionery)$/.test(t.shop || '');
 
+/* CASINOS ARE NOT A SERVICE, and that is the whole difference between this
+   entry and the five above it.
+
+   A hospital, a police station, a fire station, a taxi rank and a garage are all
+   places the game NEEDS: a shift starts at one, a wasted run ends at one, and if
+   a city has none the search widens until it finds one. A casino is somewhere to
+   lose money, and a city with no casino in OpenStreetMap is simply a city with no
+   casino — Belgrade has dozens, plenty of places have none, and that is a fact
+   about the place rather than a failed download.
+
+   So it is a POI in every way that matters — a dot on the radar, a face on the
+   map, somewhere to drive to — and it is deliberately NOT in POI_KINDS, which is
+   the list retryWanted() reads to decide whether the landmark sweep is worth
+   asking for again. Adding it there would have every player outside a gambling
+   town re-sweeping the map three times a session looking for something that was
+   never there. */
 const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'hospital' ? 'hospital'
                     : t.amenity === 'fire_station' ? 'fire'
                     : t.amenity === 'taxi' ? 'taxi'
+                    : t.amenity === 'casino' ? 'casino'
                     : t.shop === 'car_repair' ? 'repair' : null;
 
 /* ------------------- the name, in a script you can read -------------------
@@ -2018,6 +2037,30 @@ function prerenderMap(cx, cy) {
     if (!b.mono) continue;
     g.fillStyle = MONU_COL;
     g.beginPath(); g.arc(b.cx, b.cy, dot, 0, TAU); g.fill();
+  }
+  /* PAINTED WALLS, WHICH ARE THE ONLY BUILDINGS ON THIS MAP AT ALL.
+
+     Every other building is deliberately absent — a city's footprints drawn at
+     radar scale is a grey mush with the roads lost inside it, which is why this
+     bitmap has always been parks, roads and landmarks. A wall somebody painted is
+     the exception because it is a THING THAT HAPPENED rather than scenery, and
+     seeing which streets have gone your colour is most of the point of painting
+     them.
+
+     STROKED AS WELL AS FILLED, and stroked in the ink rather than the fill. The
+     map's background is nearly black at dusk and one of the two sides IS black:
+     filled alone, a black block on it is not a subtle effect, it is an invisible
+     one. The outline is what makes it read at three pixels on the radar, which is
+     the size it is usually seen at. */
+  const painted = W.buildings.filter(b => b.turf && b.pts && b.pts.length > 2 && inWin(b));
+  if (painted.length) {
+    g.lineWidth = Math.max(1.5 / s, .6);
+    for (const b of painted) {
+      const t = turfPaint(b);
+      if (!t) continue;
+      poly(b, t.map);
+      g.strokeStyle = t.ink; g.stroke();
+    }
   }
   W.map = c;
 }
