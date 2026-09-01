@@ -520,6 +520,22 @@ function loadOfflineCity() {
   return offlinePromise;
 }
 
+/* AND STARTED BEFORE ANYBODY ASKS FOR IT, once a mirror has said no.
+
+   The bundle is six megabytes. It used to begin downloading at the moment the
+   game had already given up on the network — so the fallback that exists to
+   rescue a bad connection was itself a six megabyte download over that same bad
+   connection, added to the end of a wait the player had already sat through.
+
+   A refused mirror is the signal. It is not proof the load will fail, so this is
+   held back until the loading screen has been watching refusals for a few
+   seconds (see paintProgress) rather than firing on the first stumble — by then
+   the fallback is likely, and the file is coming off the same static host that
+   served the game itself rather than off Overpass. If the streets turn up after
+   all, the download is wasted bandwidth and nothing else; the promise is simply
+   never read. */
+function warmOffline() { loadOfflineCity().catch(() => {}); }
+
 /* Its streets and buildings, projected about its own centre. The caller has
    already given up on where the player asked for, so the origin moves to
    Belgrade — leaving it where it was would scatter the geometry hundreds of

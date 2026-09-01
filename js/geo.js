@@ -826,9 +826,14 @@ function areaBox(lat, lon) {
   const dLat = RADIUS / 110540, dLon = RADIUS / (111320 * Math.cos(lat * Math.PI / 180));
   return [lat - dLat, lon - dLon, lat + dLat, lon + dLon];
 }
-function fetchStreets(lat, lon, onMsg, onBytes) {
+/* The opening streets. `sess` is optional and defaults to the loading screen's
+   own scope — but the caller may hand in a scope of its own, because a request
+   can OUTLIVE the loading screen: once the screen's patience runs out the game
+   starts in the bundled city and this one keeps going behind the wheel, and
+   endLoad() aborts everything in LOAD. See FIRST_WAIT in game.js. */
+function fetchStreets(lat, lon, onMsg, onBytes, sess) {
   const b = areaBox(lat, lon);
-  return overpassArea(b[0], b[1], b[2], b[3], LOAD, { kind: 'streets', onMsg, onBytes });
+  return overpassArea(b[0], b[1], b[2], b[3], sess || LOAD, { kind: 'streets', onMsg, onBytes });
 }
 function fetchBuildings(lat, lon, sess) {
   const b = areaBox(lat, lon);

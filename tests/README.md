@@ -253,6 +253,27 @@ which is the part that makes it a test rather than a stopwatch: everything the
 loading screen stopped waiting for has to turn up afterwards, or "faster" just
 means "less". Measured 19.9 s before the deferral and 7.7 s after.
 
+`patience.mjs` is the other half of that stopwatch, and it exists because
+`firstload.mjs` measures servers that are SLOW while the failure a player
+reported was servers that are SILENT. Every mock in this suite either answers or
+refuses, and a refusal is fast — three seconds to the bundled city, which is why
+`offline.mjs` never caught anything. A mirror that accepts the connection and
+then says nothing is a different animal: it holds the loading screen for the
+request's whole deadline, and this file measured 42.3 s for the streets and
+46.5 s for the skeleton ladder against 0.6 s for a healthy load. So it holds the
+routes open rather than aborting them.
+
+The timing bound is the headline but it is not the discriminating assertion, and
+that distinction is worth keeping straight when a machine is loaded. The one that
+cannot drift is `wideMap` being false at the moment play starts in the `skelslow`
+scenario: the wide map arriving before the servers answered is not a slow build,
+it is a build that waited. Likewise `slow` asserts the abandoned request is
+ADOPTED within thirty seconds — the timed retry starts at ninety, so nothing but
+the original request can satisfy it, and a version that cancelled and re-asked
+would fail even though the player still eventually gets their city. `healthy`
+carries no fallback at all, because "faster" is trivially achievable by never
+waiting for anything and that scenario is what stops it.
+
 `daynight.mjs` measures the frame rate, the render cost and the cars on screen
 *during* the drive, and all three had to move there. Read afterwards they were
 wrong in two different directions: `PERF.ren` is a rolling average over about ten

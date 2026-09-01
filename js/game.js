@@ -235,6 +235,46 @@ function useGeo() {
   );
 }
 
+/* ---------------------------------------------------------------------------
+   HOW LONG THE LOADING SCREEN IS WILLING TO WAIT.
+
+   Every network deadline in geo.js is a budget for THE REQUEST — how long a
+   mirror is allowed to think before the answer stops being worth having. None of
+   them was ever a budget for THE PLAYER, and the player is the one watching the
+   bar. Measured against mirrors that accept the connection and then say nothing,
+   which is the failure a real session reported:
+
+       mirrors healthy                    0.6 s
+       mirrors unreachable                3.0 s     (a refusal is fast)
+       mirrors silent                    42.3 s     <- the streets deadline
+       streets fine, skeleton silent     46.5 s     <- the skeleton ladder
+
+   Forty-two seconds is not the map servers being slow, it is the game being
+   broken, and the whole time it is happening there is a real city sitting in the
+   download — data/belgrade.js, the same bundle that already rescues a total
+   failure. So the loading screen stops waiting long before the request does.
+
+   NOTHING IS CANCELLED. That is what makes this cheap rather than a trade. The
+   streets request keeps running behind the wheel, and if it lands the city is
+   swapped in exactly the way retryCity already swaps one in — so the cost of
+   being impatient is a world that changes under you a few seconds later, not a
+   city you never get. Asking Overpass for the same box a second time would be
+   the expensive version, and it is the one this avoids.
+
+   NINE SECONDS, because a healthy mirror answers the opening box in about one
+   and a half and the hedge starts a new one every 2.2 — so nine covers a mirror
+   that is merely busy plus three more behind it, and it is comfortably past the
+   six seconds at which the SKIP button already appears. SIX for the skeleton,
+   which is scenery on the big map rather than ground under the wheels, and which
+   the retry machinery is already built to replace mid-drive. */
+const FIRST_WAIT = 9000;
+const SKEL_WAIT = 6000;
+/* Distinguishable from anything a request can resolve to — Promise.race gives
+   back a value, not a reason, so the sentinel is how the caller tells "the
+   servers answered" from "we stopped waiting". */
+const LATE = Symbol('still waiting');
+const patience = ms => new Promise(r => setTimeout(() => r(LATE), ms));
+
 let subNote = '', skipTimer = 0, tickTimer = 0;
 function showLoad(msg, sub) {
   state = 'loading';
@@ -268,6 +308,12 @@ function paintProgress() {
      timeout and a host that simply isn't reachable from your network is the
      difference between waiting and giving up. */
   if (LOAD.lastErr && mb <= .05) parts.push(LOAD.lastErr);
+  /* A MIRROR HAS SAID NO AND WE ARE HALFWAY THROUGH OUR PATIENCE. Start pulling
+     the bundled city now rather than at the moment we give up, so the fallback
+     is ready when the patience runs out instead of beginning a six megabyte
+     download then. Held off this long on purpose: one refusal early in a load
+     that then succeeds is common, and this is bandwidth a player pays for. */
+  if (LOAD.lastErr && secs >= FIRST_WAIT / 2000) warmOffline();
   $('loadSub').textContent = parts.join(' · ');
   // creep on bytes *and* on time, so a slow server still looks like progress
   const p = .25 + .35 * (1 - Math.exp(-(mb / 3 + secs / 40)));
@@ -310,8 +356,18 @@ function backToMenu(msg) {
   el.classList.add('on');
 }
 
+/* THE OPENING STREETS, STILL IN THE AIR AFTER THE LOADING SCREEN GAVE UP.
+   Kept out here so a second DRIVE press can put it out of its misery: the
+   generation guard stops a late reply being ADOPTED, but the request itself
+   would otherwise go on holding a connection for the rest of its deadline. */
+let PENDING = null;
+function dropPending() {
+  if (PENDING) { try { sessAbort(PENDING); } catch (e) {} PENDING = null; }
+}
+
 async function startGame(query, lat, lon, label) {
   const gen = ++loadGen;                 // a second DRIVE press abandons this one
+  dropPending();
   // the place they actually asked for, kept before the fallback path reassigns
   // any of it, so a retry later knows what it is retrying
   const want = { query, lat, lon, label };
@@ -326,6 +382,8 @@ async function startGame(query, lat, lon, label) {
   // fellBack: we are not giving them the place they asked for. why/askedFor say
   // which place and what went wrong, and both are shown rather than implied.
   let fellBack = false, offline = null, askedFor = '';
+  // the streets request the loading screen stopped waiting for, if there is one
+  let late = null;
 
   // 1. where is it? Presets already know, so only typed searches ask Nominatim.
   if (lat == null) {
@@ -355,16 +413,31 @@ async function startGame(query, lat, lon, label) {
     setOrigin(lat, lon);
     $('loadCity').textContent = name;
     prog(.25, txt('load.streets'), txt('load.streetsAround', { city: name.split(',')[0] }));
-    const els = await fetchStreets(lat, lon,
+    /* A SCOPE OF ITS OWN, not the loading screen's, because this request is
+       allowed to outlive the loading screen — endLoad() aborts everything in
+       LOAD, and past FIRST_WAIT this is exactly what must not be aborted. It
+       still answers to the SKIP button, which is a decision by the player rather
+       than a deadline, so it borrows LOAD's cancel promise. */
+    const sess = newSession();
+    sess.cancelP = LOAD.cancelP;
+    const streets = fetchStreets(lat, lon,
       m => { $('loadMsg').textContent = m; },
-      b => { LOAD.bytes = b; });
+      b => { LOAD.bytes = b; }, sess);
+    // the race below may settle on the timer and leave this rejection unclaimed
+    streets.catch(() => {});
+    const els = await Promise.race([streets, patience(FIRST_WAIT)]);
     if (gen !== loadGen) return;
+    /* OUT OF PATIENCE, NOT OUT OF LUCK. Down to the bundled city with everyone
+       else, but holding on to the request so its answer can still be taken up
+       from behind the wheel. */
+    if (els === LATE) { PENDING = sess; late = streets; throw new Error('still waiting'); }
     /* How heavy this area is — measured from the reply that landed, not from the
        clock. This used to be `Date.now() - LOAD.t0`, which is everything since
        the player pressed DRIVE: the geocode, and every mirror that was
        unreachable or too slow before a good one answered. In the session that
        exposed it the streets came back in 5.5 s and that expression read 12 s. */
-    openingMs = LOAD.replyMs || (Date.now() - LOAD.t0);
+    openingMs = sess.replyMs || (Date.now() - LOAD.t0);
+    LOAD.replyMs = openingMs;                  // what the ring is sized off later
     prog(.62, txt('load.concrete'), txt('load.features', { n: els.length.toLocaleString() }));
     data = parseOSM(els);
     // a quiet village is still a real place — only fall back if there's nothing
@@ -374,9 +447,15 @@ async function startGame(query, lat, lon, label) {
     }
   } catch (err) {
     if (gen !== loadGen) return;
-    console.warn('map load failed:', err);
+    // not a failure, so not a warning: the request is still running and this is
+    // the game choosing to start without it
+    if (late) console.info('map load slow; starting in the bundled city');
+    else console.warn('map load failed:', err);
     fellBack = true;
     why = geoFailed ? 'the place search couldn’t be reached'
+        // and this one says "still", because it is: the request is in the air and
+        // the city will swap itself in if it lands
+        : late ? 'the map servers are still thinking'
         : err && /cancel/i.test(err.message) ? 'you skipped the download'
         : err && /timed out/i.test(err.message) ? 'the map servers were too slow'
         : 'the map servers couldn’t be reached';
@@ -428,13 +507,40 @@ async function startGame(query, lat, lon, label) {
     // screen quietly becomes half a minute.
     const sweep = sweepLandmarks();
 
-    /* The wide city comes first, because it is the one thing that cannot arrive
-       later: everything downstream of it — the grid, the fence, the radar window
-       — is sized from its rectangle, and growing all of that mid-drive is a
-       stutter. The ring is detail, and takes whatever budget is left. */
+    /* The wide city comes first, because everything downstream of it — the grid,
+       the fence, the radar window — is sized from its rectangle, and growing all
+       of that mid-drive is a stutter. The ring is detail, and takes whatever
+       budget is left.
+
+       BUT ONLY FOR SIX SECONDS. The ladder is four rungs against a forty-five
+       second deadline, and a session that reported this spent all of it: sixty
+       kilometres timed out, then thirty-six, then eighteen, then nine, and the
+       player watched every one of them. A stutter is a worse thing than a wait
+       right up until the wait is three quarters of a minute long.
+
+       So it is raced, and it is not cancelled. Past the six seconds the ladder
+       carries on behind the wheel and installs itself when it lands, which is
+       the same thing runRetry('skeleton') has always done — the machinery for
+       growing the world mid-drive already exists, it was simply never used on
+       the opening load. */
     prog(.86, txt('load.wholeCity'), txt('load.roadsOut', { km: SKELETON_RADII[0] / 1000 }));
-    const skel = await loadSkeleton(m => { $('loadMsg').textContent = m; });
+    const skelP = loadSkeleton(m => { $('loadMsg').textContent = m; });
+    skelP.catch(() => {});
+    let skel = await Promise.race([skelP, patience(SKEL_WAIT)]);
     if (gen !== loadGen) return;
+    if (skel === LATE) {
+      skel = null;
+      skelP.then(s => {
+        if (!s || gen !== loadGen || state === 'menu') return;
+        WIDE_MAP = true;
+        prerenderMap();
+        // the stand-in arriving is not news; the real wide map is — and neither is
+        // worth a banner over a loading screen that has not finished lifting yet,
+        // which is what a ladder that lands at 6.1 s would produce
+        if (!s.bundled && state === 'play')
+          toast(txt('toast.mapExtended', { km: Math.round(s.radius / 1000) }), 2600);
+      }).catch(() => {});
+    }
     // Note, don't act on it: the ring that follows is full street detail and still
     // needs the streets query. Scenery-only mode starts when play does.
     // "0 more roads across 18 km" is a real outcome — a small town whose trunk
@@ -549,6 +655,12 @@ async function startGame(query, lat, lon, label) {
        no way back to the one they did short of pressing DRIVE again and sitting
        through another load. So ask again later, from behind the wheel. */
     retryLater({ city: want });
+    /* AND IF THE ANSWER IS STILL COMING, TAKE IT. The request the loading screen
+       stopped waiting for is running underneath all of this, and its reply
+       arrives no later than the deadline that used to hold the player on the bar
+       — so the common outcome of being impatient is Belgrade for a few seconds
+       and then the city they asked for, instead of forty seconds of nothing. */
+    if (late) adoptLateCity(late, want, gen);
   } else {
     FELLBACK = null;
     toast(txt('toast.welcome', { city: name.toUpperCase() }), 2600);
@@ -665,6 +777,18 @@ async function retryCity() {
     GEO.lat0 = prev.lat0; GEO.lon0 = prev.lon0; GEO.mLat = prev.mLat; GEO.mLon = prev.mLon;
     throw err;
   }
+  return installCity(data, name, lat, lon, gen);
+}
+
+/* THE WORLD SWAPPED OUT FROM UNDER A CAR THAT IS ALREADY DRIVING.
+
+   Shared by the two ways a real city can turn up after the game has started in
+   the fallback: the timed retry above, and a streets request the loading screen
+   stopped waiting for (see FIRST_WAIT). Both arrive holding parsed roads and
+   both have to do the same nine things afterwards, and the second one was
+   written as a copy of the first for exactly as long as it took to notice that
+   a copy is how the two drift apart. */
+function installCity(data, name, lat, lon, gen) {
   if (gen !== loadGen || state === 'menu') return false;
 
   buildWorld(data, name, false);
@@ -683,6 +807,37 @@ async function retryCity() {
     .catch(() => {});
   sweepLandmarks().catch(() => {});
   return true;
+}
+
+/* THE REPLY THAT CAME AFTER THE LOADING SCREEN GAVE UP.
+
+   No request is made here — this is the one already in the air, whose answer is
+   now worth a world swap rather than a wait. The projection is the whole
+   subtlety: falling back moved the origin to Belgrade, and these elements are
+   latitudes and longitudes around the place that was ASKED for, so the origin has
+   to go back before parseOSM turns any of it into metres — and go back to
+   Belgrade again if the reply turns out to be useless, or the city the player is
+   currently driving slides several hundred kilometres sideways. */
+async function adoptLateCity(p, want, gen) {
+  let els;
+  try { els = await p; } catch (err) { PENDING = null; return false; }
+  // settled either way, so there is no longer a connection for anyone to abort
+  PENDING = null;
+  if (gen !== loadGen || state === 'menu' || !els || !els.length) return false;
+  const prev = { lat0: GEO.lat0, lon0: GEO.lon0, mLat: GEO.mLat, mLon: GEO.mLon };
+  setOrigin(want.lat, want.lon);
+  let data;
+  try {
+    data = parseOSM(els);
+    if (!data.roads.length) throw new Error('nothing is mapped there');
+  } catch (err) {
+    GEO.lat0 = prev.lat0; GEO.lon0 = prev.lon0; GEO.mLat = prev.mLat; GEO.mLon = prev.mLon;
+    return false;
+  }
+  PENDING = null;                   // it landed; there is nothing left to abort
+  const ok = installCity(data, want.label || want.query || 'Somewhere', want.lat, want.lon, gen);
+  if (!ok) { GEO.lat0 = prev.lat0; GEO.lon0 = prev.lon0; GEO.mLat = prev.mLat; GEO.mLon = prev.mLon; }
+  return ok;
 }
 
 // Called every frame; does nothing on almost all of them.

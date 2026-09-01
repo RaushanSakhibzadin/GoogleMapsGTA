@@ -64,8 +64,9 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
 | Physics | Forward/lateral velocity split, per-car mass, OBB collisions off a 26 m bucket grid |
 | Off-road | A drivable mask stamped along centrelines; off it the car crawls, unless GHOST |
 | Streaming | 1.8 km tiles, geometry batched per 512 m cell, one cell built per frame |
+| Loading | The screen waits 9 s for the streets and 6 for the wide map, then starts you in the bundled city and keeps the request running — if it lands, the real city swaps in behind the wheel. Silent mirrors cost 10 s instead of 42 |
 | Cache | Every script is fetched with `?v=<hash>` over the contents of all of them, so a deploy is never invisible |
-| Tests | 81 Playwright suites — `node tests/run.mjs`, about fifty minutes |
+| Tests | 84 Playwright suites — `node tests/run.mjs`, about fifty minutes |
 
 Everything is plain `<script>` files sharing one global scope, deliberately **not** ES modules:
 modules are blocked over `file://`, and opening the game straight off disk is the point. Load
