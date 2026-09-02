@@ -1,0 +1,178 @@
+{
+ "source": "in-game LOG button",
+ "build": "fcaf13794e",
+ "savedAt": "2026-09-02T10:33:19.393Z",
+ "sessionSeconds": 16.28,
+ "capture": {
+  "bytes": 5880712,
+  "cappedAt": 26214400,
+  "repliesDropped": 0,
+  "bytesDropped": 0
+ },
+ "snapshot": {
+  "url": "https://raushansakhibzadin.github.io/GoogleMapsGTA/",
+  "ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+  "screen": "360x669 @3",
+  "state": "play",
+  "city": "Your neighbourhood",
+  "procedural": false,
+  "world": {
+   "roads": 1911,
+   "drive": 1833,
+   "buildings": 4237,
+   "parks": 112,
+   "pois": 468,
+   "grid": "685x685",
+   "bounds": {
+    "x0": -2740,
+    "y0": -2740,
+    "x1": 2740,
+    "y1": 2740
+   },
+   "skeleton": null,
+   "wideMap": false
+  },
+  "tiles": {
+   "loaded": 2,
+   "roaded": 2,
+   "failed": 0,
+   "evicted": 0,
+   "live": 3
+  },
+  "car": {
+   "x": -3.1,
+   "y": -5.5,
+   "h": 2.62,
+   "kmh": 0,
+   "hp": 100,
+   "onRoad": true,
+   "onTarmac": true,
+   "roadDataHere": true,
+   "ghost": false,
+   "street": "",
+   "zone": "Palilula",
+   "cash": 0,
+   "wanted": 0
+  },
+  "perf": {
+   "upd": 1.76,
+   "ren": 6.91,
+   "steps": 1.18
+  },
+  "gl": {
+   "mode3d": true,
+   "attempts": 1,
+   "ready": true,
+   "fail": "",
+   "why": "",
+   "webgl1": false,
+   "renderer": "ANGLE (ARM, Mali-G78, OpenGL ES 3.2)",
+   "lost": 0
+  },
+  "shops": 935
+ },
+ "replies": [
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 1964,
+   "bbox": {
+    "s": 44.8022057508956,
+    "w": 20.464849224229148,
+    "n": 44.8184894491044,
+    "e": 20.487641175770854
+   },
+   "chars": 947911,
+   "sha256": "e04a7227c10e39189551d3e42ae2df19501d7b752642bcd8ce0bcc87df85112d",
+   "elements": 1060,
+   "file": "streets1.json.gz",
+   "bytes": 119384
+  },
+  {
+   "kind": "buildings",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 1957,
+   "bbox": {
+    "s": 44.8022057508956,
+    "w": 20.464849224229148,
+    "n": 44.8184894491044,
+    "e": 20.487641175770854
+   },
+   "chars": 3647823,
+   "sha256": "a4219f32c0512fdf44807bda816a08ba7bab628c0df511e010add9b054ffb621",
+   "elements": 4894,
+   "file": "buildings1.json.gz",
+   "bytes": 514406
+  },
+  {
+   "kind": "pois",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 7381,
+   "bbox": {
+    "s": 44.64751061791207,
+    "w": 20.248325684582934,
+    "n": 44.97318458208793,
+    "e": 20.70416471541707
+   },
+   "chars": 410260,
+   "sha256": "5c6730de818b07630eb27d79accc7ec5fb0968732916c79eaacb38a36df98b6b",
+   "elements": 1044,
+   "file": "pois1.json.gz",
+   "bytes": 85565
+  },
+  {
+   "kind": "radio",
+   "host": "https://all.api.radio-browser.info",
+   "status": 200,
+   "ms": 1238,
+   "bbox": null,
+   "chars": 51930,
+   "sha256": "1efdf3feb77cc6552cc839f26028ec662db4b0089449bb883763d85cbc25121f",
+   "elements": null,
+   "file": "radio1.json.gz",
+   "bytes": 9088
+  },
+  {
+   "kind": "streets",
+   "host": "maps.mail.ru",
+   "status": 200,
+   "ms": 1538,
+   "bbox": {
+    "s": 44.8022057508956,
+    "w": 20.442057272687443,
+    "n": 44.8184894491044,
+    "e": 20.464849224229148
+   },
+   "chars": 822788,
+   "sha256": "0b38c861635d10d9ab8d4d988ff96635c1b1cd7d45659a26d6bb9e960d4a1344",
+   "elements": 889,
+   "file": "streets2.json.gz",
+   "bytes": 109805
+  }
+ ],
+ "errors": [
+  {
+   "at": 11.98,
+   "level": "mirror",
+   "msg": "pois · osm.jp: unreachable (635ms)"
+  },
+  {
+   "at": 11.99,
+   "level": "mirror",
+   "msg": "arterials · osm.jp: unreachable (635ms)"
+  },
+  {
+   "at": 14.41,
+   "level": "mirror",
+   "msg": "pois · private.coffee: too slow (5269ms)"
+  },
+  {
+   "at": 14.41,
+   "level": "mirror",
+   "msg": "pois · kumi.systems: too slow (2432ms)"
+  }
+ ]
+}

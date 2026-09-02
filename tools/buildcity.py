@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Turn the captured Overpass payloads into the bundled offline city.
 
-Reads tests/fixtures/ -- what the map servers actually sent during two real
+Reads tests/fixtures/ -- what the map servers actually sent during seven real
 sessions -- and writes data/belgrade.js, the city that loads when they cannot be
 reached.
 
-The detail comes from the LATER capture (autokomanda: four street tiles and
-seven of scenery, so 5.4 km of streets rather than 1.8), and the SKELETON from
-the earlier one (stari-grad), because the later session's 200 km arterials reply
-was 44 MB and the log's 25 MB cap dropped it. The two centres are 1.14 km apart
-and the earlier arterials box reaches 35 km around the later centre, so it
-covers the offline horizon with room to spare -- it is the same city, and the
-motorways out of it do not move.
+Every capture contributes its streets and its scenery, because they are all the
+same city within a couple of kilometres and the world dedupes ways on their OSM
+id, so overlapping sessions fill each other's gaps rather than stacking. What
+SRCS[0] decides is the ORIGIN: which spot the offline city is centred on, and
+therefore where the loading screen puts you down. The skeleton comes from
+whichever session got its 200 km arterials reply back whole, which is a
+different one -- see SKEL_SRC.
 
 Four things shrink the result without touching what the game can see:
 
@@ -31,15 +31,26 @@ import gzip, json, math, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(ROOT, 'tests', 'fixtures')
 # Streets and scenery from every capture there is — they are all the same city
-# within a kilometre, the geometry is absolute lat/lon, and the world dedupes
-# ways on their OSM id, so overlapping captures simply fill each other's gaps.
-# Six sessions now: the two newest were played in Savski venac and around
-# Slavija and between them brought seven street tiles and seven of scenery from
-# a centre 21 m from this one.
+# within a couple of kilometres, the geometry is absolute lat/lon, and the world
+# dedupes ways on their OSM id, so overlapping captures simply fill each other's
+# gaps. Seven sessions now.
+#
+# THE CITY IS BUILT AROUND PALILULA, because that is where the game is played.
+# Asked for as "use this map as default", with the log to build it from: the
+# session opened at 44.8103, 20.4762 and its centre tile came back with all
+# 4,894 of its buildings, which is what the September 1st capture was missing
+# and why that one could not be used. The older captures are still here and
+# still contribute — Autokomanda is 2.3 km south of this and its streets reach
+# most of the way up — but the spot the loading screen lands on is this one.
 SRCS = [os.path.join(FIX, n) for n in
-        ('autokomanda', 'savski-venac', 'london-0829', 'skadarlija',
-         'kneza-danila', 'stari-grad')]
+        ('palilula-0902', 'autokomanda', 'savski-venac', 'london-0829',
+         'skadarlija', 'kneza-danila', 'stari-grad')]
 SRC = SRCS[0]                                   # whose centre the city is built around
+# Where that is, for the header and for the name the game shows when it falls
+# back to this. Beside SRCS rather than down beside the JSON it is written into,
+# because it is a fact about SRCS[0] and it went stale the last time the two
+# were a hundred and fifty lines apart.
+PLACE = 'Palilula, Beograd'
 # THE ARTERIALS COME FROM THE SAME CENTRE NOW. They used to be borrowed from a
 # session 778 m away, because the one that had the streets lost its own 44 MB
 # reply to the log's cap. london-0829 arrived whole -- 15,641 ways -- from a
@@ -174,7 +185,7 @@ buildings = clip(dedupe([e for src in SRCS for e in all_of(src, 'buildings')]), 
 skeleton = clip(dedupe(all_of(SKEL_SRC, 'arterials')), SKEL_HALF, [900000000])
 
 city = {
-    'name': 'Autokomanda, Beograd',
+    'name': PLACE,
     'lat': round(LAT0, 6), 'lon': round(LON0, 6),
     'skeletonRadius': SKEL_HALF,
     'streets': streets, 'buildings': buildings, 'skeleton': skeleton,
@@ -182,8 +193,8 @@ city = {
 body = json.dumps(city, separators=(',', ':'), ensure_ascii=False)
 header = (
     '/* VICE MAPS — the bundled offline city.\n\n'
-    '   Belgrade, around Autokomanda. Captured from real OpenStreetMap data by\n'
-    '   the in-game LOG button and trimmed out of tests/fixtures by\n'
+    f'   Belgrade, around {PLACE.split(",")[0]}. Captured from real OpenStreetMap data\n'
+    '   by the in-game LOG button and trimmed out of tests/fixtures by\n'
     '   tools/buildcity.py -- streets and scenery from every captured session,\n'
     '   the arterial skeleton from the one that arrived whole. This is what\n'
     '   loads when the map servers cannot be reached, in place of a generated\n'

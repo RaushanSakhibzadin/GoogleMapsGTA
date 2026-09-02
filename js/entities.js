@@ -305,45 +305,52 @@ const pedOffset = r => (r.w || 6) * .5 + PAVE_GAP;
    So the lateral position is corrected against the segment they are actually on
    — and only when they have ended up ON the tarmac, so a walk down a straight is
    untouched and this costs one projection a frame for the few who need it. */
-/* BOTH SEGMENTS AT THE NODE, NOT ONLY THE ONE BEHIND. This measured the walker
-   against the segment they had just come along, which is the wrong one at
-   exactly the place the correction exists for. Approaching the inside of a bend
-   they are still comfortably clear of the segment behind them — so this
-   returned "already on the pavement" — while being well inside the carriageway
-   of the one ahead, which is the tarmac they are visibly standing on. Sampled
-   over a simulated minute of a whole city, that put the worst case 2.5 m into a
-   road with the rate at 0.0011: rare, so it read as a flaky test rather than as
-   a walker cutting a corner, which is what it was.
-   Corrected against whichever of the two is nearest, which is also the one the
-   measurement uses, so the rule and the check are finally asking about the same
-   piece of road. */
+/* THE WHOLE WAY, NOT THE SEGMENT THEY CAME ALONG. This measured the walker
+   against one segment: the one behind them, which is the wrong one at exactly
+   the place the correction exists for. Coming into the inside of a bend they
+   are still comfortably clear of the segment BEHIND — so it returned "already
+   on the pavement" — while standing well inside the carriageway of the one
+   ahead. Widening it to both segments at their node fixed most of it and left a
+   rarer case behind, which was found by asking WHICH segment a walker in the
+   road was actually in: a way with four points and a hairpin in it, walking
+   towards node 2 and standing 1.9 m inside segment 0. Being on the pavement of
+   your own leg is no comfort when the other leg of the same street runs under
+   your feet.
+   So every segment of the way is considered, with a bounding-box reject that
+   throws out all but the two or three that could possibly matter, and the
+   walker is pushed clear of whichever they are actually in. TWICE, because
+   stepping out of one leg of a hairpin can land in the other; a third pass
+   never fired on any road measured. */
 function pedHold(p) {
   const r = p.road;
   if (!r || !r.pts || r.pts.length < 2) return;
-  const i = clamp(p.idx, 0, r.pts.length - 1);
-  let bl = Infinity, bx = 0, by = 0, bnx = 0, bny = 0;
-  for (const k of [i - 1, i]) {
-    if (k < 0 || k + 1 >= r.pts.length) continue;
-    const a = r.pts[k], b = r.pts[k + 1];
-    const ex = b.x - a.x, ey = b.y - a.y;
-    const L2 = ex * ex + ey * ey;
-    if (L2 < 1e-6) continue;
-    const t = clamp(((p.x - a.x) * ex + (p.y - a.y) * ey) / L2, 0, 1);
-    const cx = a.x + ex * t, cy = a.y + ey * t;
-    const lat = Math.hypot(p.x - cx, p.y - cy);
-    if (lat >= bl) continue;
-    const L = Math.sqrt(L2);
-    bl = lat; bx = cx; by = cy;
-    bnx = -ey / L; bny = ex / L;                   // perpendicular to the segment
+  const half = (r.w || 6) * .5, want = pedOffset(r);
+  for (let pass = 0; pass < 2; pass++) {
+    let bl = Infinity, bx = 0, by = 0, bnx = 0, bny = 0;
+    for (let k = 0; k < r.pts.length - 1; k++) {
+      const a = r.pts[k], b = r.pts[k + 1];
+      // nothing outside the carriageway's own box can be within half of it
+      if (p.x < Math.min(a.x, b.x) - half || p.x > Math.max(a.x, b.x) + half ||
+          p.y < Math.min(a.y, b.y) - half || p.y > Math.max(a.y, b.y) + half) continue;
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const L2 = ex * ex + ey * ey;
+      if (L2 < 1e-6) continue;
+      const t = clamp(((p.x - a.x) * ex + (p.y - a.y) * ey) / L2, 0, 1);
+      const cx = a.x + ex * t, cy = a.y + ey * t;
+      const lat = Math.hypot(p.x - cx, p.y - cy);
+      if (lat >= bl) continue;
+      const L = Math.sqrt(L2);
+      bl = lat; bx = cx; by = cy;
+      bnx = -ey / L; bny = ex / L;                 // perpendicular to the segment
+    }
+    if (bl >= half) return;                        // clear of every carriageway
+    // out to the side they are already nearer, which is the pavement they were on
+    const sgn = (p.x - bx) * bnx + (p.y - by) * bny >= 0 ? 1 : -1;
+    p.x = bx + bnx * want * sgn;
+    p.y = by + bny * want * sgn;
+    // counted, so a test can tell a step from a step plus a sideways correction
+    p.holds = (p.holds || 0) + 1;
   }
-  if (bl >= (r.w || 6) * .5) return;               // already clear of the tarmac
-  const want = pedOffset(r);
-  // out to the side they walk on, keeping whichever side they are already nearer
-  const sgn = (p.x - bx) * bnx + (p.y - by) * bny >= 0 ? 1 : -1;
-  p.x = bx + bnx * want * sgn;
-  p.y = by + bny * want * sgn;
-  // counted, so a test can tell a step from a step plus a sideways correction
-  p.holds = (p.holds || 0) + 1;
 }
 
 function walkPed(p, dt) {

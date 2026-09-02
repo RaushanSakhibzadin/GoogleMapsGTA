@@ -217,10 +217,25 @@ out.betterThanTheOldWalk =
 
 /* ---- 3. they face the way they are going ---- */
 out.facing = await p.evaluate(async () => {
-  /* The node each one is walking to is recorded with the position, and anybody
+  /* SETTLE FIRST. The section above runs the old walk for a simulated hour in
+     one synchronous loop — thirty-four walkers by 3,600 steps — which blocks the
+     main thread outright, so no frame is served while it does. The frame that
+     follows it therefore carries the whole stall as its dt, and one step of that
+     size lands a walker somewhere their heading was not pointing when it was
+     taken. One window, asked immediately, failed about one run in four; the same
+     window asked a hundred and eight times WITHOUT the stall in front of it
+     never failed once, which is what says the stall is the cause and not the
+     walk. A simulated second, thrown away, is enough.
+
+     The node each one is walking to is recorded with the position, and anybody
      who reached theirs inside the window is dropped: arriving at a node turns
      you towards the next one, so a heading measured across that moment is a
      heading measured across a corner. Two of twenty-three, before this. */
+  await new Promise(res => {
+    const t0 = window.__simT();
+    const tick = () => (window.__simT() - t0 < 1 ? requestAnimationFrame(tick) : res());
+    requestAnimationFrame(tick);
+  });
   const before = peds.filter(q => !q.dead)
     .map(q => ({ q, x: q.x, y: q.y, idx: q.idx, side: q.side, holds: q.holds || 0 }));
   await new Promise(res => {
