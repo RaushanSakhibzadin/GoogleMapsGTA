@@ -337,6 +337,13 @@ out.ai = await p.evaluate(async () => {
     window.__ghost(ghost);
     window.__tp(0, 0, 0);
     window.__putTraffic(0, 40, 60, 0, null, 12, 0);    // a civilian out on the grass
+    /* AND A KNOWN ONE. This measurement is "GHOST does not change how the AI
+       drives", so the two runs have to be the same car — and traffic[0] is
+       whatever the cull and the top-up left there, which since one in ten of the
+       traffic became a bus or a lorry can be a vehicle capped at 12 m/s in one
+       run and 17 in the other. Eighteen km/h of difference, against a tolerance
+       of fifteen, from a feature that has nothing to do with GHOST. */
+    window.__ordinaryCar(0);
     const t0 = window.__simT();
     let best = 0;
     await new Promise(res => {

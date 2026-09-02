@@ -135,6 +135,13 @@ out.headOn = await p.evaluate(async () => {
      pulling 7 m/s² from rest covers half a metre. It is still there when the
      player gets to it. */
   window.__putTraffic(0, 10, 0, Math.PI, null, 0, 0);
+  /* A CAR, NOT WHATEVER IS IN SLOT ZERO. What is being measured is that a
+     head-on hurts both parties, which is about the damage model rather than
+     about vehicle types — and one in ten of the traffic is now an eleven-tonne
+     bus, which correctly shrugs off an impact that dents a hatchback. Measured:
+     the target came out of it on 100 health while the player lost 7. That is the
+     mass model working, and it is not what this line is asking about. */
+  window.__ordinaryCar(0);
   window.__setCarHp('traffic', 0, 100);
   const id = window.__cars().traffic[0].id;
   let lowT = 100, lowP = 100;

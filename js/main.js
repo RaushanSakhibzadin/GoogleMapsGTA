@@ -690,6 +690,24 @@ window.__cars = () => ({
   cops: cops.map(k => ({ id: k.id, x: +k.x.toFixed(1), y: +k.y.toFixed(1), hp: +k.hp.toFixed(1), dead: !!k.dead })),
   blasts: blasts.length, parts: parts.length, playerHp: +P.car.hp.toFixed(1)
 });
+/* AN ORDINARY HATCHBACK, ON PURPOSE. Two tests reach for traffic[0] and measure
+   PHYSICS with it — how much a head-on hurts, how fast the AI drives — neither of
+   which is about what kind of vehicle it is. That was fine while every car in
+   traffic was a hatchback with a random top speed. It stopped being fine when one
+   in ten became a lorry, a bus, an appliance or a van: an eleven-tonne bus
+   legitimately shrugs off a head-on that would dent a car, and it tops out at
+   12 m/s where a hatchback does 17, so the same measurement taken twice can pick
+   two different vehicles and report the difference as a regression.
+   So a test that wants a known car asks for one. The random top speed goes too —
+   rand(11, 17) is a 21 km/h spread all by itself, which is wider than the
+   tolerance one of those assertions is allowed. */
+window.__ordinaryCar = i => {
+  const t = traffic[i];
+  if (!t) return false;
+  t.livery = null;
+  t.l = 4.5; t.w = 2.0; t.bh = 1.45; t.mass = 1; t.maxSpeed = 15;
+  return true;
+};
 window.__setCarHp = (list, i, hp) => {
   const a = list === 'cops' ? cops : traffic;
   if (!a[i]) return false; a[i].hp = hp; return true;
