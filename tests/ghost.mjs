@@ -44,6 +44,16 @@ function fixture() {
   return { elements: els };
 }
 
+/* EVERY DRIVING WINDOW IN THIS FILE IS SIMULATED SECONDS, NOT WALL-CLOCK ONES.
+   The loop caps the physics at five steps a frame, so below twelve frames a
+   second the world runs slower than the clock — and a full suite on this machine
+   puts it there. Every wait here exists to give the car ROAD to cover: nine
+   seconds to cross a seventy-metre block, five for the kerb to pull it back. On
+   the wall clock those silently become "however far it got", and the
+   drive-through assertion came up short under load — 130 m against 274 running
+   alone, with nothing about GHOST changed. The one window still on the wall
+   clock is the frame counter at the bottom, which is measuring the wall clock on
+   purpose. */
 const b = await chromium.launch({ executablePath: CHROME });
 const ctx = await b.newContext();
 const p = await ctx.newPage({ viewport: { width: 900, height: 640 } });
@@ -110,13 +120,13 @@ async function hold(x, y, h, secs = 5) {
     window.__tp(x, y, h);
     window.__setCarHp && null;
     await new Promise(r => requestAnimationFrame(r));
-    const t0 = performance.now();
+    const t0 = window.__simT();
     let best = 0;
     await new Promise(res => {
       const tick = () => {
         window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
         best = Math.max(best, window.__p().spd);
-        performance.now() - t0 < secs * 1000 ? requestAnimationFrame(tick) : res();
+        window.__simT() - t0 < secs ? requestAnimationFrame(tick) : res();
       };
       requestAnimationFrame(tick);
     });
@@ -151,22 +161,22 @@ out.kerb = await p.evaluate(async () => {
   window.__ghost(false);
   window.__tp(-600, 0, 0);                             // on EW 0, heading east
   await new Promise(r => requestAnimationFrame(r));
-  const t0 = performance.now();
+  const t0 = window.__simT();
   // gas and full lock until it is off the tarmac and clear of it
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: -1, hand: 0 });
-      performance.now() - t0 < 2200 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 2.2 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
   const left = window.__p();
   // now hands off entirely: whatever brings it back is the kerb, not the driver
-  const t1 = performance.now();
+  const t1 = window.__simT();
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 0, brake: 0, steer: 0, hand: 0 });
-      performance.now() - t1 < 5000 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t1 < 5 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
@@ -193,13 +203,13 @@ out.defaultIntoBuilding = await p.evaluate(async () => {
   window.__heal();
   window.__tp(85, 25, Math.PI / 2);                    // 15 m short of the north face
   await new Promise(r => requestAnimationFrame(r));
-  const t0 = performance.now();
+  const t0 = window.__simT();
   let touched = false;
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       if (window.__p().y > 33) touched = true;         // actually arrived at the wall
-      performance.now() - t0 < 9000 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 9 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
@@ -302,13 +312,13 @@ out.ghostThroughBuilding = await p.evaluate(async () => {
   await new Promise(r => requestAnimationFrame(r));
   const hp0 = window.__p().hp;
   let wasInside = false;
-  const t0 = performance.now();
+  const t0 = window.__simT();
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       const q = window.__p();
       if (window.__inside(q.x, q.y)) wasInside = true;
-      performance.now() - t0 < 9000 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 9 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
@@ -327,7 +337,7 @@ out.ai = await p.evaluate(async () => {
     window.__ghost(ghost);
     window.__tp(0, 0, 0);
     window.__putTraffic(0, 40, 60, 0, null, 12, 0);    // a civilian out on the grass
-    const t0 = performance.now();
+    const t0 = window.__simT();
     let best = 0;
     await new Promise(res => {
       const tick = () => {
@@ -335,7 +345,7 @@ out.ai = await p.evaluate(async () => {
         // and made this assertion true no matter what the code did
         const t = window.__traffic()[0];
         if (t) best = Math.max(best, t.spd);
-        performance.now() - t0 < 2500 ? requestAnimationFrame(tick) : res();
+        window.__simT() - t0 < 2.5 ? requestAnimationFrame(tick) : res();
       };
       requestAnimationFrame(tick);
     });
@@ -370,13 +380,13 @@ out.frontier = await p.evaluate(async () => {
   const known = window.__roadDataHere(x, 0);
   window.__tp(x, 0, 0);
   await new Promise(r => requestAnimationFrame(r));
-  const t0 = performance.now();
+  const t0 = window.__simT();
   let best = 0;
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       best = Math.max(best, window.__p().spd);
-      performance.now() - t0 < 4000 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 4 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
@@ -449,11 +459,15 @@ out.fps = await p.evaluate(() => new Promise(r => {
 await p.screenshot({ path: `${OUT}/shot-ghost.png` });
 out.errs = errs.slice(0, 5);
 out.pass =
-  /* 200, not 300. How far up the clock five seconds gets depends on how loaded
-     the machine is — a full-suite run came in at 261 — and what this line is
-     for is separating a road (hundreds) from the 14 km/h crawl beside it. The
-     actual top speed is render.mjs's job. */
-  out.defaultOnRoad.endKmh > 200 &&                  // the road itself is unchanged
+  /* 300 AGAIN. This was dropped to 200 because "how far up the clock five
+     seconds gets depends on how loaded the machine is — a full-suite run came in
+     at 261", which was true and was the wall clock rather than the driving: five
+     seconds of it is fewer than five seconds of world below twelve frames a
+     second. With the window measured in simulated seconds the same run reads 353
+     alone and 351 under three competing browsers, so the number means something
+     again. The actual top speed is still render.mjs's job; this only has to
+     separate a road from the 14 km/h crawl beside it. */
+  out.defaultOnRoad.endKmh > 300 &&                  // the road itself is unchanged
   out.defaultOffRoad.topKmh < 25 &&                  // and off it you crawl
   out.noKerbMagnet &&
   out.buildingStaysSolid &&
