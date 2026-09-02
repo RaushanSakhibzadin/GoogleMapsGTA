@@ -71,12 +71,16 @@ const C = out.geo.cans;
 out.bothAreRoundAndBig = C.length === 2 && C.every(c =>
   c.on && c.display !== 'none' && c.w >= 56 && Math.abs(c.w - c.h) <= 1 &&
   /50%|9999px/.test(c.radius));
-/* ONE IN EACH BOTTOM CORNER. Asked for as "one on the left, the other on the
-   right" and "closer to the bottom": each is in its own half of the screen, and
-   both are in the bottom quarter of it. */
+/* EITHER SIDE OF THE MIDDLE, AND IN FROM THE EDGES. Asked for in two goes:
+   "one on the left, the other on the right" and "closer to the bottom" first,
+   then "both closer to the screen center" — so a corner is now a failure as
+   much as the middle is. Each has to be plainly in its own half AND plainly off
+   its own edge, which is what the second pair of bounds says. Both stay in the
+   bottom quarter of the screen. */
+const mid = c => c.x + c.w / 2;
 out.oneEachSide = C.length === 2 &&
-  C[0].x + C[0].w / 2 < out.geo.vw * 0.35 &&
-  C[1].x + C[1].w / 2 > out.geo.vw * 0.65 &&
+  mid(C[0]) < out.geo.vw * 0.42 && mid(C[0]) > out.geo.vw * 0.10 &&
+  mid(C[1]) > out.geo.vw * 0.58 && mid(C[1]) < out.geo.vw * 0.90 &&
   C.every(c => c.y > out.geo.vh * 0.72);
 // and they carry the side you are on, which is what the rim is for
 out.bothCarryTheTeam = C.every(c => c.team === 'red');

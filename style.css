@@ -329,8 +329,17 @@ body.perked .perk .keyRow{display:none}
   background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.35);
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
-#sprayBtn{left:var(--edgeL)}
-#sprayBtnR{right:var(--edgeR)}
+/* IN FROM THE CORNERS, EITHER SIDE OF THE MIDDLE. Asked for as "both closer to
+   the screen center": hard against the edges is where a thumb rests, which is
+   why they went there, but it is also the furthest point on the glass from
+   where the eye is and it reads as two unrelated buttons rather than as a pair.
+   A fifth of the width in from each edge puts them plainly either side of
+   centre and still inside an easy thumb's reach, and the cap keeps them from
+   drifting out to the middle of a desktop where a fifth is two hundred points
+   and more. */
+:root{--sprayIn:min(20%,220px)}
+#sprayBtn{left:var(--sprayIn)}
+#sprayBtnR{right:var(--sprayIn)}
 .sprayCan.on{display:flex}
 .sprayCan[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
 .sprayCan[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
