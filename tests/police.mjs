@@ -29,7 +29,7 @@
  * same light, rather than to absolute thresholds picked by eye.
  */
 import { chromium } from 'playwright';
-import { CHROME, GAME } from './harness.mjs';
+import { CHROME, GAME, parkOnAStraight } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -75,20 +75,7 @@ await p.waitForTimeout(600);
  * which is open sky by construction — a street wide enough to be a street. The
  * measurement is untouched; only the place it is taken has stopped being an
  * accident of where the city starts you. */
-out.stage = await p.evaluate(() => {
-  let best = null;
-  for (const r of W.driveRoads) for (let i = 0; i + 1 < r.pts.length; i++) {
-    const a = r.pts[i], b = r.pts[i + 1];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    if (Math.hypot(a.x - P.car.x, a.y - P.car.y) > 900 || len < 70) continue;
-    if (!best || len > best.len) best = { a, b, len };
-  }
-  if (!best) return null;
-  const h = Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x);
-  window.__tp(best.a.x + Math.cos(h) * 4, best.a.y + Math.sin(h) * 4, h);
-  P.car.vx = P.car.vy = 0; P.car.z = undefined;
-  return { len: +best.len.toFixed(0), street: best.a.x.toFixed(0) + ',' + best.a.y.toFixed(0) };
-});
+out.stage = await parkOnAStraight(p, 70, 4);
 // the camera eases in update(), so this wait has to be real time and unpaused
 await p.waitForTimeout(2600);
 

@@ -60,6 +60,48 @@ export async function armPerk(page) {
   return PERK_WORD;
 }
 
+/* SOMEWHERE THE CAR CAN ACTUALLY STAND, which is not where the loading screen
+   happens to put it.
+ *
+ * Four tests in this suite staged themselves from P.car's opening position and
+ * all four broke the day the bundled city was rebuilt around a centre forty-five
+ * metres away — because "where the game starts you" is a fact about the map data
+ * rather than a place with any properties. beacon.mjs put the objective 85 m
+ * along the opening heading and pointed it into the inside of a block; police.mjs
+ * stood two cars seventeen metres ahead and landed them in a shaded canyon;
+ * survive.mjs parked "at home" and the car spent the test grinding against a
+ * wall, losing forty-five health while it was supposed to be healing.
+ *
+ * So: the longest straight run of drivable road nearby. A long straight is a
+ * street — open sky, buildings set back down both sides, tarmac under the wheels
+ * — which is what all four of them were assuming they had. It is a property of
+ * the road network rather than of one coordinate, so it survives the map being
+ * rebuilt, which is the whole point.
+ *
+ * Returns what it found, or null if the world has no straight that long; the
+ * caller decides whether that is a skip or a failure. The camera still has to
+ * ease onto the new heading afterwards — that runs in update(), so it needs real
+ * unpaused time, and it is the caller's because only the caller knows whether it
+ * is about to freeze the world. */
+export async function parkOnAStraight(page, minLen = 70, along = 4) {
+  return page.evaluate(([min, off]) => {
+    let best = null;
+    for (const r of W.driveRoads) for (let i = 0; i + 1 < r.pts.length; i++) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (Math.hypot(a.x - P.car.x, a.y - P.car.y) > 900 || len < min) continue;
+      if (!best || len > best.len) best = { a, b, len };
+    }
+    if (!best) return null;
+    const h = Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x);
+    const x = best.a.x + Math.cos(h) * off, y = best.a.y + Math.sin(h) * off;
+    window.__tp(x, y, h);
+    P.car.vx = P.car.vy = 0; P.car.z = undefined;
+    return { x: +x.toFixed(1), y: +y.toFixed(1), h: +h.toFixed(3),
+             len: Math.round(best.len), street: best.a.road ? best.a.road.name : '' };
+  }, [minLen, along]);
+}
+
 /* Playwright's own browser if it downloaded one, otherwise whatever is under
    PLAYWRIGHT_BROWSERS_PATH — sandboxes usually have the binary on disk with the
    download disabled. undefined lets Playwright decide for itself. */

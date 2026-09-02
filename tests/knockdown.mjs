@@ -130,7 +130,15 @@ const RUNOVER = `async (spd) => {
   const q = peds.find(o => !o.dead && !o.struck && o !== MISSION.fare);
   if (!q) return null;
   const from = { x: q.x, y: q.y };
-  P.car.x = q.x - 2.2; P.car.y = q.y; P.car.h = 0;
+  /* TWO METRES, NOT TWO POINT TWO. The contact test is dist2 < 5, which is
+     2.24 m, so starting inside it means the hit lands on the first frame at
+     whatever speed is asked for. Started just outside it, the car has to close
+     the gap — and in headless Chromium under a full suite a frame can be a
+     quarter of a second, which at 22 m/s is five metres of travel in one step
+     and the pedestrian is simply stepped over. That is an artefact of an eight
+     frames a second renderer rather than anything a player can do: at sixty
+     frames the same car moves 0.37 m between tests. */
+  P.car.x = q.x - 2.0; P.car.y = q.y; P.car.h = 0;
   let peak = 0, held = 0, after = 0;
   for (let i = 0; i < 300; i++) {
     if (!q.struck) { P.car.vx = spd; P.car.vy = 0; }

@@ -21,7 +21,7 @@
  * one at a time, with each one A/B'd against the behaviour it replaced.
  */
 import { chromium } from 'playwright';
-import { CHROME, GAME } from './harness.mjs';
+import { CHROME, GAME, parkOnAStraight } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -38,6 +38,15 @@ await p.waitForTimeout(600);
    on the nearest road point to the origin. Both readings below teleport back to
    it, because cops are stocked on roads NEAR THE PLAYER and a player parked in
    the middle of a field gets none. */
+/* ON A STREET, NOT WHERE THE CITY HAPPENED TO START. This read P.car's opening
+   position, which is a fact about the map data rather than a place with any
+   properties: rebuilding the bundled city put that spot up against a wall and
+   the parked car ground itself down forty-five health during a test about
+   healing — reported here as the regeneration window failing to restart, which
+   is the one thing it was not. See parkOnAStraight in the harness; three other
+   tests broke the same way on the same day. */
+const SPOT = await parkOnAStraight(p, 90, 6);
+await p.waitForTimeout(1200);                 // let the camera and the car settle
 const HOME = await p.evaluate(() => { const q = window.__p(); return { x: q.x, y: q.y, h: q.h }; });
 
 /* Parked, alone, and not being driven into by anything. Every reading here is a
@@ -133,7 +142,9 @@ out.hitResets = await p.evaluate(async () => {
   // it must be exactly five down and going nowhere: the window restarted
   const after = +P.car.hp.toFixed(1);
   window.__setInput(null);
-  return { climbing, held: Math.abs(after - (at - 5)) < 0.6 };
+  return { climbing, at: +at.toFixed(1), after, want: +(at - 5).toFixed(1),
+           drift: +(after - (at - 5)).toFixed(1),
+           held: Math.abs(after - (at - 5)) < 0.6 };
 });
 out.aHitRestartsTheWindow = out.hitResets.climbing && out.hitResets.held;
 

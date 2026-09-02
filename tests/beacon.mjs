@@ -24,7 +24,7 @@
    It runs offline on the bundled city, so there is a real street with real
    buildings in front of the camera and no network. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, stubRadio } from './harness.mjs';
+import { CHROME, GAME, stubRadio, parkOnAStraight } from './harness.mjs';
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const p = await browser.newPage({ viewport: { width: 900, height: 600 } });
@@ -74,25 +74,15 @@ const at = (x, y) => (y * W + x) * 4;
    and it gets the same answer they did: find the longest straight run of
    drivable road nearby and use that. A long straight is a street with buildings
    down both sides, which is exactly the shot this wants. */
+const spot = await parkOnAStraight(p, 110, 6);
 out.placed = await p.evaluate(() => {
-  let best = null;
-  for (const r of W.driveRoads) for (let i = 0; i + 1 < r.pts.length; i++) {
-    const a = r.pts[i], b = r.pts[i + 1];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    if (Math.hypot(a.x - P.car.x, a.y - P.car.y) > 900 || len < 110) continue;
-    if (!best || len > best.len) best = { a, b, len };
-  }
-  if (best) {
-    const h = Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x);
-    window.__tp(best.a.x + Math.cos(h) * 6, best.a.y + Math.sin(h) * 6, h);
-    P.car.vx = P.car.vy = 0; P.car.z = undefined;
-  }
   const c = P.car;
   MISSION.state = 'pickup';
   MISSION.pick = { x: c.x + Math.cos(c.h) * 85, y: c.y + Math.sin(c.h) * 85 };
-  return { car: [Math.round(c.x), Math.round(c.y)], onStraight: best ? Math.round(best.len) : null,
+  return { car: [Math.round(c.x), Math.round(c.y)],
            pick: [Math.round(MISSION.pick.x), Math.round(MISSION.pick.y)] };
 });
+out.placed.onStraight = spot ? spot.len : null;
 // the camera has to ease onto the new heading before anything is measured
 await p.waitForTimeout(2900);
 await p.evaluate(() => {

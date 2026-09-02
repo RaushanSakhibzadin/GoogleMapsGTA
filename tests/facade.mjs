@@ -71,15 +71,55 @@ await p.waitForTimeout(2200);
 // file is allowed to know before it types one in
 await armPerk(p);
 out.parked = await p.evaluate(PERK => {
-  let best = null;
+  let out_tried = [];
+  const cands = [];
   for (const b of W.buildings) {
     const d = Math.hypot(b.cx - P.car.x, b.cy - P.car.y);
     // tall, and near enough that its cell is already streamed in
     if (d > 700 || b.h < 14) continue;
-    const s = b.h - d * 0.012;
-    if (!best || s > best.s) best = { s, b };
+    cands.push({ s: b.h - d * 0.012, b });
   }
-  if (!best) return null;
+  if (!cands.length) return null;
+  cands.sort((p1, p2) => p2.s - p1.s);
+  /* AND WITH THE WALL ACTUALLY IN SIGHT, which was assumed.
+   *
+     The stand-off search below only asks whether the CAR is standing in a
+     building. It never asked whether anything stands between the car and the
+     wall it is pointed at — and when the bundled city was rebuilt from a newer
+     capture, a block that capture added landed squarely in that line. The same
+     tallest building at the same stand-off went from 18.7% of the frame being
+     facade to 16.3, and the window-edge ratio from 3.5 to 2.5: the windows were
+     untouched, half the wall was simply behind something else.
+     It is the same fault beacon.mjs found for its landmarks and fixed the same
+     way — tarmac alone is not a view. So the candidates are walked in order and
+     the first with a clear line of sight is taken, and every one tried is
+     reported: a build where the facades really had stopped drawing fails on all
+     of them rather than quietly picking a worse shot. */
+  const blocked = (x0, y0, x1, y1, self) => {
+    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4);
+    for (let i = 1; i < n; i++) {
+      const x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
+      for (const q of W.buildings) {
+        if (q === self) continue;
+        if (x < q.bb.x0 || x > q.bb.x1 || y < q.bb.y0 || y > q.bb.y1) continue;
+        if (pointInPoly(q.pts, x, y)) return true;
+      }
+    }
+    return false;
+  };
+  const tried = [];
+  let pick = null;
+  for (const c of cands.slice(0, 14)) {
+    const q = c.b;
+    const base0 = (q.bb.y1 - q.bb.y0) * 0.5 + 30;
+    // the near face of this building, which is what the camera has to see
+    const face = q.bb.y0 - 1;
+    if (!blocked(q.cx, q.cy - base0, q.cx, face, q)) { pick = c; break; }
+    tried.push({ h: +q.h.toFixed(1), why: 'blocked' });
+  }
+  if (!pick) pick = cands[0];
+  out_tried = tried;
+  const best = pick;
   const b = best.b;
   /* AND ON THE STREET, NOT IN SOMEBODY'S LIVING ROOM. Thirty metres off the wall
      is a distance, not an address: in a real district that lands inside the
@@ -114,7 +154,8 @@ out.parked = await p.evaluate(PERK => {
   window.__ghost(true);
   window.__heal();
   return { h: +b.h.toFixed(1), wide: +(b.bb.x1 - b.bb.x0).toFixed(1),
-           stood: +off.toFixed(1), searched: +(off - base).toFixed(1) };
+           stood: +off.toFixed(1), searched: +(off - base).toFixed(1),
+           rejected: out_tried.length, tried: out_tried.slice(0, 6) };
 }, PERK_WORD);
 await p.waitForTimeout(3000);
 // daylight, where a window is a dark rectangle on a light wall and the sky has
@@ -286,6 +327,24 @@ await p.waitForTimeout(2500);
    it in thin lines along shadows. None of it has anything to do with windows. */
 await p.evaluate(() => window.__noShadow(true));
 out.frozeCity = await freeze();
+/* AND THE STREET IS CLEARED, for the reason section 3 already clears it and one
+   more: a vehicle parked between the camera and the wall is not facade, and it
+   hides the part of the wall it is standing in front of.
+ *
+   That was harmless while every vehicle in traffic was a 1.4 m hatchback. It
+   stopped being harmless the day one in ten became a lorry, a bus or a van: a
+   2.55 m box van 19 m from the lens covered enough of the wall to take the
+   masked area from 18.7% of the frame to 16.3 and the window-edge ratio from 3.5
+   to 2.5, which reads exactly like the windows having been turned off. Cleared
+   AFTER the freeze, because the world tops the traffic back up until it stops.
+   The count is reported, so a run that somehow starts with an empty street is
+   distinguishable from one where this line did nothing. */
+out.cleared = await p.evaluate(() => {
+  const n = traffic.length + cops.length + peds.length;
+  traffic.length = 0; cops.length = 0; peds.length = 0;
+  return n;
+});
+await p.evaluate(() => { for (let i = 0; i < 6; i++) window.__px3(0, 0, 1, 1); });
 {
   const withWin = await grab();
   await p.evaluate(() => window.__noWindows(true));
