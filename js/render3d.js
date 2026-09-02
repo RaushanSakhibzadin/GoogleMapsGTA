@@ -1646,8 +1646,15 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
    That shipped, and the suite was green, because monuments are the one piece of
    real-city furniture none of the synthetic fixtures had. So: one list, both
    streams, and GL.mesh now says so out loud if a buffer ever disagrees with it. */
-const LIT_ATTR = () => [[G3.lit.a.aPos, 3], [G3.lit.a.aNrm, 3],
-                        [G3.lit.a.aCol, 3], [G3.lit.a.aWall, 4], [G3.lit.a.aTag, 1]];
+/* Written once as names and widths, because the two things that need it want
+   different halves: the binder wants the attribute slots, which only exist once
+   a program has been linked, and everybody who writes a vertex wants the total
+   — including a test, which runs with no GL context at all and could otherwise
+   only get the stride by writing it down a second time. Which is the mistake
+   the paragraph above is about. */
+const LIT_LAYOUT = [['aPos', 3], ['aNrm', 3], ['aCol', 3], ['aWall', 4], ['aTag', 1]];
+const LIT_FLOATS = LIT_LAYOUT.reduce((n, s) => n + s[1], 0);
+const LIT_ATTR = () => LIT_LAYOUT.map(([k, n]) => [G3.lit.a[k], n]);
 /* A PERSON, out of six boxes and a stride.
 
    They were one box: 0.64 m square, 1.7 m tall, in one of the six fluorescent

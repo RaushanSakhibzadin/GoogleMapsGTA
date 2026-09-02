@@ -305,28 +305,43 @@ const pedOffset = r => (r.w || 6) * .5 + PAVE_GAP;
    So the lateral position is corrected against the segment they are actually on
    — and only when they have ended up ON the tarmac, so a walk down a straight is
    untouched and this costs one projection a frame for the few who need it. */
+/* BOTH SEGMENTS AT THE NODE, NOT ONLY THE ONE BEHIND. This measured the walker
+   against the segment they had just come along, which is the wrong one at
+   exactly the place the correction exists for. Approaching the inside of a bend
+   they are still comfortably clear of the segment behind them — so this
+   returned "already on the pavement" — while being well inside the carriageway
+   of the one ahead, which is the tarmac they are visibly standing on. Sampled
+   over a simulated minute of a whole city, that put the worst case 2.5 m into a
+   road with the rate at 0.0011: rare, so it read as a flaky test rather than as
+   a walker cutting a corner, which is what it was.
+   Corrected against whichever of the two is nearest, which is also the one the
+   measurement uses, so the rule and the check are finally asking about the same
+   piece of road. */
 function pedHold(p) {
   const r = p.road;
   if (!r || !r.pts || r.pts.length < 2) return;
   const i = clamp(p.idx, 0, r.pts.length - 1);
-  const j = clamp(i - p.dir, 0, r.pts.length - 1);
-  if (i === j) return;
-  const a = r.pts[j], b = r.pts[i];
-  const ex = b.x - a.x, ey = b.y - a.y;
-  const L2 = ex * ex + ey * ey;
-  if (L2 < 1e-6) return;
-  let t = ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2;
-  t = clamp(t, 0, 1);
-  const cx = a.x + ex * t, cy = a.y + ey * t;
-  const lat = Math.hypot(p.x - cx, p.y - cy);
+  let bl = Infinity, bx = 0, by = 0, bnx = 0, bny = 0;
+  for (const k of [i - 1, i]) {
+    if (k < 0 || k + 1 >= r.pts.length) continue;
+    const a = r.pts[k], b = r.pts[k + 1];
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const L2 = ex * ex + ey * ey;
+    if (L2 < 1e-6) continue;
+    const t = clamp(((p.x - a.x) * ex + (p.y - a.y) * ey) / L2, 0, 1);
+    const cx = a.x + ex * t, cy = a.y + ey * t;
+    const lat = Math.hypot(p.x - cx, p.y - cy);
+    if (lat >= bl) continue;
+    const L = Math.sqrt(L2);
+    bl = lat; bx = cx; by = cy;
+    bnx = -ey / L; bny = ex / L;                   // perpendicular to the segment
+  }
+  if (bl >= (r.w || 6) * .5) return;               // already clear of the tarmac
   const want = pedOffset(r);
-  if (lat >= (r.w || 6) * .5) return;              // already clear of the tarmac
-  const L = Math.sqrt(L2);
-  const nx = -ey / L, ny = ex / L;                 // perpendicular to the segment
   // out to the side they walk on, keeping whichever side they are already nearer
-  const sgn = (p.x - cx) * nx + (p.y - cy) * ny >= 0 ? 1 : -1;
-  p.x = cx + nx * want * sgn;
-  p.y = cy + ny * want * sgn;
+  const sgn = (p.x - bx) * bnx + (p.y - by) * bny >= 0 ? 1 : -1;
+  p.x = bx + bnx * want * sgn;
+  p.y = by + bny * want * sgn;
   // counted, so a test can tell a step from a step plus a sideways correction
   p.holds = (p.holds || 0) + 1;
 }

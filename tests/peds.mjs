@@ -253,8 +253,16 @@ out.facesTheWayTheyWalk = out.facing.moved > 8 && out.facing.ok === out.facing.m
 
    Read off the geometry the renderer is handed, not off a screenshot. pushPerson
    writes into a plain array in the same layout every other dynamic mesh uses —
-   13 floats a vertex, 36 vertices a box — so the boxes can be counted and their
-   extents measured. */
+   36 vertices a box — so the boxes can be counted and their extents measured.
+
+   THE STRIDE IS ASKED FOR RATHER THAN WRITTEN DOWN. It was 13 here, and it has
+   been 14 since aTag joined the layout, so this section had been reading the
+   stream at the wrong pitch: it reported 6.46 boxes of a possible 6, a person
+   220 m tall standing 114 m underground, and it had been failing on every run
+   since — read as one of this machine's flaky tests and left alone. There is a
+   single list that says what the layout is, LIT_LAYOUT, and both the cell meshes
+   and the dynamic stream are built from it, so this reads its width off that and
+   cannot drift again. */
 out.model = await p.evaluate(() => {
   const q = peds.find(o => !o.dead);
   if (!q) return null;
@@ -262,10 +270,10 @@ out.model = await p.evaluate(() => {
   q.step = Math.PI / 2;                      // mid-stride: legs at full swing
   const a = [];
   pushPerson(a, q);
-  const STRIDE = 13, VERTS = a.length / STRIDE;
+  const VERTS = a.length / LIT_FLOATS;
   const xs = [], ys = [], zs = [];
   for (let i = 0; i < VERTS; i++) {
-    xs.push(a[i * STRIDE]); ys.push(a[i * STRIDE + 1]); zs.push(a[i * STRIDE + 2]);
+    xs.push(a[i * LIT_FLOATS]); ys.push(a[i * LIT_FLOATS + 1]); zs.push(a[i * LIT_FLOATS + 2]);
   }
   const y0 = terrainH(q.x, q.y);
   const top = Math.max(...ys) - y0, bottom = Math.min(...ys) - y0;
