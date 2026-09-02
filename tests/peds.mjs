@@ -78,7 +78,11 @@ const walkFor = (secs, src) => p.evaluate(async ([s, source]) => {
     const tick = () => {
       if (seen.frames++ % 6 === 0) {
         for (const q of peds) {
-          if (q.dead || !q.road) continue;
+          /* Anybody who has been knocked down is not walking, and where they
+             came to rest is the collision's business rather than the walk's —
+             a body thrown into a carriageway by a car is the feature working.
+             What this section measures is where people WALK. */
+          if (q.dead || !q.road || q.struck) continue;
           const own = measure(q.x, q.y, q.road);
           const off = own.d - own.w / 2;
           seen.samples++;
@@ -98,7 +102,14 @@ const walkFor = (secs, src) => p.evaluate(async ([s, source]) => {
 
 /* ---- 1. where they are, after a minute of walking ---- */
 await p.evaluate(() => {
-  window.__setInput({ gas: 0, brake: 1, steer: 0, hand: 0 });
+  /* THE HANDBRAKE, NOT THE BRAKE. Holding `brake` is not "stand still": with no
+     throttle it drives the car backwards — that is the arcade convention and it
+     is deliberate, capped at 45% of top speed, which is 76 km/h. So this test
+     spent every one of its sixty seconds reversing through the city it was
+     measuring. It never showed, because a pedestrian the car hit used to be
+     deleted on contact; now that they stay where they fall, the ones it mowed
+     into the carriageway came back as the walk putting people in the road. */
+  window.__setInput({ gas: 0, brake: 0, steer: 0, hand: 1 });
   P.car.vx = P.car.vy = 0;
 });
 out.overTheMinute = await walkFor(60, MEASURE);

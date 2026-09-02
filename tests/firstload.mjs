@@ -113,13 +113,21 @@ out.atStart = await p.evaluate(async () => {
   const w = window.__w(), q = window.__p();
   window.__tp(0, 0, 0);
   await new Promise(r => requestAnimationFrame(r));
-  const t0 = performance.now();
+  /* TWO AND A HALF SIMULATED SECONDS, NOT TWO AND A HALF ON THE WALL CLOCK.
+     The loop caps the physics at five steps a frame, so below twelve frames a
+     second the world runs slower than the clock on the wall — and a full suite
+     on this machine puts it there. A fixed wall-clock window then hands the car
+     less accelerating to do and the top speed comes out short: 198 km/h against
+     a floor of 200 on a run where nothing about the driving had changed. The
+     harness note on GAME says this in as many words, and survive.mjs already
+     drives every one of its waits off __simT for the same reason. */
+  const t0 = window.__simT();
   let best = 0;
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       best = Math.max(best, window.__p().spd);
-      performance.now() - t0 < 2500 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 2.5 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });

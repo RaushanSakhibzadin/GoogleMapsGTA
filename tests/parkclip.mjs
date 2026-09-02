@@ -118,6 +118,38 @@ const greenCount = () => p.evaluate(() => {
   return { green, total: w * h, pct: +(100 * green / (w * h)).toFixed(2) };
 });
 
+/* BOTH FRAMES ARE TAKEN OF A SETTLED WORLD, and the "with" one was not.
+   The park arrives on the buildings request, which streams tile by tile, and the
+   cells are built from whatever has arrived when each one is built. Under a full
+   suite one run measured the subject frame with eight of the nine parks in the
+   world and the cell in front of the camera built before the ninth landed: the
+   park was in neither frame and the difference came out at minus nine. So the
+   world is allowed to stop changing and the geometry is rebuilt from it, which
+   is exactly what the control frame below already does — the two are now the
+   same procedure with one flag between them, which is the whole idea. */
+const settleWorld = () => p.evaluate(async () => {
+  let last = -1, still = 0, waited = 0;
+  while (waited < 12000) {
+    await new Promise(r => setTimeout(r, 150));
+    waited += 150;
+    const n = W.parks.length;
+    if (n === last) { if (++still >= 4) break; } else { still = 0; last = n; }
+  }
+  if (typeof dropAllCells === 'function') dropAllCells();
+  return { parks: last, ms: waited };
+});
+const waitCells = () => p.evaluate(async () => {
+  let last = -1, still = 0, waited = 0;
+  while (waited < 12000) {
+    await new Promise(r => setTimeout(r, 120));
+    waited += 120;
+    const n = window.__gl3().cells;
+    if (n === last && n > 0) { if (++still >= 4) break; } else { still = 0; last = n; }
+  }
+  return { cells: last, ms: waited };
+});
+out.settled = await settleWorld();
+out.builtWith = await waitCells();
 out.withPark = await greenCount();
 
 /* And the same frame with the park taken out of the world, which is the only
@@ -128,7 +160,18 @@ await p.evaluate(() => {
   W.parks = [];
   if (typeof dropAllCells === 'function') dropAllCells();
 });
-await p.waitForTimeout(400);
+/* WAIT FOR THE CELLS TO COME BACK, rather than for four hundred milliseconds.
+   dropAllCells throws the geometry away and it is rebuilt ONE CELL PER FRAME —
+   so how long that takes is a frame rate, not a duration. Under a full suite
+   this machine renders the chase view at eight frames a second and four hundred
+   milliseconds bought three cells of the sixteen in view: the frame still
+   showed the old geometry, park and all, and the control came back within
+   seventy pixels of the subject. The park was drawn perfectly; the comparison
+   was between two pictures of it.
+   Polled until the live cell count stops moving, which is the thing actually
+   being waited for, with a ceiling so a build that never rebuilds fails rather
+   than hangs. */
+out.rebuild = await waitCells();
 out.withoutPark = await greenCount();
 await p.evaluate(() => {
   W.parks = window.__keepParks;
