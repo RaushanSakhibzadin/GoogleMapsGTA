@@ -126,7 +126,7 @@ await p.waitForTimeout(200);
 /* The gear, and the two contextual buttons that sit over the game. The view,
    light and log buttons are inside the settings panel now — reached by opening
    it, which is the gear's own tap, so they are covered by covering the gear. */
-const TARGETS = ['#mixBtn', '#sprayBtn', '#jobBtn'];
+const TARGETS = ['#mixBtn', '#sprayBtn', '#sprayBtnR', '#jobBtn'];
 
 // ---------- 1. a tap that slides, which is every real tap ----------
 /* FOUR PIXELS. A thumb pressed to glass for a tenth of a second reports several

@@ -30,8 +30,10 @@ const isB = req => decodeURIComponent(req.postData() || '').includes('"building"
    settings panel now rather than a control floating over the game, so it has no
    place in the layout that has to not collide with itself. The panel's own rows
    are checked in fixes.mjs, where the panel is opened. */
+// BOTH cans, not one: they are two buttons in two corners and either of them can
+// land on something. A list that names half a pair checks half a layout.
 const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars', 'chunk',
-             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn'];
+             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn', 'sprayBtnR'];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = [];
@@ -144,7 +146,35 @@ for (const [label, ctxOpts] of CASES) {
 
   await p.waitForTimeout(300);
   await p.screenshot({ path: `${OUT}/shot-arrow-${label}.png` });
-  out.push({ label, vw: geo.vw, vh: geo.vh, where, clashes, onCar, nearest, arrowOk, errs });
+
+  /* WHERE THE TOP OF THE SCREEN PUT THINGS, which is a different question from
+     whether anything overlaps and is the one that was asked for: the objective
+     across the top CENTRE, and the radar and the street name higher up than they
+     were under it.
+   *
+     A LANDSCAPE PHONE IS EXEMPT FROM THE CENTRING and says so rather than being
+     quietly excused. 342 points of height has one clear strip at the top and the
+     settings button already has it — see the media query in style.css — so the
+     objective stays at the head of the left column there. The radar assertion is
+     NOT exempt: it comes up on every shape, which is the half of the ask that
+     had nothing to do with orientation. */
+  const objB = geo.boxes.obj, miniB = geo.boxes.mini;
+  const place = { objMid: objB ? Math.round(objB.x + objB.w / 2) : null,
+                  screenMid: Math.round(geo.vw / 2),
+                  objBottom: objB ? objB.y + objB.h : null,
+                  miniTop: miniB ? miniB.y : null };
+  const short = geo.vh <= 520;
+  // within a twentieth of the screen's width of the middle
+  place.centred = short ? 'n/a (landscape)'
+    : !!objB && Math.abs(place.objMid - place.screenMid) <= geo.vw * 0.05;
+  /* 56 IS THE NUMBER THE ASK IS ABOUT. The radar used to hang below two and a
+     half lines of reserved objective height and started 60 points down a phone
+     and further on a desktop; with the objective lifted out into its own banner
+     it starts at 46 on every shape measured. */
+  place.radarIsHigh = !!miniB && place.miniTop <= 56;
+  // and the objective still sits above it rather than through it
+  place.objAboveRadar = !objB || !miniB || place.objBottom <= place.miniTop + 2;
+  out.push({ label, vw: geo.vw, vh: geo.vh, where, clashes, onCar, nearest, arrowOk, place, errs });
   await p.close(); await ctx.close();
 }
 /* AND A VERDICT, which this did not have.
@@ -159,7 +189,9 @@ for (const [label, ctxOpts] of CASES) {
    middle of the screen and the HUD is around the edges of it, so a wide car at
    speed brushing the armor bar is the layout working. Two HUD elements on top of
    each other is not. */
-const bad = out.filter(c => c.clashes.length || c.errs.length);
+const bad = out.filter(c => c.clashes.length || c.errs.length ||
+                           c.place.centred === false || !c.place.radarIsHigh ||
+                           !c.place.objAboveRadar);
 const pass = bad.length === 0;
 console.log(JSON.stringify({ cases: out, failing: bad.map(c => c.label), pass }, null, 1));
 await browser.close();

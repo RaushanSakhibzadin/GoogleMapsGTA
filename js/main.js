@@ -115,7 +115,10 @@ $('jobBtn').onclick = () => { const j = jobHere(); if (j) setJob(j); };
    above. */
 $('betRed').onclick = () => placeBet('red');
 $('betBlack').onclick = () => placeBet('black');
-$('sprayBtn').onclick = () => sprayPaint();
+/* BOTH CANS, ONE ACTION. They are the same button in two corners — see the
+   .sprayCan block in style.css — so they share a handler rather than one of them
+   being a copy that can drift out of step with the other. */
+for (const id of SPRAY_IDS) { const el = $(id); if (el) el.onclick = () => sprayPaint(); }
 $('mini').onclick = openMap;
 $('mapClose').onclick = closeMap;
 /* PUT THE CAR BACK IN THE MIDDLE, and touch nothing else.

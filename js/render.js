@@ -745,6 +745,39 @@ function drawBigMap() {
     g.stroke();
   }
   g.globalAlpha = 1;
+
+  /* PAINTED WALLS, THE SAME AS ON THE RADAR — and the same reasoning: every
+     other building is deliberately absent, because a city's footprints drawn at
+     map scale is a grey mush with the streets lost inside it. A wall somebody
+     sprayed is a thing that HAPPENED rather than scenery, and seeing which
+     streets have gone your colour is most of the point of painting them. The
+     radar has shown them since the day the feature landed; asked for, fairly,
+     on the big map too, which is the one you open to see where you stand.
+
+     ON TOP OF THE ROADS rather than under them. The radar draws them last for
+     the same reason: a block is a few pixels there and a road stroke across it
+     would be most of what you saw. Here they are big enough for it not to
+     matter and the consistency is worth more than the ordering.
+
+     STROKED AS WELL AS FILLED, in the ink rather than the fill, because one of
+     the two sides IS black and a black block on a near-black map is not a subtle
+     effect but an invisible one. The outline is in device pixels with a floor,
+     so a block stays outlined when you zoom out until it is too small to see at
+     all. */
+  const paintedNear = W.buildings.filter(b => b.turf && b.pts && b.pts.length > 2 && near(b));
+  if (paintedNear.length) {
+    g.lineWidth = Math.max(0.6, 1.4 * DPR / s);
+    for (const b of paintedNear) {
+      const t = turfPaint(b);
+      if (!t) continue;
+      g.beginPath();
+      g.moveTo(b.pts[0].x, b.pts[0].y);
+      for (let i = 1; i < b.pts.length; i++) g.lineTo(b.pts[i].x, b.pts[i].y);
+      g.closePath();
+      g.fillStyle = t.map; g.fill();
+      g.strokeStyle = t.ink; g.stroke();
+    }
+  }
   g.restore();
 
   // Landmarks and markers go on unscaled, so they stay the same size however far

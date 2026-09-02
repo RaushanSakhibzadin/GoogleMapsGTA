@@ -983,7 +983,7 @@ function resetRun() {
   resetTurfWalls();
   casinoAt = null; sprayShown = null;
   if ($('betRow')) $('betRow').classList.remove('on');
-  if ($('sprayBtn')) $('sprayBtn').classList.remove('on');
+  for (const id of SPRAY_IDS) { const el = $(id); if (el) el.classList.remove('on'); }
   // otherwise a new city opens still showing the last one's street and district
   NAV.street = NAV.zone = NAV.cand = ''; NAV.candT = NAV.showT = 0;
   $('street').textContent = ''; $('street').classList.remove('on');

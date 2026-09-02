@@ -54,6 +54,12 @@
    the colour is meant to come from the neon and the street lights, not from the
    brick. Run a red building through it and it comes out violet-grey, which is
    the feature disappearing every evening. */
+/* THE TWO CANS. One button in each bottom corner, and the same action behind
+   both — whichever hand is free presses it. Named here rather than at any of the
+   three places that touch them (the click, the show/hide, the reset on a new
+   run), because a second button is exactly the kind of thing that gets added to
+   two of three. */
+const SPRAY_IDS = ['sprayBtn', 'sprayBtnR'];
 const TEAMS = {
   red:   { wall: '#8f1622', roof: '#c9202f', ink: '#ff8a96', map: '#d0263a',
            mWall: [150, 26, 38], mRoof: [205, 40, 55] },
@@ -304,12 +310,13 @@ function syncTurfUI() {
      blinks in and out as you drive is unreadable, and a press with nothing in
      range says so. */
   const can = TURF.bets > 0 && !!TURF.team;
-  const sb = $('sprayBtn');
-  if (sb && can !== sprayShown) {
-    sb.classList.toggle('on', can);
-    sprayShown = can;
+  for (const id of SPRAY_IDS) {
+    const sb = $(id);
+    if (!sb) continue;
+    if (can !== sprayShown) sb.classList.toggle('on', can);
+    if (can) sb.dataset.team = TURF.team;
   }
-  if (sb && can) sb.dataset.team = TURF.team;
+  sprayShown = can;
 }
 
 /* What a painted building looks like, asked by resolveColours in util.js and by
