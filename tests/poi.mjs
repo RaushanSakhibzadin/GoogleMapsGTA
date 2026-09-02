@@ -309,6 +309,14 @@ out.kinds.allFiveArrive =
       ordinary: window.__passableAt(pts.SOLID.x, pts.SOLID.y),
     };
     window.__setCash(0);
+    /* AND AN EMPTY ROAD TO DO IT ON. Three hundred metres flat out through a
+       city with traffic in it is three hundred metres of other cars, and one of
+       them is worth thirty health — which this read as the hospital wall having
+       stopped being passable. It failed exactly once, inside a full suite, on a
+       slower run that met a car the quick ones had already passed. What is
+       under test is a building, so the cars are swept up as they spawn. */
+    TRAFFIC_SET = 1;
+    window.__emptyRoad = setInterval(() => { traffic.length = 0; cops.length = 0; }, 50);
     window.__tp(pts.HOSPITAL.x - 90, pts.HOSPITAL.y, 0);
     return { flags, hp0: window.__p().hp };
   }, { HOSPITAL, POLICE, REPAIR, SOLID });
@@ -318,8 +326,10 @@ out.kinds.allFiveArrive =
   await p.waitForTimeout(5000);
   await p.keyboard.up('w');
   Object.assign(out.through, await p.evaluate((H) => {
+    clearInterval(window.__emptyRoad);
     const q = window.__p();
-    return { hpAfter: q.hp, endX: q.x, insideNow: window.__inside(q.x, q.y) };
+    return { hpAfter: q.hp, endX: q.x, insideNow: window.__inside(q.x, q.y),
+             metCars: traffic.length + cops.length };
   }, HOSPITAL));
   const t = out.through;
   out.through.allLandmarksPassable = t.flags.hospitalWay === true && t.flags.policeNode === true && t.flags.repairNode === true;

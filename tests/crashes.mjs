@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio, parkOnAStraight } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const URL = GAME;
 const LAT0 = 40.7580, LON0 = -73.9855;
@@ -244,8 +244,24 @@ out.cop = await p.evaluate(async () => {
  * pointed down the line: the cop drives at the player and the civilian is in the
  * way. BOTH cars are read, because "the cop shunts it" and "the cop is damaged
  * doing so" are two different halves of the report. */
-out.copVsTraffic = await p.evaluate(async () => {
-  window.__tp(0, 0, 0);
+/* DOWN A REAL STREET, and measured well enough to say what went wrong.
+ *
+ * This used to lay the three cars along the x axis through the origin. That is
+ * 170 m of whatever happens to be there — and what is there depends on which car
+ * came out of the pool first, because the run before it left the player in a
+ * different place. It passed on its own five times running with identical
+ * numbers and failed inside a full suite, reporting a cruiser that drove from
+ * one end to the other with both cars still on 100: no collision, no clue.
+ *
+ * So the line is a straight the world already has, the same one five other tests
+ * park on, and the gap the cruiser passes the civilian by is now part of the
+ * report. A miss and a collision that does no damage are different bugs and used
+ * to read the same. */
+const straight = await parkOnAStraight(p, 130, 4);
+out.copVsTraffic = await p.evaluate(async spot => {
+  const h = spot ? spot.h : 0, ux = Math.cos(h), uy = Math.sin(h);
+  const px = spot ? spot.x : 0, py = spot ? spot.y : 0;
+  window.__tp(px, py, h);
   P.car.vx = P.car.vy = 0;
   window.__addWanted(3);
   await new Promise(r => setTimeout(r, 800));
@@ -261,31 +277,49 @@ out.copVsTraffic = await p.evaluate(async () => {
      the collision working and the measurement pointing at the wrong car. */
   const capWas = TRAFFIC_SET;
   TRAFFIC_SET = 1;
-  // the civilian parked, with no engine of its own so what happens to it is what
-  // the cop did to it
-  window.__putTraffic(traffic.indexOf(t), 60, 0, Math.PI, null, 0, 0);
-  t.hp = 100; t.accel = 0; t.maxSpeed = 200;
-  /* AND THE CHASE IS AIMED DOWN THE LANE THE CIVILIAN ACTUALLY SETTLES IN, not
-     down the centreline. Traffic keeps right: dropped on y = 0 it slides two and
-     a half metres across into its own lane within a few frames, and a cruiser
-     driving at a player on the centreline then passes it with a metre to spare —
-     which the first run of this measured as a cop that drove from 110 to 36
-     without touching a car parked at 60. It is the same trap that had section 1
-     reporting two cars that never met. */
-  await new Promise(r => setTimeout(r, 350));
-  const lane = { x: t.x, y: t.y };
-  window.__tp(lane.x - 160, lane.y, 0);
-  P.car.vx = P.car.vy = 0;
-  window.__putCop(cops.indexOf(k), lane.x + 50, lane.y, Math.PI, -30, 0);
-  k.hp = 100;
-  await new Promise(r => setTimeout(r, 2200));
-  const tt = traffic.find(q => q.id === tid), kk = cops.find(q => q.id === cid);
+  // sixty metres up the road from the player, with the cruiser dropped another
+  // fifty-five beyond it and already doing thirty back down the line
+  const lane = { x: px + ux * 60, y: py + uy * 60 };
+  const drop = { x: px + ux * 115, y: py + uy * 115 };
+  let n = 0, missedBy = 99, sawIt = false, res = null;
+  while (n++ < 3) {
+    window.__tp(px, py, h);
+    P.car.vx = P.car.vy = 0;
+    // the civilian parked, with no engine of its own so what happens to it is
+    // what the cop did to it
+    window.__putTraffic(traffic.indexOf(t), lane.x, lane.y, h + Math.PI, null, 0, 0);
+    t.hp = 100; t.accel = 0; t.maxSpeed = 200;
+    window.__putCop(cops.indexOf(k), drop.x, drop.y, h + Math.PI, -ux * 30, -uy * 30);
+    k.hp = 100;
+    missedBy = 99;
+    let hitAt = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 2600) {
+      await new Promise(r => requestAnimationFrame(r));
+      const kk = cops.find(q => q.id === cid), tt = traffic.find(q => q.id === tid);
+      if (!kk || !tt) break;                      // one of them is gone: they met
+      const along = (kk.x - tt.x) * ux + (kk.y - tt.y) * uy;
+      if (Math.abs(along) < 10) {
+        // how wide it went by, and whether the grid the cop asks even had it
+        missedBy = Math.min(missedBy, Math.abs((tt.x - kk.x) * uy - (tt.y - kk.y) * ux));
+        sawIt = sawIt || nearTraffic(kk.x, kk.y).indexOf(tt) >= 0;
+      }
+      // a second after contact, because being shunted down the road is half of
+      // what is being read and none of it has happened on the frame of the hit
+      if (!hitAt && tt.hp < 100) hitAt = performance.now();
+      if (hitAt) { if (performance.now() - hitAt > 1000) break; }
+      else if (along < -12) break;                // past it: line them up again
+    }
+    const tt = traffic.find(q => q.id === tid), kk = cops.find(q => q.id === cid);
+    res = { copHp: kk ? Math.round(kk.hp) : 0, copGone: !kk,
+            carHp: tt ? Math.round(tt.hp) : 0, carGone: !tt,
+            shoved: tt ? Math.round(Math.hypot(tt.x - lane.x, tt.y - lane.y)) : null };
+    if (res.carGone || res.carHp < 100) break;
+  }
   TRAFFIC_SET = capWas;
-  return { copHp: kk ? Math.round(kk.hp) : 0, copGone: !kk,
-           carHp: tt ? Math.round(tt.hp) : 0, carGone: !tt,
-           shoved: tt ? Math.round(Math.hypot(tt.x - lane.x, tt.y - lane.y)) : null,
-           copX: kk ? Math.round(kk.x) : null, laneY: +lane.y.toFixed(1) };
-});
+  return { ...res, drops: n, missedBy: +missedBy.toFixed(1), sawIt,
+           street: spot ? spot.street : '(the origin)' };
+}, straight);
 out.policeHitTraffic = !!out.copVsTraffic.note ||
   ((out.copVsTraffic.carGone || out.copVsTraffic.carHp < 100) &&
    (out.copVsTraffic.copGone || out.copVsTraffic.copHp < 100) &&

@@ -127,17 +127,32 @@ out.theSickLieDown = !!out.casualty.skipped ||
    car is driven through them rather than the state being set, so what is under
    test is the collision and not a function called by hand. */
 const RUNOVER = `async (spd) => {
-  const q = peds.find(o => !o.dead && !o.struck && o !== MISSION.fare);
+  /* A PERSON WITH ROOM BEHIND THEM. The first pedestrian on the list is often
+     standing on a pavement laid over a building footprint — real Belgrade has
+     plenty of those — and the two metres of road this test needs are inside the
+     wall. Placing the car there put it inside the building, the collision pass
+     ejected it sideways on the first frame, and it then drove AWAY from the
+     person it was aimed at: struck false, nothing moved, no clue why.
+
+     So the approach lane is checked before it is used. solidAt is the same test
+     walkPed uses to keep people out of walls, which is the right one: it asks
+     the buildings, not the drivable mask, and a car can sit on a verge. */
+  const clear = (x, y) => typeof solidAt !== 'function' || !solidAt(x, y);
+  const q = peds.find(o => !o.dead && !o.struck && o !== MISSION.fare &&
+                           clear(o.x, o.y) && clear(o.x - 2, o.y) &&
+                           clear(o.x - 5, o.y) && clear(o.x - 8, o.y));
   if (!q) return null;
+  /* AND NOTHING RAMMING YOU WHILE YOU DO IT. Every run of this hands out a
+     wanted star, so by the second one there is a squad car in the mirror; one
+     of them shunting the player mid-approach is not what is under test. */
+  P.wanted = 0; cops.length = 0;
   const from = { x: q.x, y: q.y };
   /* TWO METRES, NOT TWO POINT TWO. The contact test is dist2 < 5, which is
      2.24 m, so starting inside it means the hit lands on the first frame at
-     whatever speed is asked for. Started just outside it, the car has to close
-     the gap — and in headless Chromium under a full suite a frame can be a
-     quarter of a second, which at 22 m/s is five metres of travel in one step
-     and the pedestrian is simply stepped over. That is an artefact of an eight
-     frames a second renderer rather than anything a player can do: at sixty
-     frames the same car moves 0.37 m between tests. */
+     whatever speed is asked for, and the report cannot come out different on a
+     slow machine than on a fast one. (The hit itself does not need the help:
+     the contact test runs inside the fixed 1/60 step, so even a car at 22 m/s
+     covers 0.37 m between two of them and cannot be stepped past.) */
   P.car.x = q.x - 2.0; P.car.y = q.y; P.car.h = 0;
   let peak = 0, held = 0, after = 0;
   for (let i = 0; i < 300; i++) {
