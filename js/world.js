@@ -1553,6 +1553,114 @@ function nearestRoadDir(x, y, maxCells = 6) {
   return { x: (bx - x) / d, y: (by - y) / d, d };
 }
 
+/* HOW FAR IS IT TO DRIVE, as opposed to how far it looks on the radar.
+
+   Reported from play: an ambulance call on the far bank of the river — a few
+   hundred metres away in a straight line, several kilometres away by road, with
+   a clock sized off the few hundred. Every distance the missions are built from
+   was a straight line, which is the right answer everywhere except where the
+   city has a hole in it: a river, a railway cutting, a motorway with no
+   junction on it.
+
+   Dijkstra over the drivable mask. W.grid is already a grid of 8 m cells with
+   the road network painted into it, so this is a flood fill rather than a graph
+   search — nothing to build, nothing to store — and it answers for every point
+   in range at once, which is what the caller wants: one field, fourteen
+   candidate patients tested against it.
+
+   DIAL'S BUCKETS RATHER THAN A HEAP. There are exactly two step costs, 10 and
+   14 (orthogonal and diagonal, in tenths of a cell), so a ring of sixteen lists
+   indexed by cost modulo sixteen is a priority queue with no comparisons in it:
+   everything pushed while cost c is being drained lands at c+10 or c+14, and
+   fifteen consecutive costs fit in a ring of sixteen. Integer costs exist for
+   that reason and for no other.
+
+   BOUNDED TO A BOX around the source, because the mask can be nine thousand
+   cells square and a field over all of it would be eighty-one million cells to
+   answer a question about the next kilometre. */
+const FIELD_SNAP = 40;                   // how far off the tarmac a query may sit
+const FIELD_DX = [1, -1, 0, 0, 1, 1, -1, -1];
+const FIELD_DY = [0, 0, 1, -1, 1, -1, 1, -1];
+function roadField(fromX, fromY, cap = 5000) {
+  if (!W.grid) return null;
+  const R = Math.ceil(cap / W.cell);
+  const cx = Math.floor((fromX - W.gx0) / W.cell), cy = Math.floor((fromY - W.gy0) / W.cell);
+  const x0 = Math.max(0, cx - R), y0 = Math.max(0, cy - R);
+  const x1 = Math.min(W.gw - 1, cx + R), y1 = Math.min(W.gh - 1, cy + R);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  if (w < 1 || h < 1) return null;
+  /* The source is a car at a kerb or a hospital's centroid, so it is usually not
+     on the mask at all — start from the nearest cell that is. */
+  const snapR = Math.ceil(FIELD_SNAP / W.cell);
+  let sx = -1, sy = -1;
+  for (let r = 0; r <= snapR && sx < 0; r++)
+    for (let i = -r; i <= r && sx < 0; i++) for (let j = -r; j <= r; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      const nx = cx + i, ny = cy + j;
+      if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+      if (gridGet(ny * W.gw + nx) === 1) { sx = nx; sy = ny; break; }
+    }
+  if (sx < 0) return null;
+  const INF = 0xffff, capCost = Math.min(INF - 1, Math.round(cap / W.cell * 10));
+  const cost = new Uint16Array(w * h).fill(INF);
+  const NB = 16, bk = [];
+  for (let i = 0; i < NB; i++) bk.push([]);
+  const si = (sy - y0) * w + (sx - x0);
+  cost[si] = 0; bk[0].push(si);
+  for (let cur = 0; cur <= capCost; cur++) {
+    const b = bk[cur % NB];
+    while (b.length) {
+      const i = b.pop();
+      if (cost[i] !== cur) continue;                  // superseded before its turn came
+      const gx = i % w, gy = (i / w) | 0;
+      for (let k = 0; k < 8; k++) {
+        const nx = gx + FIELD_DX[k], ny = gy + FIELD_DY[k];
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        if (gridGet((ny + y0) * W.gw + (nx + x0)) !== 1) continue;    // drivable only
+        const nc = cur + (k < 4 ? 10 : 14);
+        const j = ny * w + nx;
+        if (nc <= capCost && nc < cost[j]) { cost[j] = nc; bk[nc % NB].push(j); }
+      }
+    }
+  }
+  const M = W.cell / 10;                              // cost units back into metres
+  return {
+    reach: cap,
+    /* Asked of a point, not of a cell, and it looks around that point by the
+       same FIELD_SNAP the source did: a patient stands on the pavement and a
+       hospital's door is a building's centroid, and neither is tarmac.
+
+       NEAREST RING, NOT CHEAPEST IN RADIUS. Taking the lowest cost anywhere
+       within forty metres quietly walks the query forty metres back down the
+       road towards the source, which measured a 400 m straight run at 360 —
+       an understatement, on exactly the side that makes a detour look
+       acceptable. The nearest ring that has any road in it is the honest
+       answer, and it is the same one the source snap gives. */
+    at(x, y) {
+      const gx = Math.floor((x - W.gx0) / W.cell) - x0;
+      const gy = Math.floor((y - W.gy0) / W.cell) - y0;
+      for (let r = 0; r <= snapR; r++) {
+        let best = INF;
+        for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+          if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+          const nx = gx + i, ny = gy + j;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const c = cost[ny * w + nx];
+          if (c < best) best = c;
+        }
+        if (best < INF) return best * M;
+      }
+      return null;
+    }
+  };
+}
+/* One question, one field. For a single pair — never in a loop, because the
+   field this throws away has the answer for everywhere else in it. */
+function driveDist(ax, ay, bx, by, cap = 5000) {
+  const f = roadField(ax, ay, cap);
+  return f ? f.at(bx, by) : null;
+}
+
 /* Do we actually KNOW there is no road here, or have we simply not been told yet?
 
    onRoad() answers false for both, and the off-road penalty must only ever apply

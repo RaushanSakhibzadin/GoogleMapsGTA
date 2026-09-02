@@ -34,7 +34,11 @@ for (const [label, width, height] of SHAPES) {
     // layout, so it does not need the game to be running
     document.getElementById('touch').classList.add('on');
     const vw = innerWidth, vh = innerHeight, o = {};
-    for (const id of ['tL', 'tA', 'tH', 'tN']) {
+    /* THREE PADS, NOT FOUR. The day/night switch used to be one of them and is
+       a row in the Settings panel now, so it is not on the glass for a system
+       gesture to steal — and a hidden element has an all-zero rect, which this
+       would read as a pad sitting flush against the left edge. */
+    for (const id of ['tL', 'tA', 'tH']) {
       const q = document.getElementById(id).getBoundingClientRect();
       o[id] = { edge: Math.round(Math.min(q.left, vw - q.right)),
                 bottom: Math.round(vh - q.bottom),

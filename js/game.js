@@ -1454,19 +1454,64 @@ const CASUALTY_MIN = 260;
    stops buying time at about 1.7 km and everything past that is a shorter run
    against the same 150 seconds. A fire has no such clock and can afford to be
    further. Handing out a job that cannot be finished is not difficulty. */
+/* AND ON THIS SIDE OF THE RIVER. Reported from play: a call across the Sava,
+   which the band was perfectly happy with because the band is a straight line
+   and a straight line does not know about water. It was six hundred metres of
+   radar and several kilometres of driving, and the clock — also sized off the
+   straight line — gave it a minute.
+ *
+ * So the band is kept and a second test is put after it: the drive has to be
+ * within half as long again as the walk. 1.6 is a whole block of slack — a
+ * right-angled grid costs at most 1.41 and usually about 1.25, and the octile
+ * steps roadField takes overstate a diagonal by a few percent on top — while a
+ * detour to the nearest bridge costs three to ten times. The two do not
+ * overlap, which is what makes this a test rather than a tuning knob.
+ *
+ * MEASURED FROM BOTH ENDS, like the band above it and for the same reason: the
+ * car and the hospital are the same place only at the instant the shift is
+ * taken. A patient reachable from the car but not from the hospital is the same
+ * complaint arriving on the second leg instead of the first. */
+const DETOUR_OK = 1.6;
 function casualtySpot() {
   const b = jobBand('ambulance', CASUALTY_MIN, 900);
   const reach = b.hi, floor = b.lo;
   const h = nearestPOI('hospital', P.car.x, P.car.y);
+  /* Two fields, built once and asked two dozen times. Sized off the WIDER of
+     the band and the fallback below it, so one pair of fields answers for both,
+     and wide enough to contain a detour worth rejecting — a candidate whose
+     drive runs past the edge of the field reads as unreachable, which is the
+     answer we wanted for it anyway. */
+  const wide = Math.max(reach, missionReach(420));
+  const cap = Math.max(1600, wide * 2.4);
+  const fCar = roadField(P.car.x, P.car.y, cap);
+  const fHos = h ? roadField(h.x, h.y, cap) : null;
+  const shortWayRound = p => {
+    if (!fCar) return true;                 // no mask yet: nothing to judge with
+    const dc = fCar.at(p.x, p.y);
+    if (dc == null || dc > dist(P.car.x, P.car.y, p.x, p.y) * DETOUR_OK) return false;
+    if (!fHos) return true;
+    const dh = fHos.at(p.x, p.y);
+    return dh != null && dh <= dist(h.x, h.y, p.x, p.y) * DETOUR_OK;
+  };
   /* Tried a handful of times rather than once: roadPoint hands back ONE random
      point in the band, and the hospital test can reject it. */
   for (let i = 0; i < 14; i++) {
     const p = roadPoint(P.car.x, P.car.y, floor, reach);
     if (!p) break;
-    if (!h || dist(p.x, p.y, h.x, h.y) >= floor) return p;
+    if (h && dist(p.x, p.y, h.x, h.y) < floor) continue;
+    if (shortWayRound(p)) return p;
   }
-  /* A small city may genuinely have nothing that far from its own hospital, and
-     a shift that refuses to hand out work is worse than a short run. */
+  /* NOTHING IN THE BAND ON THIS BANK: LOOK FURTHER OUT, NOT NEARER. The
+     detour test is kept through this fallback rather than dropped with the
+     band, because a nearer call on the wrong side of the water is not an
+     improvement on a far one — and the FLOOR is kept with it, where the old
+     fallback dropped to 80: "widen the search" must not quietly mean handing
+     out the next-door calls the band exists to stop. */
+  for (let i = 0; i < 10; i++) {
+    const p = roadPoint(P.car.x, P.car.y, floor, wide);
+    if (!p) break;
+    if (shortWayRound(p)) return p;
+  }
   return roadPoint(P.car.x, P.car.y, floor, reach)
       || roadPoint(P.car.x, P.car.y, 80, missionReach(420))
       || roadPoint(P.car.x, P.car.y, null);
@@ -1476,10 +1521,21 @@ function newCasualty() {
   if (!p) { MISSION.state = 'none'; return; }
   /* Stood on the pavement the way the rest of the crowd is, and pushed into the
      crowd, so everything that already knows how to draw, move, collide with and
-     pick up a pedestrian goes on working unchanged. */
+     pick up a pedestrian goes on working unchanged.
+   *
+     ON THE POINT THE BAND CHOSE, THOUGH, NOT ON THE ROAD'S NEAREST NODE.
+     pedWalkPoint anchors on r.pts[idx], which is the right thing for the crowd —
+     they are spawned AT a node and walk away from it — and the wrong thing here,
+     because roadPoint hands back a point interpolated ALONG the segment and it
+     is that point which was measured against the band, against the hospital and
+     against the drive. OpenStreetMap ways run hundreds of metres between nodes,
+     so on a long one the patient was put down a long way from everything that
+     had just been checked about them. Same pavement offset, taken off the
+     segment's own heading, which roadPoint already worked out. */
   const side = pick([-1, 1]), dir = Math.random() < .5 ? 1 : -1;
-  const q = pedWalkPoint(p.road, p.idx, dir, side);
-  const who = makePed(q ? q.x : p.x, q ? q.y : p.y, p.road, p.idx, dir, side);
+  const off = pedOffset(p.road);
+  const qx = p.x - Math.sin(p.h) * off * side, qy = p.y + Math.cos(p.h) * off * side;
+  const who = makePed(qx, qy, p.road, p.idx, dir, side);
   who.hurt = 'down';
   peds.push(who);
   MISSION.fare = who;
@@ -1763,9 +1819,31 @@ function startDelivery() {
   MISSION.drop = d;
   MISSION.state = 'deliver';
   const dd = dist(P.car.x, P.car.y, d.x, d.y);
-  MISSION.time = clamp(dd / 13 + 18, 22, 150);   // cross-district runs need the room
+  /* THE CLOCK COMES OFF THE ROAD, NOT OFF THE RADAR. The drop an ambulance is
+     handed is a hospital, and a hospital is where it is — the detour test in
+     casualtySpot cannot move it to this bank of the river. So the return leg is
+     the one that has to be measured honestly, and it is the leg with the clock
+     on it: drive yourself across the water and get picked up over there and the
+     way back is a bridge run whatever the radar says.
+   *
+     THE CEILING MOVES 150 -> 300 WITH IT. 150 was there because a crow-flight
+     number should not be trusted to hand out large budgets — past about 1.7 km
+     it was buying time for distance nobody was going to drive. A road distance
+     can be trusted with them: 300 seconds is four kilometres at a city average,
+     which is a long shift rather than an impossible one.
+   *
+     AND THE FARE IS NOT PAID ON IT. The two want opposite defaults when the map
+     is half-loaded and the field has to detour around a tile that has not
+     arrived: an over-long clock is generous, an over-long fare is a money
+     printer parked next to whichever street loads last. So the time follows the
+     road wherever it goes and the money stops at three times the straight line.
+     The straight line is the floor for both — no drive is shorter than it — and
+     it is what stands in when there is no mask to measure on at all. */
+  const road = driveDist(P.car.x, P.car.y, d.x, d.y, Math.max(2500, dd * 5));
+  const rd = road == null ? dd : Math.max(road, dd);
+  MISSION.time = clamp(rd / 13 + 18, 22, 300);   // cross-district runs need the room
   const rate = JOB === 'taxi' ? 2.1 : JOB === 'ambulance' ? 2.4 : 1.6;
-  MISSION.reward = Math.round(120 + dd * rate + MISSION.done * 45);
+  MISSION.reward = Math.round(120 + Math.min(rd, dd * 3) * rate + MISSION.done * 45);
   SFX.pickup();
   toast(txt(BOARD_TOAST[JOB] || 'toast.secured', { n: MISSION.reward }), 1800);
   const where = d.road && d.road.name;

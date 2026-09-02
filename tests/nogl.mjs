@@ -102,17 +102,37 @@ out.drewTheStreet = !!out.spot && out.spot.walls > 60 && out.spot.tris > 200;
    has and a top-down view never does, whatever city it is over. The same frame
    is then taken in the top-down view as the A/B, because "there is blue up
    there" would also pass on a bug that drew the sky over everything. */
+/* "BLUE-LED" STOPPED MEANING "SKY" when the daylight soil did. It was a bone
+   grey, then a sea-green, and it is a slate blue-grey now — 51/63/76, which
+   leads on blue over red and over green both, so the top-down map went from
+   0.00 blue to 0.30 and the A/B stopped being one.
+
+   Brightness is the discriminator that cannot be caught up with. js/util.js
+   states the constraint on the soil outright: it is the only surface in the
+   frame that is never lit, shaded or textured, so it is deliberately kept dark
+   and anything lighter than it would become the brightest thing on screen. Its
+   own luma is therefore a ceiling no ground pixel crosses — and it is read off
+   the running game rather than written down here, so the next repaint of the
+   ground carries this along with it. */
 const look = () => p.evaluate(() => {
   const c = document.getElementById('game');
   const g = c.getContext('2d');
   const w = c.width, h = c.height;
+  const gnd = window.__theme().ground.replace('#', '');
+  const gr = parseInt(gnd.slice(0, 2), 16), gg = parseInt(gnd.slice(2, 4), 16),
+        gb = parseInt(gnd.slice(4, 6), 16);
+  const floor = (.299 * gr + .587 * gg + .114 * gb) + 35;
   const band = (y0, y1) => {
     const d = g.getImageData(0, Math.floor(h * y0), w, Math.max(1, Math.floor(h * (y1 - y0)))).data;
     let blue = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4) { if (d[i + 2] > d[i] + 14 && d[i + 2] > d[i + 1]) blue++; n++; }
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 2] > d[i] + 14 && d[i + 2] > d[i + 1] &&
+          .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2] > floor) blue++;
+      n++;
+    }
     return +(blue / n).toFixed(3);
   };
-  return { top: band(0.02, 0.12), bottom: band(0.80, 0.95) };
+  return { top: band(0.02, 0.12), bottom: band(0.80, 0.95), floor: +floor.toFixed(1) };
 });
 out.soft = await look();
 await p.evaluate(() => { window.__setMode3d(false); for (let i = 0; i < 6; i++) window.__renderOnce(); });

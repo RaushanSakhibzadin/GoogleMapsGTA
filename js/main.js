@@ -444,6 +444,8 @@ window.__mission = () => ({ state: MISSION.state,
   pick: MISSION.pick && { x: MISSION.pick.x, y: MISSION.pick.y },
   drop: MISSION.drop && { x: MISSION.drop.x, y: MISSION.drop.y } });
 window.__onRoad = (x, y) => onRoad(x, y);
+// how far it is to DRIVE between two points, against how far it looks
+window.__driveDist = (ax, ay, bx, by, cap) => driveDist(ax, ay, bx, by, cap);
 // handling: hold the controls exactly, and read the slide back out
 window.__setInput = o => { inputOverride = o; };
 /* THE STICK, for a test that cannot hold a thumb against glass. __stick reports

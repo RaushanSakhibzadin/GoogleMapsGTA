@@ -189,23 +189,38 @@ out.frozeSky = await freeze();
      did, and it read 153 at the horizon instead of 175 while the zenith stayed
      at 143.5 to the decimal, which is what gave it away.
 
-     BLUE OVER RED WAS NOT ENOUGH ON ITS OWN. It was, while the daylight ground
-     was a bone grey; the ground is a dark sea-green now, and green-blue leads
-     on blue over red comfortably — so every row of grass counted as sky, the
-     horizon was found at row 0 and the "gradient" measured was the ground
-     climbing into the sky. Sky also leads on blue over GREEN, at both ends of
-     both themes' gradients, and the grass does not: 73 blue against 82 green.
-     One more comparison and the grass is out, along with the tree canopy the
-     paragraph above is about, which was only ever excluded by luck.
+     AND HUE HAS NOW RUN OUT. Blue over red was enough while the daylight ground
+     was a bone grey; then it was a dark sea-green, green-blue leads on blue over
+     red comfortably, every row of grass counted as sky, the horizon was found at
+     row 0 and the "gradient" measured was the ground climbing into the sky — so
+     blue over GREEN was added, which the grass failed at 73 against 82. The
+     ground is a slate blue-grey now, 51/63/76, and it leads on blue over both.
+     There is no third channel comparison left to add.
+
+     So this is settled on brightness instead, which the ground cannot catch up
+     with. js/util.js states the constraint on the soil in as many words: it is
+     the only surface in the frame that is never lit, shaded or textured, so it
+     is deliberately kept dark, and anything lighter would become the brightest
+     thing on screen with the city sitting on a glowing slab. Its luma is a
+     ceiling no ground pixel crosses. It is READ OFF THE RUNNING GAME rather
+     than written down here, so the next repaint of the ground carries this with
+     it — and the two hue tests are kept, because they are what excludes the
+     roads and the tree canopy, which are bright enough on their own.
 
      Rows that end up with too little sky in them are left as NaN and skipped
      rather than averaged from three pixels. */
+  const floor = await p.evaluate(() => {
+    const g = window.__theme().ground.replace('#', '');
+    const c = i => parseInt(g.slice(i, i + 2), 16);
+    return .2126 * c(0) + .7152 * c(2) + .0722 * c(4) + 35;
+  });
   const rows = [];
   for (let y = 0; y < H; y++) {
     let s = 0, n = 0;
     for (let x = 0; x < W; x++) {
       const i = at(x, y);
       if (px[i + 2] < px[i] + 8 || px[i + 2] <= px[i + 1]) continue;   // not blue-led: not sky
+      if (lum(px, i) < floor) continue;                   // no brighter than the soil: not sky
       s += lum(px, i); n++;
     }
     rows.push(n > W * 0.5 ? s / n : NaN);
@@ -228,6 +243,7 @@ out.frozeSky = await freeze();
       jump = Math.max(jump, Math.abs(rows[y] - rows[y - 1]));
   out.sky = {
     horizonRow: hz,
+    lumFloor: +floor.toFixed(1),
     skyRows: H - first,
     atHorizon: +low.toFixed(1),
     atZenith: +high.toFixed(1),
