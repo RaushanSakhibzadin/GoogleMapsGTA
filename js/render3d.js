@@ -450,7 +450,23 @@ void main() {
      Before anything else in this shader, because a discarded fragment should not
      pay for a shadow lookup or a window grid — and compiled in at all only for
      the cells that have an archway in them, for the reason set out above. */
-  ${gate ? `
+  /* ONE FLOAT CARRYING TWO NUMBERS, AND A GAP BETWEEN THEM SO THEY CAN BE TOLD
+     APART AGAIN. aTag packs the wall's burial depth in its whole part and the
+     graffiti seed in its fraction — but vTag is INTERPOLATED, so a wall whose
+     three corners all carry a flat 2.0 arrives here as 1.9999998 as often as
+     2.0000002, and fract() of the first is 0.9999998. Read with a bare fract()
+     that is a graffiti seed of almost one on a wall nobody has sprayed, and a
+     burial of one metre where there are two.
+
+     So the seed is written into 0.15..0.85 (see aTag, where it is packed) and
+     the two are separated with a tenth of a unit of slack at each end, which is
+     four orders of magnitude more than the interpolator's error and still
+     leaves the seed seven tenths of a unit to vary in. Everything downstream
+     reads tBury and tSeed rather than floor() and fract(). */
+  float tBury = floor(vTag + 0.1);
+  float tSeed = vTag - tBury;
+  float tagged = step(0.05, tSeed);
+${gate ? `
   /* THE OPENING, MEASURED FROM THE ROAD AND SHAPED LIKE AN ARCH.
      Two things were wrong with the square slot this replaces, and the second is
      what made it look like a slot.
@@ -459,8 +475,8 @@ void main() {
      is somewhere above zero in this coordinate — 0.4 to 1.5 m across the 48
      archways of a captured Belgrade district. Cutting to a fixed 4.2 up from the
      foot therefore cut a 4.2 metre hole and buried the bottom of it, leaving as
-     little as 2.7 m of opening above the road. floor(vTag) is that burial; see
-     the note on aTag.
+     little as 2.7 m of opening above the road. tBury is that burial; see the
+     note on aTag and the unpacking just above.
      AND SQUARE-HEADED, WHICH WAS TRIED THE OTHER WAY ROUND. A round head was the
      obvious thing to add — an arch is a shape a building was built with, a
      rectangle is a hole punched in one — and it is invisible: the passage is
@@ -470,7 +486,7 @@ void main() {
      are 1960s Belgrade blocks with concrete lintels over their passages, and a
      square head is what they have. */
   if (vGate.y > 0.0) {
-    float gh = vW.y - floor(vTag);
+    float gh = vW.y - tBury;
     if (gh > -1.0 && gh < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;
   }` : ''}
 
@@ -522,22 +538,20 @@ void main() {
      Skipped on everything that is not a painted facade: vTag is zero on every
      wall nobody has sprayed, on every roof, on every car and on every tunnel
      soffit, so this is one comparison against zero for the whole city. */
-  if (fract(vTag) > 0.001 && abs(nn.y) < 0.5 && vW.z > 0.001) {
+  if (tagged > 0.5 && abs(nn.y) < 0.5 && vW.z > 0.001) {
     /* Whole part: how far the pavement is above this wall's buried foot. The
        band is measured from there rather than from zero, or it is underground —
        see the note on aTag. Fraction: the seed the letters are built from, and
        zero on a wall nobody has painted. It is the FRACTION that says whether
        there is a tag here, because the whole part is now carried by every wall
        for the archway's sake. */
-    float bury = floor(vTag);
-    float seed = fract(vTag);
-    float lo = bury + 0.4;
-    float hi = min(bury + 2.7, vW.z * 0.72);
+    float lo = tBury + 0.4;
+    float hi = min(tBury + 2.7, vW.z * 0.72);
     if (vW.y > lo && vW.y < hi) {
       float gx = vW.x * 0.645;                    // about 1.55 m to a letter
       float cell = floor(gx);
       vec2 uv = vec2(fract(gx), (vW.y - lo) / max(hi - lo, 0.001));
-      float ink = tagInk(uv, seed * 97.0 + cell * 3.7);
+      float ink = tagInk(uv, tSeed * 97.0 + cell * 3.7);
       base = mix(base, mix(vec3(1.0), base, 0.42), ink * 0.95);
     }
   }
@@ -635,7 +649,16 @@ void main() {
      sunset to sunrise. The uniform does it for cars, per draw call; this does it
      for the handful of walls somebody has painted, per fragment, in the middle of
      a batch of masonry that must go on being masonry. */
-  vec3 c = mix(lit, paint, max(uPaint, step(0.0001, vTag)));
+  /* THE FRACTION, NOT THE WHOLE NUMBER — the same distinction the graffiti
+     branch above makes, and this line was missed when that one was changed.
+     aTag used to be nonzero only on a sprayed wall, so "vTag > 0" meant "this
+     is paint"; it now carries the archway's burial depth in its whole part on
+     EVERY wall, so that test turned every building sunk half a metre or more
+     into its own terrain into flat unlit paint — no sun on it, no shading down
+     the walls, the grime at full contrast. It is the fraction that says a wall
+     has been sprayed. facade.mjs caught this as the facade's edge density
+     doubling; it looks like a blotchy grey slab where a shaded wall should be. */
+  vec3 c = mix(lit, paint, max(uPaint, tagged));
 
   if (fascia > 0.004) {
     /* FIVE COLOURS A SHOP MIGHT ACTUALLY HAVE PAINTED, not a hash spread over
@@ -1817,7 +1840,15 @@ function buildCell(kx, kz) {
        arithmetic below stays one number rather than two. */
     const gateGround = b.gate && b.gate.n ? terrainH(b.gate.x, b.gate.y) : terrainH(b.cx, b.cy);
     const bury = clamp(Math.round(gateGround - (base + 1)), 0, 30);
-    const tag = bury + (team ? (b.tagSeed == null ? .5 : .05 + b.tagSeed * .9) : 0);
+    /* THE SEED SITS IN 0.15..0.85, WELL CLEAR OF BOTH ENDS. It used to run
+       0.05..0.95, which was fine while this number reached the shader intact —
+       it does not: vTag is interpolated across the triangle, so an unpainted
+       wall carrying a flat 2.0 arrives as 1.9999998 as often as 2.0000002, and
+       fract() of the first is a seed of almost one. Both readers now allow a
+       tenth of a unit of slack at each end (see the unpacking at the top of the
+       fragment shader), and the seed keeps seven tenths to vary in, which is
+       more than a scrawl of letters can tell apart anyway. */
+    const tag = bury + (team ? (b.tagSeed == null ? .5 : .15 + b.tagSeed * .7) : 0);
     const wr = wall[0] / 255, wg = wall[1] / 255, wb = wall[2] / 255;
     /* WHICH WAY ROUND THE OUTLINE IS LISTED, and why both the normal and the
        triangles have to be told.
