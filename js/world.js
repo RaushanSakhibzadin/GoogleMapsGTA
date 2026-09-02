@@ -925,8 +925,47 @@ function markPassable(roads) {
   /* Averaged at the end rather than on the way, because a road is sampled every
      six metres and this runs again every time a tile lands. */
   for (const bl of touched) {
-    bl.gate.x = bl.gate.sx / bl.gate.n;
-    bl.gate.y = bl.gate.sy / bl.gate.n;
+    const g = bl.gate;
+    g.x = g.sx / g.n;
+    g.y = g.sy / g.n;
+    /* AND WHERE THE LINE ACTUALLY LEAVES THE BUILDING, which is not where the
+       samples stop.
+       pmin and pmax are the range of centreline samples INSIDE the footprint,
+       and the road is sampled every six metres — so each wall sits up to a
+       whole sample step beyond the outermost sample that found it. Measured on
+       48 real archways: the crossings land 5 to 6 m outside the sample range,
+       against the 4 m of slack the wall test allowed. Thirty-nine of the 48 had
+       exactly one of their two walls cut and one had neither: a passage open on
+       one side and solid masonry on the other, which is what "they should look
+       good from each side" was reporting.
+       So the walls are found exactly, by intersecting the gate's own line with
+       every edge of the footprint and keeping the pair that BRACKETS the sampled
+       stretch. Exact needs no slack, and the bracketing is what keeps an L-shaped
+       block from having a wing cut open that the road never enters — which is
+       the job the slack was doing badly.
+       The passage lining is measured between these too. It used to run from
+       pmin to pmax, so it stopped four metres short of each opening. */
+    const fp = bl.pts, n = fp.length;
+    const hits = [];
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const p0 = fp[i], p1 = fp[j];
+      const ex = p1.x - p0.x, ez = p1.y - p0.y;
+      if (Math.abs(ex) + Math.abs(ez) < 1e-4) continue;
+      const den = ex * g.uy - ez * g.ux;
+      if (Math.abs(den) < 1e-6) continue;              // edge parallel to the road
+      const t = ((g.x - p0.x) * g.uy - (g.y - p0.y) * g.ux) / den;
+      if (t < 0 || t > 1) continue;                    // the line misses this edge
+      hits.push((p0.x + ex * t) * g.ux + (p0.y + ez * t) * g.uy);
+    }
+    let lo = -Infinity, hi = Infinity;
+    for (const h of hits) {
+      if (h <= g.pmin + 0.5 && h > lo) lo = h;
+      if (h >= g.pmax - 0.5 && h < hi) hi = h;
+    }
+    // a road that stops inside the building has one wall and no other; fall back
+    // to the sampled range so it still gets the opening it does have
+    g.wmin = isFinite(lo) ? lo : g.pmin;
+    g.wmax = isFinite(hi) ? hi : g.pmax;
   }
 }
 

@@ -1887,7 +1887,9 @@ function buildCell(kx, kz) {
                footprint, so an L-shaped block does not get a hole in a wing the
                road only reaches by being extended to infinity. */
             const pr = px * ux + pz * uy;
-            if (pr > g.pmin - 4 && pr < g.pmax + 4) {
+            // the two crossings themselves, worked out in markPassable — see the
+            // note there. Exact, so half a metre of tolerance is all it needs.
+            if (pr > g.wmin - .5 && pr < g.wmax + .5) {
               gc = px * -nz + pz * nx;
               gw = g.w;
             }
@@ -1936,8 +1938,8 @@ function buildCell(kx, kz) {
          The walls are flat quads with no thickness, so twenty centimetres of
          overlap closes the seam from any angle. */
       const OVER = 0.2;
-      const ax0 = gt.x + (gt.pmin - c - OVER) * ux, az0 = gt.y + (gt.pmin - c - OVER) * uy;
-      const ax1 = gt.x + (gt.pmax - c + OVER) * ux, az1 = gt.y + (gt.pmax - c + OVER) * uy;
+      const ax0 = gt.x + (gt.wmin - c - OVER) * ux, az0 = gt.y + (gt.wmin - c - OVER) * uy;
+      const ax1 = gt.x + (gt.wmax - c + OVER) * ux, az1 = gt.y + (gt.wmax - c + OVER) * uy;
       const px = -uy, pz = ux, w = gt.w;
       /* THE PASSAGE STANDS ON THE ROAD, NOT ON THE WALL'S BURIED FOOT.
          The cut in the wall is measured from the pavement at the gate — it has to
