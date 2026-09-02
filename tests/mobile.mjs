@@ -202,7 +202,12 @@ out.missedEnd = await p.evaluate(async ([gas, left]) => {
 out.padEdges = await p.evaluate(() => {
   const vw = innerWidth, vh = innerHeight;
   const out = {};
-  for (const id of ['tL', 'tR', 'tA', 'tB', 'tH', 'tN']) {
+  /* tN is not in this list any more, and that is the point of the list: these
+     are THUMB PADS, held during driving, and a touch that starts in a phone's
+     own gesture gutter can be confiscated mid-press. The day/night switch is a
+     row in the settings panel now — pressed at a standstill, with the game
+     visible behind it — so it is not a pad and this is not its check. */
+  for (const id of ['tL', 'tR', 'tA', 'tB', 'tH']) {
     const r = document.getElementById(id).getBoundingClientRect();
     out[id] = { left: Math.round(r.left), right: Math.round(vw - r.right),
                 bottom: Math.round(vh - r.bottom) };

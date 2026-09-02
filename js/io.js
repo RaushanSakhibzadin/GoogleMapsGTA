@@ -480,18 +480,13 @@ addEventListener('mouseup', () => {
   for (const [id, prop] of PADS) { touch[prop] = 0; $(id).classList.remove('act'); }
 });
 
-// the theme button is a tap, not a hold, so it doesn't go through bindPad
-let themeTap = 0;
-const tapTheme = e => {
-  e.preventDefault();
-  const now = Date.now();
-  if (now - themeTap < 400) return;    // swallow the synthetic click after a touch
-  themeTap = now;
-  audioStart();
-  if (state === 'play') toggleTheme();
-};
-$('tN').addEventListener('touchstart', tapTheme, { passive: false });
-$('tN').addEventListener('click', tapTheme);
+/* The day/night switch. A row in the settings panel now rather than a thumb pad,
+   so it is an ordinary button with an ordinary click — the generic tap handler
+   further down turns a touch into that click, which is exactly what it is for.
+   It used to bind touchstart itself and swallow the click that followed within
+   400 ms, which was this same problem solved once, locally, before there was
+   anywhere to solve it properly. */
+$('tN').onclick = () => { audioStart(); if (state === 'play') toggleTheme(); };
 
 /* The headless handling test drives through this rather than through synthesized
    key events: what it is measuring is how throttle, steering and the handbrake

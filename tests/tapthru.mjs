@@ -123,7 +123,10 @@ await p.waitForTimeout(200);
 
 /* THE BUTTONS A THUMB ACTUALLY MEETS while driving: the three along the top,
    the spray can under them, and the depot button above the thumb row. */
-const TARGETS = ['#modeBtn', '#mixBtn', '#logBtn', '#sprayBtn', '#jobBtn'];
+/* The gear, and the two contextual buttons that sit over the game. The view,
+   light and log buttons are inside the settings panel now — reached by opening
+   it, which is the gear's own tap, so they are covered by covering the gear. */
+const TARGETS = ['#mixBtn', '#sprayBtn', '#jobBtn'];
 
 // ---------- 1. a tap that slides, which is every real tap ----------
 /* FOUR PIXELS. A thumb pressed to glass for a tenth of a second reports several

@@ -80,15 +80,30 @@ await p.addInitScript(() => {
 await p.goto(URL_);
 await p.waitForTimeout(250);
 const out = {};
-/* offsetParent is null for ANY position:fixed element, so it reports "hidden"
-   for this button whether it is on screen or not. Computed style plus a real
-   rectangle is the truth. It has to be visible HERE, on the menu, because the
-   log worth having most is from a load that failed back to this screen. */
-out.buttonOnMenu = await p.evaluate(() => {
-  const el = document.getElementById('logBtn'), r = el.getBoundingClientRect();
+/* REACHABLE HERE, ON THE MENU, because the log worth having most is from a load
+   that failed back to this screen. That requirement has not changed; where the
+   button lives has. It used to sit along the top of every screen and this asked
+   whether it was drawn there; it is a row in the settings panel now, so this
+   asks the question that actually matters — can somebody standing on the menu
+   get to it — by opening the panel the way a player would and then checking.
+
+   offsetParent is null for ANY position:fixed element, so it reports "hidden"
+   for the gear whether it is on screen or not. Computed style plus a real
+   rectangle is the truth. */
+const onScreen = (page, id) => page.evaluate(i => {
+  const el = document.getElementById(i);
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
   return getComputedStyle(el).display !== 'none' && r.width > 20 && r.height > 10 &&
-         r.right <= innerWidth + 1 && r.top >= 0;
-});
+         r.right <= innerWidth + 1 && r.left >= -1 && r.top >= 0 && r.bottom <= innerHeight + 1;
+}, id);
+out.gearOnMenu = await onScreen(p, 'mixBtn');
+await p.click('#mixBtn');
+await p.waitForTimeout(250);
+out.logInSettings = await onScreen(p, 'logBtn');
+await p.click('#mixDone');
+await p.waitForTimeout(150);
+out.buttonOnMenu = out.gearOnMenu && out.logInSettings;
 await p.fill('#q', 'Beograd');
 await p.tap('#go');
 await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
@@ -190,6 +205,7 @@ await p2.addInitScript(() => { delete navigator.share; delete navigator.canShare
 await p2.goto(URL_);
 await p2.waitForTimeout(250);
 const dl = p2.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+await p2.click('#mixBtn'); await p2.waitForTimeout(200);
 await p2.click('#logBtn');
 const d = await dl;
 out.downloadFallback = { fired: !!d, name: d && d.suggestedFilename() };

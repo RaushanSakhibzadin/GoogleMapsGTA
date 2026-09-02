@@ -113,7 +113,18 @@ const ROOFMAT = {
    draws are the same ground; written out twice they drift apart, which is
    exactly what happened when the world went sea-green and the map stayed bone
    grey for a whole release. One name, both uses, no way to change half of it. */
-const DAY_SOIL = '#1c5249';
+/* THE GROUND BETWEEN THE ROADS. Asked for as "less green, more dark grey blue",
+   replacing a dark sea-green that had been asked for as "sea, grass and river at
+   the same time" — one flat colour doing three jobs at hue 170°, halfway between
+   green and cyan.
+   Hue 213° now, and the saturation down from 55% to 33%: a slate blue-grey that
+   still reads as ground rather than as water, and reads as the same ground in a
+   district with no parks in it, which the sea-green did not. Kept within a few
+   points of the old brightness — 61 against 65 — because that number is the
+   constraint, not the hue: this is the only thing on screen that is never lit,
+   shaded or textured, so anything lighter becomes the brightest surface in the
+   frame and the city sits on a glowing slab. */
+const DAY_SOIL = '#333f4c';
 
 /* Two complete looks. PAL is the live one; every draw call reads it. */
 const THEMES = {
@@ -130,15 +141,7 @@ const THEMES = {
     wallT: c => mixc(mul(c, .17), [38, 26, 58], .50)
   },
   day: {
-    /* THE GROUND BETWEEN THE ROADS: a dark sea-green, asked for as "sea, grass
-       and river at the same time".
-     *
-       Hue 170° sits almost exactly between green and cyan, which is what lets
-       one flat colour do all three jobs — far enough towards green to read as
-       grass, far enough towards blue to read as water. Kept dark on purpose: it
-       is the only thing on screen that is never lit, shaded or textured, so at
-       any lighter value it becomes the brightest surface in the frame and the
-       city sits on a glowing slab.
+    /* THE GROUND BETWEEN THE ROADS — see DAY_SOIL for what it is and why.
      *
        WORTH KNOWING BEFORE CHANGING IT: this exact string is what the ground
        comes out as in all three renderers, not a starting point one of them

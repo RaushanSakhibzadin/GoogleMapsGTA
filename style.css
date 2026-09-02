@@ -317,7 +317,7 @@ body.perked .perk .keyRow{display:none}
    spray is answerable without pressing it. --hpH and the moon's own height are
    the two numbers above it; see the top-centre block further down. */
 #sprayBtn{position:fixed;left:50%;transform:translateX(-50%);
-  top:calc(var(--hudTC) + var(--hpH) + var(--tNH) + 18px);z-index:46;
+  top:calc(var(--hudTC) + var(--hpH) + 14px);z-index:46;
   display:none;align-items:center;justify-content:center;pointer-events:auto;
   padding:8px 14px;border-radius:12px;cursor:pointer;font-size:19px;line-height:1;
   background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.35);
@@ -432,7 +432,15 @@ kbd{display:inline-block;padding:1px 7px;margin:0 1px;border-radius:5px;font:600
 #mix{position:fixed;top:52px;right:14px;z-index:71;width:min(280px,84vw);
   display:flex;flex-direction:column;gap:11px;
   background:#fff;border:2px solid #14101c;color:#14101c;
-  border-radius:14px;padding:14px 15px;box-shadow:0 12px 38px rgba(0,0,0,.55)}
+  border-radius:14px;padding:14px 15px;box-shadow:0 12px 38px rgba(0,0,0,.55);
+  /* SIX ROWS AND A BUTTON NOW, since the view, the light and the log moved in
+     here off the top of the screen. That is about 330 points, and a landscape
+     phone has 342 of them in total — so it scrolls rather than running off the
+     bottom edge, which is what a fixed panel does when it outgrows its screen.
+     Sized off --vh rather than vh because Chrome for Android reports the tall
+     layout viewport for the latter whether the URL bar is showing or not; the
+     same reason the HUD layers use it, written up in tests/android.mjs. */
+  max-height:calc(var(--vh,100dvh) - 66px);overflow-y:auto;overscroll-behavior:contain}
 #mix.hide{display:none}
 .mixRow{display:flex;align-items:center;gap:10px}
 .mixRow>span{font-family:var(--ui);font-weight:800;font-size:10.5px;letter-spacing:.14em;
@@ -837,7 +845,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    the word box and the GHOST switch — a rule apiece rather than code that shows
    and hides five elements and has to remember all five. The pads stay in the
    markup either way, because the setting turns them back on. */
-body.ctrl-stick #touch .pad:not(#tN){display:none}
+body.ctrl-stick #touch .pad{display:none}
 body.ctrl-pads .stick{display:none}
 /* Placed by io.js at the thumb, so it carries no position of its own. Never
    pointer-events:auto — the finger is already tracked from the document, and a
@@ -881,22 +889,10 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
   width:var(--gas);height:var(--gas);font-size:34px}
 #tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;
   padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
-/* Day/night, reachable without a keyboard — and hung under the armor bar at the
-   top centre rather than left in the steering thumb's corner. It stays a .pad
-   inside #touch so none of the touch machinery has to know it moved, and so it
-   still only exists on a device with a touchscreen.
-
-   --hpH is the armor block's rendered height, which is the one number the two of
-   them share. fixes.mjs asserts they never touch, so it is written down once
-   here rather than folded into a hand-tuned offset that nobody can check. */
-/* --hpH is the armor block, --tNH the day/night button under it. Two numbers
-   because there are two things above the spray can, and they are written down
-   rather than added into one offset so that changing either moves everything
-   below it by the right amount. hud.mjs is the guard. */
-:root{--hpH:31px;--tNH:39px}
-#tN{left:50%;right:auto;top:calc(var(--hudTC) + var(--hpH) + 9px);bottom:auto;
-  transform:translateX(-50%);width:auto;height:auto;
-  padding:8px 14px;border-radius:12px;font-size:19px;line-height:1}
+/* Day/night is a row in the settings panel now, not a pad — see #mix. All that
+   is left of it here is --hpH, the armor block's rendered height, which the
+   spray can hangs off. */
+:root{--hpH:31px}
 
 /* ---------- daylight: the HUD has to survive a light background ---------- */
 body.theme-day #post{

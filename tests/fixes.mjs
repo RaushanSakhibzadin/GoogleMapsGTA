@@ -115,6 +115,13 @@ const out = {};
   await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 30000 });
   await p.waitForTimeout(500);
 
+  /* THE DAY/NIGHT SWITCH IS A ROW IN THE SETTINGS PANEL NOW, not a thumb pad, so
+     this opens the panel to reach it. What is under test has not changed — a
+     phone with no keyboard can still change the time of day, and it takes two
+     taps rather than one — but where the control lives has, and a test that
+     tapped where it used to be would be checking the old layout. */
+  out.settingsOpens = await p.tap('#mixBtn').then(() => true, () => false);
+  await p.waitForTimeout(300);
   out.themeBtnVisible = await p.isVisible('#tN');
   out.themeBtnBox = await p.locator('#tN').boundingBox();
   out.themeBefore = await p.evaluate(() => window.__theme().name);
@@ -126,14 +133,26 @@ const out = {};
   await p.waitForTimeout(600);
   out.themeAfterSecondTap = await p.evaluate(() => window.__theme().name);
 
-  // nothing may overlap the new button
+  /* AND THE PANEL'S OWN ROWS DO NOT SIT ON EACH OTHER. This used to check that
+     nothing in the HUD overlapped the pad, which was the right question while it
+     was a pad floating over the game. Inside a panel the question is whether the
+     panel lays out, so it is asked of the panel: every control in it has a box,
+     and no two of them intersect. */
   out.overlaps = await p.evaluate(() => {
-    const r = document.getElementById('tN').getBoundingClientRect();
-    const hit = [];
-    for (const id of ['zone', 'speed', 'hpWrap', 'mini', 'tH', 'tA', 'tB', 'street', 'chunk']) {
+    const ids = ['mixSfx', 'mixRadio', 'ctrlX', 'modeBtn', 'tN', 'logBtn', 'mixDone'];
+    const box = {};
+    for (const id of ids) {
       const el = document.getElementById(id); if (!el) continue;
-      const o = el.getBoundingClientRect();
-      if (o.width && r.left < o.right && r.right > o.left && r.top < o.bottom && r.bottom > o.top) hit.push(id);
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) box[id] = r;
+    }
+    const hit = [];
+    const k = Object.keys(box);
+    if (k.length < ids.length) hit.push('missing:' + ids.filter(i => !box[i]).join(','));
+    for (let i = 0; i < k.length; i++) for (let j = i + 1; j < k.length; j++) {
+      const a = box[k[i]], b = box[k[j]];
+      if (a.left < b.right - 2 && a.right > b.left + 2 &&
+          a.top < b.bottom - 2 && a.bottom > b.top + 2) hit.push(k[i] + 'x' + k[j]);
     }
     return hit;
   });

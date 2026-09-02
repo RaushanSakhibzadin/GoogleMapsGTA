@@ -26,8 +26,12 @@ const json = o => ({ contentType: 'application/json', body: JSON.stringify(o) })
 const isB = req => decodeURIComponent(req.postData() || '').includes('"building"');
 
 // every element that can be on screen at once
+/* tN is gone from here with the day/night switch itself: it is a row inside the
+   settings panel now rather than a control floating over the game, so it has no
+   place in the layout that has to not collide with itself. The panel's own rows
+   are checked in fixes.mjs, where the panel is opened. */
 const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars', 'chunk',
-             'tH', 'tN', 'tL', 'tR', 'tA', 'tB', 'jobBtn'];
+             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn'];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = [];

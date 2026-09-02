@@ -32,8 +32,12 @@ const PHONES = [
   ['small Android', 320, 658, 2, 96],
 ];
 // every HUD and control element that has to be reachable and readable
-const IDS = ['hudTL', 'obj', 'mini', 'cash', 'stars', 'logBtn', 'modeBtn', 'hpWrap', 'chunk',
-             'tL', 'tR', 'tB', 'tA', 'tH', 'tN'];
+/* logBtn, modeBtn and tN have moved inside the settings panel, which is closed
+   here — a closed panel has no layout to check. The one button still on the
+   screen is the gear that opens it, and it is the one that has to be reachable
+   above the phone's own chrome. */
+const IDS = ['hudTL', 'obj', 'mini', 'cash', 'stars', 'mixBtn', 'hpWrap', 'chunk',
+             'tL', 'tR', 'tB', 'tA', 'tH'];
 // full-screen layers, which all have to be the size of the screen and not of the
 // taller layout the phone reports
 const LAYERS = ['game', 'hud', 'touch', 'post', 'menu', 'load'];

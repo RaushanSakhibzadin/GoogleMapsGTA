@@ -101,11 +101,19 @@ const themeNow = t => p.evaluate(name => {
 }, t);
 out.day = await themeNow('day');
 out.dayHSL = hsl(out.day.ground);
-/* 150–200° is the span between plain green and plain cyan, so it is exactly
-   "blue-green" and nothing else: 140 would be a lawn and 210 a swimming pool.
-   The lightness ceiling is what "dark" means here — the old value sat at .77. */
-out.groundIsDarkSeaGreen = out.dayHSL.h >= 150 && out.dayHSL.h <= 200 &&
-                           out.dayHSL.s >= 0.25 && out.dayHSL.l >= 0.10 && out.dayHSL.l <= 0.32;
+/* THIS PINNED A DARK SEA-GREEN AND NOW PINS A DARK SLATE BLUE, because that is
+   what was asked for: "less green, more dark grey blue". The old band was
+   150–200° — between plain green and plain cyan — with a saturation FLOOR of
+   0.25 to keep it from washing out to grey.
+   The new one is 200–235°, which is blue and not cyan, and the saturation is now
+   a CEILING rather than a floor: "grey blue" is a hue with the colour taken out
+   of it, and 0.35 is where a slate stops being a slate and starts being a sky.
+   The lightness bounds are unchanged and they are the part that matters most —
+   see DAY_SOIL. This surface is never lit, shaded or textured in any of the
+   three renderers, so it is the one colour that is seen exactly as it is typed,
+   and anything above .32 makes the city sit on a glowing slab. */
+out.groundIsDarkSlate = out.dayHSL.h >= 200 && out.dayHSL.h <= 235 &&
+                        out.dayHSL.s <= 0.35 && out.dayHSL.l >= 0.10 && out.dayHSL.l <= 0.32;
 
 /* AND THE ROADS STILL COME OFF IT. A dark ground is only an improvement while
    the streets are still the first thing you see on it; this is the check that
@@ -223,7 +231,7 @@ out.padsRead = Math.abs(out.padLum - out.padGlyphLum) > 60 &&
    to a sheet of paper.
  *
  * ASKED AS "THE SAME SOIL", not as one hex equalling another. Both have to be
- * that dark blue-green, and they have to be close enough together to read as the
+ * that dark slate blue, and they have to be close enough together to read as the
  * same material — which is the thing that broke — while still leaving room for
  * the map's copy to be nudged a shade for legibility one day. Equality would
  * forbid that; 24 units of RGB distance forbids only the drift. */
@@ -231,8 +239,8 @@ out.mapHSL = hsl(out.day.mapBg);
 const rgbGap = (a, b) => { const x = hexRGB(a), y = hexRGB(b);
   return Math.round(Math.hypot(x.r - y.r, x.g - y.g, x.b - y.b)); };
 out.mapSoilGap = rgbGap(out.day.mapBg, out.day.ground);
-out.mapIsTheSameSoil = out.mapHSL.h >= 150 && out.mapHSL.h <= 200 &&
-                       out.mapHSL.s >= 0.25 && out.mapHSL.l >= 0.10 && out.mapHSL.l <= 0.32 &&
+out.mapIsTheSameSoil = out.mapHSL.h >= 200 && out.mapHSL.h <= 235 &&
+                       out.mapHSL.s <= 0.35 && out.mapHSL.l >= 0.10 && out.mapHSL.l <= 0.32 &&
                        out.mapSoilGap < 24;
 // and the streets still come off it — white on grey was never the hard case
 out.mapRoadLum = +lum(out.day.mapRoad).toFixed(1);
@@ -259,7 +267,7 @@ out.duskHSL = hsl(out.dusk.ground);
 out.nightUntouched = out.duskHSL.h >= 250 && out.duskHSL.h <= 290 && out.duskHSL.l <= 0.10;
 
 out.errs = errs.slice(0, 3);
-out.pass = out.groundIsDarkSeaGreen && out.roadsStillRead && out.padsRead &&
+out.pass = out.groundIsDarkSlate && out.roadsStillRead && out.padsRead &&
            out.mapIsTheSameSoil && out.mapRoadsRead && out.mapPaintsIt &&
            out.topDownPaintsIt && out.chasePaintsIt && out.nightUntouched && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
