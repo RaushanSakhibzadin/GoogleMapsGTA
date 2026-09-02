@@ -7,7 +7,39 @@
    Load order is fixed in index.html and matters. */
 
 /* ------------------------------ 4. entities ------------------------------ */
-let carSeq = 0;
+/* EVERY TENTH VEHICLE IN TRAFFIC IS SOMETHING OTHER THAN A CAR.
+ *
+ * Asked for as a lorry, a bus, an appliance, a patrol car and an ambulance, one
+ * in ten. A street of nothing but hatchbacks in nine colours reads as a
+ * screensaver; one bus in it reads as a city.
+ *
+ * COUNTED, NOT ROLLED. "Every tenth" is exactly that — a counter, so ten cars is
+ * reliably one of these and not a coin that can come up short six times running.
+ * The five are taken in turn for the same reason: a random pick of five over the
+ * handful that are on screen at once will happily show three ambulances and no
+ * bus, and the point of the feature is the variety.
+ *
+ * THE SHAPE IS THE VEHICLE. Every one of these is drawn out of the car's own
+ * eight corners, so making it longer, wider and taller here is what makes it a
+ * bus — see pushLorry and pushBus in js/render3d.js, and the appliance and the
+ * van that were already there for the shifts. They are given a real mass with
+ * it, because a twelve-tonne bus that shunts like a hatchback is a worse lie
+ * than one that looks wrong, and a real top speed, because these things do not
+ * keep up with traffic and a city where they do has no texture in it either.
+ *
+ * The patrol car is the odd one out: it is a car, so it keeps the car's body and
+ * takes only the livery. It is ALSO not a pursuer — cops[] is what chases you.
+ * This is a patrol car going about its business, which is what most of them are
+ * doing most of the time. */
+const TRAFFIC_EVERY = 10;
+const TRAFFIC_KINDS = [
+  { livery: 'lorry',     l: 8.2,  w: 2.45, bh: 3.10, mass: 9,    top: [8, 12],  col: null },
+  { livery: 'bus',       l: 10.4, w: 2.55, bh: 3.15, mass: 11,   top: [8, 12],  col: '#c9962f' },
+  { livery: 'fire',      l: 7.4,  w: 2.50, bh: 2.70, mass: 8,    top: [9, 13],  col: '#e0301f' },
+  { livery: 'police',    l: 4.7,  w: 2.05, bh: 1.50, mass: 1.35, top: [12, 17], col: '#eef1f6' },
+  { livery: 'ambulance', l: 6.0,  w: 2.25, bh: 2.55, mass: 4,    top: [10, 15], col: '#f4f6fa' }
+];
+let trafficSeq = 0, carSeq = 0;
 function makeCar(x, y, h, kind) {
   const isCop = kind === 'cop';
   return {
@@ -42,6 +74,23 @@ function makeCar(x, y, h, kind) {
     // traffic path state
     road_: null, idx: 0, dir: 1, blink: 0
   };
+}
+/* Applied AFTER makeCar rather than inside it, because it overwrites half of
+   what makeCar just decided and reading it interleaved with the defaults would
+   hide which of the two won. Callers that want an ordinary car — the police
+   shift's quarry, anything spawned for a mission — simply do not call it. */
+function serviceVehicle(c) {
+  const k = TRAFFIC_KINDS[(trafficSeq / TRAFFIC_EVERY | 0) % TRAFFIC_KINDS.length];
+  c.livery = k.livery;
+  c.l = k.l; c.w = k.w; c.bh = k.bh;
+  c.mass = k.mass;
+  c.maxSpeed = rand(k.top[0], k.top[1]);
+  if (k.col) c.color = k.col;
+  return c;
+}
+// and the counter that decides. One call per car that joins the traffic.
+function nextTrafficCar(c) {
+  return (++trafficSeq % TRAFFIC_EVERY === 0) ? serviceVehicle(c) : c;
 }
 
 const P = {                       // player + run state
@@ -160,7 +209,7 @@ function spawnTraffic(n, wide) {
     let taken = false;
     for (const o of nearTraffic(sx, sy)) if (dist2(o.x, o.y, sx, sy) < 49) { taken = true; break; }
     if (taken) continue;
-    const c = makeCar(sx, sy, h, 'traffic');
+    const c = nextTrafficCar(makeCar(sx, sy, h, 'traffic'));
     // the spawn point already knows which way it sits on — no search needed
     c.road_ = p.road; c.idx = p.idx; c.dir = dir;
     c.i = traffic.length;
@@ -185,6 +234,10 @@ function spawnOneCar(minD, maxD) {
   const dir = Math.random() < .5 ? 1 : -1;
   const h = dir > 0 ? p.h : p.h + Math.PI;
   const off = laneOffset(p.road);
+  /* NOT nextTrafficCar. The one caller of this is the police shift picking a
+     car to chase, and a chase after a bus is not the job that was handed out —
+     it also has to be catchable, which a vehicle capped at 12 m/s trivially is
+     and an eleven-tonne one is not once it is in front of you. */
   const c = makeCar(p.x + Math.cos(h + Math.PI / 2) * off,
                     p.y + Math.sin(h + Math.PI / 2) * off, h, 'traffic');
   c.road_ = p.road; c.idx = p.idx; c.dir = dir;
@@ -252,8 +305,76 @@ function makePed(x, y, road, idx, dir, side) {
     // where in the stride they are, so a crowd is not one person copied
     step: Math.random() * Math.PI * 2,
     col: '#ffe36a',                       // the radar dot, which wants to be seen
-    t: rand(0, 10), dead: false
+    t: rand(0, 10), dead: false,
+    /* ON THEIR FEET OR NOT. `lie` is how far over they have gone, in radians
+       about their own lateral axis: 0 upright, PI/2 flat on the ground, and any
+       number in between or beyond while they are in the air. Everything that
+       draws a person reads this one angle — see pushPerson — so a casualty who
+       is ill and a pedestrian who has just been hit by a van are the same pose
+       arrived at two different ways.
+       pz is height above the pavement and the pv* are the velocity carrying
+       them there, which is only ever non-zero for the second kind. */
+    lie: 0, lieV: 0, pz: 0, pvx: 0, pvy: 0, pvz: 0, struck: 0, downT: 0
   };
+}
+/* KNOCKED OFF THEIR FEET, AND SOMETIMES CLEAN OFF THE GROUND.
+ *
+ * Asked for as "the pedestrian who gets hit by a car" lying down too, "you can
+ * add some flying". So: below a brisk speed they simply fold up where they
+ * stand, and above it they are thrown along the way the car was going and
+ * tumble while they go. The split is at 9 m/s because that is about 32 km/h —
+ * the speed at which being hit by a car stops being a shove and starts being
+ * something that picks you up, which is also roughly where the real injury
+ * curves turn.
+ *
+ * They are NOT deleted. A body that vanishes in a puff of sparks the instant it
+ * is touched was the old behaviour and it is the thing this replaces: what a
+ * street looks like after you have driven through it is part of what driving
+ * through it means. They are culled on a timer like everything else. */
+const PED_FLY_MIN = 9;               // m/s: the shove/throw threshold
+const PED_G = 17;                    // gravity for a body, a shade brisk to read well
+const PED_DOWN_SECS = 22;            // how long one stays on the pavement
+function knockPed(p, vx, vy, spd) {
+  if (p.struck) return false;        // already down; a second wheel over them adds nothing
+  p.struck = 1;
+  p.hurt = 'down';
+  p.downT = PED_DOWN_SECS;
+  const s = Math.hypot(vx, vy) || 1;
+  const fly = spd > PED_FLY_MIN;
+  /* Thrown at a fraction of what hit them, not at all of it: a person is not a
+     billiard ball, and most of the energy goes into them rather than into
+     moving them. */
+  const k = fly ? .40 : .22;
+  p.pvx = vx / s * spd * k;
+  p.pvy = vy / s * spd * k;
+  p.pvz = fly ? 2.0 + Math.min(spd, 30) * .16 : 0;
+  // which way they go over, and how fast. A throw tumbles; a shove just folds.
+  p.lieV = (fly ? rand(2.6, 4.4) : rand(2.0, 3.0));
+  return true;
+}
+/* One step of being on the floor. Runs in place of the walk, so a body neither
+   strolls off nor stands in the road it was knocked into. */
+function stepDowned(p, dt) {
+  if (p.downT > 0) p.downT -= dt;
+  if (p.pz > 0 || p.pvz > 0) {
+    p.pvz -= PED_G * dt;
+    p.pz += p.pvz * dt;
+    p.x += p.pvx * dt; p.y += p.pvy * dt;
+    p.lie += p.lieV * dt;
+    if (p.pz <= 0) {
+      /* Landed. Flat, whichever way round the tumble left them — a body that
+         came to rest at forty degrees is a body standing on its head. */
+      p.pz = 0; p.pvz = 0; p.lieV = 0;
+      p.pvx *= .10; p.pvy *= .10;
+      p.lie = Math.PI / 2;
+    }
+    return;
+  }
+  if (p.lie < Math.PI / 2) p.lie = Math.min(Math.PI / 2, p.lie + p.lieV * dt);
+  // whatever slide is left, bled off fast — tarmac is not ice
+  p.x += p.pvx * dt; p.y += p.pvy * dt;
+  const damp = Math.pow(.015, dt);
+  p.pvx *= damp; p.pvy *= damp;
 }
 function spawnPeds(n) {
   for (let i = 0; i < n; i++) {

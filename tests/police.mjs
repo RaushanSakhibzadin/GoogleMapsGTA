@@ -60,6 +60,38 @@ await p.waitForTimeout(2200);
 await p.evaluate(() => applyTheme('day'));
 await p.waitForTimeout(600);
 
+/* AND SOMEWHERE THE CAR CAN BE SEEN, which was assumed and is now searched for.
+ *
+ * The staging below stands a car seventeen metres straight ahead of wherever
+ * the loading screen happened to put the player. That is a distance, not an
+ * address: rebuilding the bundled city moved its centre forty-five metres and
+ * the spot landed in a shaded canyon, where the whole reading collapsed —
+ * blueOnly 159 to 103, the white car 839 white pixels to 331, and the car's own
+ * silhouette spread across the full width of the frame because it was standing
+ * partly inside something. Nothing about the livery changed; the light on it
+ * did.
+ *
+ * So the pair is staged on the longest straight run of drivable road nearby,
+ * which is open sky by construction — a street wide enough to be a street. The
+ * measurement is untouched; only the place it is taken has stopped being an
+ * accident of where the city starts you. */
+out.stage = await p.evaluate(() => {
+  let best = null;
+  for (const r of W.driveRoads) for (let i = 0; i + 1 < r.pts.length; i++) {
+    const a = r.pts[i], b = r.pts[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (Math.hypot(a.x - P.car.x, a.y - P.car.y) > 900 || len < 70) continue;
+    if (!best || len > best.len) best = { a, b, len };
+  }
+  if (!best) return null;
+  const h = Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x);
+  window.__tp(best.a.x + Math.cos(h) * 4, best.a.y + Math.sin(h) * 4, h);
+  P.car.vx = P.car.vy = 0; P.car.z = undefined;
+  return { len: +best.len.toFixed(0), street: best.a.x.toFixed(0) + ',' + best.a.y.toFixed(0) };
+});
+// the camera eases in update(), so this wait has to be real time and unpaused
+await p.waitForTimeout(2600);
+
 /* ALL THREE FRAMES IN ONE FROZEN PASS.
 
    The first version paused, shot, and un-paused for each frame in turn. Between

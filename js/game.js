@@ -1301,7 +1301,12 @@ function dropRider(at) {
   const spot = (at.road && at.idx != null) ? at
     : (roadPoint(at.x, at.y, 0, 60) || roadPoint(at.x, at.y, 0, 240)
        || roadPoint(at.x, at.y, null));
+  /* BACK ON THEIR FEET. Whatever put them down — an illness or your bumper —
+     they get out of the car standing up, so `lie` has to be cleared with the
+     rest of it or the passenger is set on the pavement flat on their back. */
   who.hurt = false;                          // walking again, not standing waiting
+  who.lie = 0; who.lieV = 0; who.pz = 0;
+  who.pvx = who.pvy = who.pvz = 0; who.struck = 0;
   who.dir = Math.random() < .5 ? 1 : -1;
   who.side = pick([-1, 1]);
   if (spot && spot.road && spot.road.pts) {
@@ -1536,7 +1541,13 @@ function newCasualty() {
   const off = pedOffset(p.road);
   const qx = p.x - Math.sin(p.h) * off * side, qy = p.y + Math.cos(p.h) * off * side;
   const who = makePed(qx, qy, p.road, p.idx, dir, side);
+  /* ALREADY ON THE GROUND, because they are ill — which is the whole reason an
+     ambulance has been called for them. `lie` is the same angle a pedestrian a
+     car has just hit ends up at; this one simply starts there rather than being
+     put there by an impact, and never had the flight. */
   who.hurt = 'down';
+  who.lie = Math.PI / 2;
+  who.struck = 0;                            // not a casualty of yours: no cull timer
   peds.push(who);
   MISSION.fare = who;
   MISSION.pick = { x: who.x, y: who.y, road: who.road };
@@ -2254,11 +2265,24 @@ function update(dt) {
        down and a casualty on the ground both stand where they are — otherwise
        the marker crawls along the pavement while you drive to where it was. */
     if (!p.hurt) walkPed(p, dt);
-    if (dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
-      p.dead = true; addWanted(1);
+    else if (p.hurt === 'down') stepDowned(p, dt);
+    /* HIT, AND LEFT LYING THERE. This used to set p.dead and put five sparks
+       where the person had been, so a pedestrian struck at forty vanished
+       between one frame and the next. They are knocked over now — thrown, if
+       you were going fast enough for that — and they stay on the pavement until
+       the ordinary cull takes them, which is what a street you have just driven
+       through ought to look like.
+     *
+       The wanted star and the horn are unchanged: what the police think of it
+       was never the part that was wrong. */
+    if (!p.struck && dist2(p.x, p.y, c.x, c.y) < 5 && spd > 4) {
+      knockPed(p, c.vx, c.vy, spd);
+      addWanted(1);
       SFX.crash(8); toast(txt('toast.watchIt'), 900);
       for (let i = 0; i < 5; i++) parts.push(sparks(p.x, p.y, '#ff4f6d'));
     }
+    // and the bodies do not lie there for ever
+    if (p.struck && p.downT <= 0 && p !== MISSION.fare && p !== MISSION.rider) p.dead = true;
   }
 
   // --- police

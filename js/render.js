@@ -392,13 +392,24 @@ function drawCar(c, isPlayer) {
      middle of it: the cab is at the front and everything behind it is bodywork,
      so the two are drawn differently rather than one being painted over the
      other. */
-  const van = c.livery === 'fire' || c.livery === 'ambulance';
+  const van = c.livery === 'fire' || c.livery === 'ambulance' || c.livery === 'lorry';
+  /* AND A BUS IS NEITHER. It has no bonnet and no separate cab: from above it is
+     a rectangle with a windscreen at one end and a line of glass down each
+     flank, and drawing a car's greenhouse in the middle of one would put a roof
+     panel across the passengers. */
+  const bus = c.livery === 'bus';
   ctx.fillStyle = 'rgba(0,0,0,.32)';
-  if (van) rrect(L * .18, -Wd / 2 + .18, L * .26, Wd - .36, .3);
+  if (bus) rrect(-L * .46, -Wd / 2 + .12, L * .92, Wd - .24, .3);
+  else if (van) rrect(L * .18, -Wd / 2 + .18, L * .26, Wd - .36, .3);
   else rrect(-L * .18, -Wd / 2 + .22, L * .46, Wd - .44, .3);
   ctx.fill();
   ctx.fillStyle = 'rgba(160,240,255,.5)';
-  if (van) rrect(L * .30, -Wd / 2 + .26, L * .11, Wd - .52, .18);
+  if (bus) {
+    // the window band down both flanks, and the windscreen across the nose
+    for (const side of [-1, 1])
+      ctx.fillRect(-L * .44, side < 0 ? -Wd / 2 + .16 : Wd / 2 - .40, L * .84, .24);
+    rrect(L * .40, -Wd / 2 + .22, L * .08, Wd - .44, .12);
+  } else if (van) rrect(L * .30, -Wd / 2 + .26, L * .11, Wd - .52, .18);
   else rrect(L * .12, -Wd / 2 + .3, L * .14, Wd - .6, .18);
   ctx.fill();
 
@@ -524,6 +535,23 @@ function rrect(x, y, w, h, r) {
 }
 function drawPed(p) {
   ctx.save(); ctx.translate(p.x, p.y);
+  /* SOMEBODY ON THE GROUND IS A LINE, NOT A DOT. From directly above, a person
+     standing up is a circle a head wide and a person lying down is their whole
+     height — which is the only thing this view can say about the difference,
+     and it says it well: a body on a pavement is unmistakable from the air.
+     p.lie is the same angle the 3D view turns them by, so the two agree while
+     somebody is halfway through going over. */
+  const lie = Math.min(1, Math.abs(Math.sin(p.lie || 0)));
+  if (lie > .02) {
+    ctx.rotate(p.h || 0);
+    const L = .45 + lie * 1.35, W = .45 - lie * .16;
+    ctx.fillStyle = 'rgba(0,0,0,.4)';
+    rrect(-L + .15, -W + .15, L * 2, W * 2, W); ctx.fill();
+    ctx.fillStyle = p.col;
+    rrect(-L, -W, L * 2, W * 2, W); ctx.fill();
+    ctx.restore();
+    return;
+  }
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.arc(.15, .15, .48, 0, TAU); ctx.fill();
   ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(0, 0, .45, 0, TAU); ctx.fill();
   ctx.restore();

@@ -1672,27 +1672,65 @@ const LIT_ATTR = () => LIT_LAYOUT.map(([k, n]) => [G3.lit.a[k], n]);
    sideways. Everything is worked out in the person's own frame and rotated on
    the way out, which is one sin and one cos for the whole figure. */
 const PED_H = 1.74;
+/* Where a body folds, and how high off the ground it lies once it has. The hip
+   is the top of the legs and the bottom of the torso, which is the same 0.85
+   both are built from below; LIE_H is half the torso's own thickness, so a
+   figure flat on its back has its back on the pavement rather than in it. */
+const PED_HIP = 0.85, LIE_H = 0.15;
 function pushPerson(out, p) {
   const y0 = terrainH(p.x, p.y);
   const ch = Math.cos(p.h), sh = Math.sin(p.h);
   const shirt = parseColour(p.shirt) || [70, 80, 100];
   const trews = parseColour(p.trews) || [50, 55, 70];
   const skin = parseColour(p.skin) || [230, 200, 170];
+  /* UPRIGHT, OR NOT. p.lie is how far this person has gone over about their own
+     lateral axis — 0 on their feet, PI/2 flat out, anything in between while
+     they are folding up or tumbling through the air. The whole figure is turned
+     by it here rather than each pose being modelled separately, which is what
+     makes an ambulance casualty and somebody a van has just hit the same six
+     boxes in the same code.
+   *
+     PIVOTED AT THE HIPS, not at the feet: a body rotating about its ankles
+     sweeps its head through a metre and three quarters and looks like a felled
+     tree, where a real fall folds around the middle. And the axis itself comes
+     DOWN as they go over — at PI/2 it sits at LIE_H, half a torso's thickness
+     off the pavement, which is where the spine of somebody lying on their back
+     actually is. Left at hip height they would lie flat in mid-air. */
+  const t = p.lie || 0;
+  const ct = Math.cos(t), st = Math.sin(t);
+  /* THE PIVOT COMES DOWN ALONG THE ARC THE HIP ACTUALLY TRAVELS, which is what
+     these two cosines are. Interpolating it straight from hip height to lying
+     height on sin(t) reaches the two ends correctly and sags in the middle: at
+     forty-five degrees it put the axis at 0.36 where the feet needed 0.67, and
+     the legs swept a third of a metre through the pavement halfway down every
+     fall. Weighted by the angle instead, the figure grazes the ground at every
+     point of the arc and never crosses it. */
+  const axis = PED_HIP * Math.abs(ct) + LIE_H * Math.abs(st);
+  const lift = p.pz || 0;
   /* One box, given in the walker's own axes: u runs forward, v across, and the
      eight corners come out in the order pushBox wants them. */
   const limb = (fwd, side, base, top, halfF, halfS, col) => {
     const b = [];
     for (const uy of [base, top])
       for (const [a, o] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        const f = fwd + a * halfF, sdd = side + o * halfS;
-        b.push(p.x + ch * f - sh * sdd, y0 + uy, p.y + sh * f + ch * sdd);
+        const f0 = fwd + a * halfF, sdd = side + o * halfS, u0 = uy - PED_HIP;
+        const f = f0 * ct + u0 * st;
+        const u = u0 * ct - f0 * st + axis + lift;
+        b.push(p.x + ch * f - sh * sdd, y0 + u, p.y + sh * f + ch * sdd);
       }
     pushBox(out, b, col[0] / 255, col[1] / 255, col[2] / 255);
   };
   /* The stride. One leg forward while the other is back, and the arms opposite
      to the legs, which is what people actually do and what makes a walk read as
      a walk rather than as a shuffle. */
-  const sw = Math.sin(p.step) * .26;
+  /* AND THE STRIDE GOES OUT AS THEY GO DOWN. Forward becomes UP once somebody is
+     on their back, so a stride left running puts one leg a quarter of a metre in
+     the air and the other the same distance into the pavement — measured on a
+     real casualty, 0.46 m of body where a person lying flat is 0.23 and a foot
+     eight centimetres underground. Faded out by the cosine of the same angle
+     that lays them down, so the legs come together over the fall rather than
+     snapping straight the moment it starts. */
+  const sw = Math.sin(p.step) * .26 * Math.max(0, ct);
   limb(sw, -.11, 0, .86, .10, .075, trews);          // legs
   limb(-sw, .11, 0, .86, .10, .075, trews);
   /* The torso is WIDER THAN THE HEAD by enough to read as shoulders, which is
@@ -2465,6 +2503,104 @@ function pushAmbulance(o, src) {
   pushBox(o, subBox(src, SUBTMP, cf - T, cf + T, -.66, .66, AMB_ROOF, AMB_ROOF + .06),
           R[0], R[1], R[2]);
 }
+/* ---- the lorry and the bus ----
+ *
+ * The two shapes an ordinary street has in it that a car mesh cannot stand in
+ * for. Built the same way the appliance and the van are — out of the car's own
+ * eight corners, so they inherit the heading, the pitch and the roll — and for
+ * the same reason: a bus is not a saloon with more paint on it, it is a
+ * different silhouette, and the silhouette is the whole recognition.
+ *
+ * WHAT MAKES EACH ONE READ AT A DISTANCE, which is where they are seen from:
+ * the lorry is a gap. A cab, air, and then a box taller than the cab — that
+ * break is what says lorry rather than van, and it is visible long after any
+ * detail on the body has stopped being. The bus is the window band: one
+ * unbroken line of glass from the windscreen to the back, which nothing else on
+ * the road has. Everything else here is trim. */
+const LORRY_AXLES = [[.46, .78], [-.62, -.30], [-.98, -.66]];
+const LORRY_CHASSIS = [.10, .10, .11];
+function pushLorry(o, src, col) {
+  const r = col[0], g = col[1], b = col[2];
+  const gr = r * .20 + .04, gg = g * .21 + .05, gb = b * .26 + .07;
+  // the chassis rail the whole thing stands on, and what shows through the gap
+  pushBox(o, subBox(src, SUBTMP, -1, 1, -.72, .72, BODY_LO, -.30),
+          LORRY_CHASSIS[0], LORRY_CHASSIS[1], LORRY_CHASSIS[2]);
+  // the cab: short, at the very front, with its glasshouse above the waist
+  pushBox(o, subBox(src, SUBTMP, .52, 1, -.96, .96, BODY_LO, .34), r, g, b);
+  pushBox(o, subBox(src, SUBTMP, .56, .98, -.92, .92, .30, .84), gr, gg, gb);
+  /* THE BOX, and the GAP in front of it. It starts at .30 while the cab ends at
+     .52, so there are two tenths of the vehicle's length with nothing but
+     chassis in them — that is the break the whole shape is recognised by, and
+     closing it turns the lorry back into a van. The box is also taller than the
+     cab, which is the other half of the profile. */
+  pushBox(o, subBox(src, SUBTMP, -1, .30, -1, 1, -.30, .96), r, g, b);
+  /* Two pale bands and the ribs between them: a curtain-sided trailer is a
+     frame with fabric stretched over it, and at any distance the ribs are what
+     stops the flank reading as one flat slab of colour. */
+  for (const side of [-1, 1]) {
+    const l0 = side < 0 ? -1.012 : .992, l1 = side < 0 ? -.992 : 1.012;
+    pushBox(o, subBox(src, SUBTMP, -.98, .28, l0, l1, .88, .96), .90, .91, .94);
+    pushBox(o, subBox(src, SUBTMP, -.98, .28, l0, l1, -.26, -.16), .90, .91, .94);
+    for (let i = 0; i < 6; i++) {
+      const f0 = -.94 + i * .21;
+      pushBox(o, subBox(src, SUBTMP, f0, f0 + .04, l0, l1, -.14, .86), gr, gg, gb);
+    }
+  }
+  // rear doors, which is the one face of a lorry everybody spends time behind
+  pushBox(o, subBox(src, SUBTMP, -1.012, -.992, -.94, -.03, -.22, .90), gr, gg, gb);
+  pushBox(o, subBox(src, SUBTMP, -1.012, -.992, .03, .94, -.22, .90), gr, gg, gb);
+  for (const s of [-1, 1]) for (const [f0, f1] of LORRY_AXLES)
+    pushBox(o, subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, -.24),
+            .062, .058, .07);
+  for (const s of [-1, 1]) {
+    const [l0, l1] = LAMPS[s < 0 ? 0 : 1];
+    pushBox(o, subBox(src, SUBTMP, -1.02, -.96, l0, l1, -.24, -.02), .78, .07, .05);
+    pushBox(o, subBox(src, SUBTMP, .96, 1.02, l0, l1, -.20, .06), .95, .93, .78);
+  }
+}
+
+const BUS_AXLES = [[.42, .72], [-.74, -.44]];
+function pushBus(o, src, col) {
+  const r = col[0], g = col[1], b = col[2];
+  const gr = r * .17 + .035, gg = g * .18 + .045, gb = b * .24 + .065;
+  // one body, the whole length and the whole height: a bus has no bonnet
+  pushBox(o, subBox(src, SUBTMP, -1, 1, -1, 1, BODY_LO, .92), r, g, b);
+  /* THE WINDOW BAND. One unbroken run of glass from behind the windscreen to
+     the back panel, at head height, down both flanks — the single thing that
+     says bus from three streets away. The pillars are drawn ON it rather than
+     the glass being drawn in pieces between them, which is both fewer boxes and
+     the right look: a modern bus is a glass tube with thin uprights. */
+  const gu0 = .30, gu1 = .78;
+  for (const side of [-1, 1]) {
+    const l0 = side < 0 ? -1.012 : .992, l1 = side < 0 ? -.992 : 1.012;
+    pushBox(o, subBox(src, SUBTMP, -.94, .80, l0, l1, gu0, gu1), gr, gg, gb);
+    for (let i = 0; i < 7; i++) {
+      const f0 = -.92 + i * .25;
+      pushBox(o, subBox(src, SUBTMP, f0, f0 + .045, l0, l1, gu0, gu1), r, g, b);
+    }
+    // the skirt below the floor line, darker, where a real one carries its bays
+    pushBox(o, subBox(src, SUBTMP, -.98, .98, l0, l1, BODY_LO, -.34), LORRY_CHASSIS[0], LORRY_CHASSIS[1], LORRY_CHASSIS[2]);
+  }
+  /* THE TWO DOORS, on the kerb side only — which is the side a bus opens and
+     the side that tells you which way it is pointing. */
+  for (const f0 of [.34, -.36]) {
+    pushBox(o, subBox(src, SUBTMP, f0, f0 + .26, .992, 1.012, -.30, gu1), gr, gg, gb);
+  }
+  // windscreen and back window, both nearly the full width of the vehicle
+  pushBox(o, subBox(src, SUBTMP, .992, 1.012, -.90, .90, .22, .82), gr, gg, gb);
+  pushBox(o, subBox(src, SUBTMP, -1.012, -.992, -.90, .90, .30, .80), gr, gg, gb);
+  // and the destination blind over the windscreen, lit, which every bus has
+  pushBox(o, subBox(src, SUBTMP, .992, 1.014, -.62, .62, .84, .92), .93, .88, .55);
+  for (const s of [-1, 1]) for (const [f0, f1] of BUS_AXLES)
+    pushBox(o, subBox(src, SUBTMP, f0, f1, s < 0 ? -1.06 : .86, s < 0 ? -.86 : 1.06, -1, -.30),
+            .062, .058, .07);
+  for (const s of [-1, 1]) {
+    const [l0, l1] = LAMPS[s < 0 ? 0 : 1];
+    pushBox(o, subBox(src, SUBTMP, -1.02, -.96, l0, l1, -.28, -.06), .78, .07, .05);
+    pushBox(o, subBox(src, SUBTMP, .96, 1.02, l0, l1, -.26, -.02), .95, .93, .78);
+  }
+}
+
 const TAXI_DARK = [.075, .085, .105];
 const TAXI_SIGN = [1, .84, .30];
 const TAXI_COLS = 9, TAXI_ROWS = 2;
@@ -2747,6 +2883,9 @@ function render3D() {
       pushAmbulanceBar(dyn, BOXTMP, Math.floor((q.blink || 0) * 7) % 2 === 0);
       return;
     }
+    // and the two ordinary big vehicles, which carry no markings at all
+    if (liv === 'lorry') { pushLorry(dyn, BOXTMP, col); return; }
+    if (liv === 'bus') { pushBus(dyn, BOXTMP, col); return; }
     if (!G3.plainCars && G3.carVao && dist2(q.x, q.y, cam.x, cam.y) < WHEEL_R2)
       meshCars.push({ src: BOXTMP.slice(), col });
     else pushCar(dyn, BOXTMP, col[0], col[1], col[2], false);
