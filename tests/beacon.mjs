@@ -59,18 +59,42 @@ const grab = () => p.evaluate(a => window.__px3(0, 0, a[0], a[1]), [W, H]);
 // readPixels is bottom-left origin: row 0 is the BOTTOM of the screen
 const at = (x, y) => (y * W + x) * 4;
 
-/* Eighty-five metres straight up the road the car is already pointing down, so
-   the beacon is in front of the camera without steering, and far enough away
-   that a building or two stands between it and the lens — which is the case that
-   matters, because that is what decides how tall the column has to be. */
+/* Eighty-five metres straight up a road, so the beacon is in front of the camera
+   without steering, and far enough away that a building or two stands between it
+   and the lens — which is the case that matters, because that is what decides how
+   tall the column has to be.
+ *
+   UP A ROAD THE CAR IS PUT ON, NOT THE ONE IT HAPPENS TO SPAWN ON. This read
+   85 m along P.car.h from wherever the loading screen dropped the player, which
+   is a direction rather than a place: rebuilding the bundled city pointed that
+   at the inside of a block and the beacon vanished — zero pink pixels, which is
+   indistinguishable from the feature having been deleted. It is the third piece
+   of staging in this suite to have been resting on where the city starts you,
+   after the landmark half of this same file and the pair of cars in police.mjs,
+   and it gets the same answer they did: find the longest straight run of
+   drivable road nearby and use that. A long straight is a street with buildings
+   down both sides, which is exactly the shot this wants. */
 out.placed = await p.evaluate(() => {
+  let best = null;
+  for (const r of W.driveRoads) for (let i = 0; i + 1 < r.pts.length; i++) {
+    const a = r.pts[i], b = r.pts[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (Math.hypot(a.x - P.car.x, a.y - P.car.y) > 900 || len < 110) continue;
+    if (!best || len > best.len) best = { a, b, len };
+  }
+  if (best) {
+    const h = Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x);
+    window.__tp(best.a.x + Math.cos(h) * 6, best.a.y + Math.sin(h) * 6, h);
+    P.car.vx = P.car.vy = 0; P.car.z = undefined;
+  }
   const c = P.car;
   MISSION.state = 'pickup';
   MISSION.pick = { x: c.x + Math.cos(c.h) * 85, y: c.y + Math.sin(c.h) * 85 };
-  return { car: [Math.round(c.x), Math.round(c.y)],
+  return { car: [Math.round(c.x), Math.round(c.y)], onStraight: best ? Math.round(best.len) : null,
            pick: [Math.round(MISSION.pick.x), Math.round(MISSION.pick.y)] };
 });
-await p.waitForTimeout(700);
+// the camera has to ease onto the new heading before anything is measured
+await p.waitForTimeout(2900);
 await p.evaluate(() => {
   window.__keepStateB = state;
   state = 'pause';
@@ -123,6 +147,15 @@ out.pink = { withObjective: a.n, without: b.n };
 out.reachesAboveTheRoofline = a.top > H * 0.62;
 out.topRow = a.top;
 out.frameH = H;
+/* HOW MUCH ROOM IS LEFT, reported rather than left to be worked out from two
+   other numbers by whoever is looking at a failure. It is not much: the street
+   the staging settles on in the current bundled city has taller blocks than the
+   one it used to land on by accident, and the top of the column clears the bar
+   by three rows of six hundred where it used to clear it by twenty-two. Both
+   readings are dead steady across runs — the staging is deterministic now — so
+   this is a narrow pass rather than a flapping one, and the number is here so
+   the next person to widen a street knows which way it moved. */
+out.roofMargin = Math.round(a.top - H * 0.62);
 out.visible = a.n > 250 && b.n * 8 < a.n;
 
 /* AND THE LANDMARKS, which had the same problem and get the same answer at a
