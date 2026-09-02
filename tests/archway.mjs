@@ -128,6 +128,7 @@ out.shot = await p.evaluate(rep => {
   state = 'play';
 
   let moved = 0, control = 0, sy = 0, la = 0, lb = 0;
+  const thr = [], wal = [];
   for (let i = 0; i < A.length; i += 4) {
     if (Math.abs(A[i] - C[i]) + Math.abs(A[i + 1] - C[i + 1]) + Math.abs(A[i + 2] - C[i + 2]) > 18) control++;
     const d = Math.abs(A[i] - B[i]) + Math.abs(A[i + 1] - B[i + 1]) + Math.abs(A[i + 2] - B[i + 2]);
@@ -135,15 +136,21 @@ out.shot = await p.evaluate(rep => {
     moved++;
     // __px3 reads bottom-up, so a large y here is HIGH on the screen
     sy += Math.floor((i / 4) / w);
-    la += A[i] * .3 + A[i + 1] * .6 + A[i + 2] * .1;
-    lb += B[i] * .3 + B[i + 1] * .6 + B[i + 2] * .1;
+    const ya = A[i] * .3 + A[i + 1] * .6 + A[i + 2] * .1;
+    const yb = B[i] * .3 + B[i + 1] * .6 + B[i + 2] * .1;
+    la += ya; lb += yb; thr.push(ya); wal.push(yb);
   }
+  thr.sort((p, q) => p - q); wal.sort((p, q) => p - q);
+  const pc = (arr, f) => arr.length ? +arr[Math.floor((arr.length - 1) * f)].toFixed(1) : 0;
   return { gated: gated.length, id: b.id, h: Math.round(b.h),
            gateFrom: Math.round(near.d), gateW: +b.gate.w.toFixed(1),
            moved, control, sampled: A.length / 4, hh: h,
            cy: moved ? +(sy / moved / h).toFixed(3) : null,
            lumaThrough: +(la / Math.max(1, moved)).toFixed(1),
-           lumaWall: +(lb / Math.max(1, moved)).toFixed(1) };
+           lumaWall: +(lb / Math.max(1, moved)).toFixed(1),
+           brightThrough: pc(thr, .92), brightWall: pc(wal, .92),
+           thrQ: [pc(thr, .1), pc(thr, .5), pc(thr, .9)],
+           walQ: [pc(wal, .1), pc(wal, .5), pc(wal, .9)] };
 }, REPORTED);
 
 out.foundTheReportedGate = !out.shot.err && out.shot.gateFrom < 15 && out.shot.gated > 20;
@@ -162,9 +169,30 @@ out.cutsAHole = out.shot.moved > 2500 && out.shot.moved < 40000 && out.shot.cont
    physics puts it, and a threshold 1% away from the reading is fitted to the
    reading. The whole-wall case is caught by the count above, not by this. */
 out.atGroundLevel = out.shot.cy !== null && out.shot.cy < 0.55;
-/* And you can see THROUGH it: what shows in the opening is the lit street on
-   the far side, which is brighter than the shaded wall it replaced. */
-out.seesThrough = out.shot.lumaThrough > out.shot.lumaWall * 1.15;
+/* AND WHAT SHOWS IN THE OPENING IS A PASSAGE.
+ *
+ * This used to read "brighter than the wall it replaced", on the reasoning that
+ * what you see through a gateway is the lit street beyond. That was true, and it
+ * was true for the wrong reason: the passage's lining was single-sided and faced
+ * inward, so from outside it was not drawn at all and the opening was a clean
+ * hole onto whatever lay behind the building. The moment the lining is drawn
+ * from both sides — which is what "they should look good from each side" asked
+ * for, and without which you see straight through a jamb from any angle off the
+ * axis — the mean through the opening is dominated by shaded masonry and lands
+ * BELOW the sunlit facade. Measured: 76 against 93, and even the top decile of
+ * the opening is 118 against the wall's 130. A sunlit wall is brighter than the
+ * inside of a tunnel, and no amount of getting the tunnel right will change that.
+ *
+ * So the check is on the thing that actually distinguishes an opening from a
+ * repaint: RANGE. A passage has a dark lining and a lit far end, so what shows
+ * in the hole spans a much wider band of brightness than the flat wall it
+ * replaced. A shader that discarded the wall and showed nothing, or one that
+ * tinted it, gives a narrow band. Measured on this frame the opening runs 44 to
+ * 114 across its middle four fifths and the wall 45 to 128 — so the test is on
+ * the SPREAD WITHIN the opening rather than on either against the other: 2.6x
+ * here, and a flat surface is 1.0. */
+out.throughSpread = out.shot.thrQ[0] > 0 ? +(out.shot.thrQ[2] / out.shot.thrQ[0]).toFixed(2) : 0;
+out.seesThrough = out.throughSpread > 1.8 && out.shot.brightThrough > 90;
 
 
 /* ---------------------------------------------------------------------------

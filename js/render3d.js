@@ -450,7 +450,29 @@ void main() {
      Before anything else in this shader, because a discarded fragment should not
      pay for a shadow lookup or a window grid — and compiled in at all only for
      the cells that have an archway in them, for the reason set out above. */
-  ${gate ? `if (vGate.y > 0.0 && vW.y < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;` : ''}
+  ${gate ? `
+  /* THE OPENING, MEASURED FROM THE ROAD AND SHAPED LIKE AN ARCH.
+     Two things were wrong with the square slot this replaces, and the second is
+     what made it look like a slot.
+     FROM THE ROAD, not from the wall's buried foot. A wall is built from the
+     lowest corner of its footprint less a metre, so the pavement in the passage
+     is somewhere above zero in this coordinate — 0.4 to 1.5 m across the 48
+     archways of a captured Belgrade district. Cutting to a fixed 4.2 up from the
+     foot therefore cut a 4.2 metre hole and buried the bottom of it, leaving as
+     little as 2.7 m of opening above the road. floor(vTag) is that burial; see
+     the note on aTag.
+     AND SQUARE-HEADED, WHICH WAS TRIED THE OTHER WAY ROUND. A round head was the
+     obvious thing to add — an arch is a shape a building was built with, a
+     rectangle is a hole punched in one — and it is invisible: the passage is
+     lined with a flat soffit at exactly the height the head would spring from,
+     so the lintel occludes the whole of the curve from every angle you can see
+     the opening from. A shape the geometry cannot back up is not a shape. These
+     are 1960s Belgrade blocks with concrete lintels over their passages, and a
+     square head is what they have. */
+  if (vGate.y > 0.0) {
+    float gh = vW.y - floor(vTag);
+    if (gh > -1.0 && gh < ${GATE_H.toFixed(2)} && abs(vW.x - vGate.x) < vGate.y) discard;
+  }` : ''}
 
   vec3 nn = normalize(vN);
   float sh = sunlit();
@@ -500,10 +522,13 @@ void main() {
      Skipped on everything that is not a painted facade: vTag is zero on every
      wall nobody has sprayed, on every roof, on every car and on every tunnel
      soffit, so this is one comparison against zero for the whole city. */
-  if (vTag > 0.0 && abs(nn.y) < 0.5 && vW.z > 0.001) {
+  if (fract(vTag) > 0.001 && abs(nn.y) < 0.5 && vW.z > 0.001) {
     /* Whole part: how far the pavement is above this wall's buried foot. The
        band is measured from there rather than from zero, or it is underground —
-       see the note on aTag. Fraction: the seed the letters are built from. */
+       see the note on aTag. Fraction: the seed the letters are built from, and
+       zero on a wall nobody has painted. It is the FRACTION that says whether
+       there is a tag here, because the whole part is now carried by every wall
+       for the archway's sake. */
     float bury = floor(vTag);
     float seed = fract(vTag);
     float lo = bury + 0.4;
@@ -1774,8 +1799,25 @@ function buildCell(kx, kz) {
        stands on to paint it is the terrain at the centre, which is what the roof
        is measured from too. On this game's procedural terrain the gap runs from
        0.4 to 3.5 m, which is more than the height of the band. */
-    const bury = team ? clamp(Math.round(terrainH(b.cx, b.cy) - (base + 1)), 0, 30) : 0;
-    const tag = team ? bury + (b.tagSeed == null ? .5 : .05 + b.tagSeed * .9) : 0;
+    /* THE WHOLE PART IS CARRIED BY EVERY WALL NOW, not only a painted one.
+
+       It was added for the graffiti, which is why it used to be zero on
+       everything nobody had sprayed — but the archway needs exactly the same
+       number for exactly the same reason, and needed it first: the cut in the
+       wall is measured up from the wall's buried foot, so the opening is short
+       by however far the pavement is above it. Measured across all 48 archways
+       in a captured Belgrade district: 0.4 to 1.5 m of a 4.2 m opening, a
+       median loss of 8% and a worst case of 35%.
+
+       Measured AT THE GATE where there is one, rather than at the building's
+       centre. The cut is what this number is for on such a wall, and the ground
+       that matters to a passage is the ground in the passage. A painted archway
+       building therefore anchors its tag to the gate's pavement instead of its
+       centre's — a difference of centimetres across one footprint, and the
+       arithmetic below stays one number rather than two. */
+    const gateGround = b.gate && b.gate.n ? terrainH(b.gate.x, b.gate.y) : terrainH(b.cx, b.cy);
+    const bury = clamp(Math.round(gateGround - (base + 1)), 0, 30);
+    const tag = bury + (team ? (b.tagSeed == null ? .5 : .05 + b.tagSeed * .9) : 0);
     const wr = wall[0] / 255, wg = wall[1] / 255, wb = wall[2] / 255;
     /* WHICH WAY ROUND THE OUTLINE IS LISTED, and why both the normal and the
        triangles have to be told.
@@ -1882,13 +1924,45 @@ function buildCell(kx, kz) {
     if (b.passable && gt && gt.n && b.h > 5 && (gt.ux || gt.uy)) {
       const ux = gt.ux, uy = gt.uy;
       const c = gt.x * ux + gt.y * uy;
-      const ax0 = gt.x + (gt.pmin - c - 1.5) * ux, az0 = gt.y + (gt.pmin - c - 1.5) * uy;
-      const ax1 = gt.x + (gt.pmax - c + 1.5) * ux, az1 = gt.y + (gt.pmax - c + 1.5) * uy;
+      /* JUST ENOUGH TO CLOSE THE SEAM, AND NOT A CENTIMETRE MORE.
+         This was a metre and a half at each end, to be sure the jambs met the
+         walls they pass through rather than stopping short and leaving a slot.
+         A metre and a half past the footprint is a metre and a half OUT IN THE
+         STREET: the lining stood proud of the facade as two grey slabs beside
+         the opening and a lintel above it, wider than the hole they were meant
+         to line. It was invisible only because the lining was single-sided and
+         faced away from anyone outside — so the moment it could be seen from
+         both sides, as asked, the overhang was the first thing you saw.
+         The walls are flat quads with no thickness, so twenty centimetres of
+         overlap closes the seam from any angle. */
+      const OVER = 0.2;
+      const ax0 = gt.x + (gt.pmin - c - OVER) * ux, az0 = gt.y + (gt.pmin - c - OVER) * uy;
+      const ax1 = gt.x + (gt.pmax - c + OVER) * ux, az1 = gt.y + (gt.pmax - c + OVER) * uy;
       const px = -uy, pz = ux, w = gt.w;
-      const foot = base + 1, ceil = foot + GATE_H;
+      /* THE PASSAGE STANDS ON THE ROAD, NOT ON THE WALL'S BURIED FOOT.
+         The cut in the wall is measured from the pavement at the gate — it has to
+         be, or the opening is short by however far the wall is sunk — so the
+         soffit has to be measured from there too. Left where it was, the arch
+         rises above its own ceiling and you look through the top of it into the
+         building's empty inside, which reads as a dark band across the head of
+         the opening. That is what the through-view check caught.
+         The floor is dropped half a metre below the road so the jambs meet the
+         ground along the whole passage rather than only where the terrain
+         happens to match the one point the gate was measured at. */
+      const gFloor = terrainH(gt.x, gt.y);
+      const foot = gFloor - 0.5, ceil = gFloor + GATE_H;
       // a shaded interior: the same masonry, minus the daylight it never gets
       const ir = wr * 0.62, ig = wg * 0.62, ib = wb * 0.62;
-      const quad = (x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2) => {
+      /* DRAWN FROM BOTH SIDES, which the first version of this was not.
+         "Facing INWARD, all three, because the only place they are ever seen from
+         is inside" — and that is wrong the moment you are not on the passage's
+         own axis. Look at an archway from anywhere off to one side and the line
+         of sight enters through the opening and leaves through a jamb, and a
+         single-sided jamb is not there from behind: you see straight through the
+         lining into the building's empty inside. Asked for as "they should look
+         good from each side", which is exactly the symptom.
+         Six more triangles per archway, on 48 of a district's 4,288 buildings. */
+      const face = (x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2) => {
         // no aWall, no gate and no tag: a tunnel wall has no window grid, nothing
         // may cut a hole in the hole, and nobody paints the inside of a passage
         lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
@@ -1897,6 +1971,11 @@ function buildCell(kx, kz) {
         lit.push(x0, y0, z0, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
                  x2, y2, z2, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0,
                  x3, y3, z3, nx2, ny2, nz2, ir, ig, ib, 0, 0, 0, 0, 0);
+      };
+      const quad = (x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2) => {
+        face(x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx2, ny2, nz2);
+        // and the same surface the other way round, winding reversed with it
+        face(x3, y3, z3, x2, y2, z2, x1, y1, z1, x0, y0, z0, -nx2, -ny2, -nz2);
       };
       // the two jambs, each facing the middle of the passage
       quad(ax0 + px * w, foot, az0 + pz * w, ax1 + px * w, foot, az1 + pz * w,
