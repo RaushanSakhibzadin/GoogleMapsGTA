@@ -19,6 +19,13 @@ const streets = () => ({ elements: [
 const json = o => ({ contentType: 'application/json', body: JSON.stringify(o) });
 const isArterials = q => /motorway/.test(q) && !/residential/.test(q);
 
+/* EVERY WINDOW HERE IS SIMULATED SECONDS. All three are behaviour over time —
+   how far a shove carries, how many nudges the wedge escape gets, how hard a
+   head-on lands — and the loop caps the physics at five steps a frame, so below
+   twelve frames a second the world runs slower than the clock. Five wall-clock
+   seconds then buy four of world and the escape gets three nudges instead of
+   four: measured at exactly 2.5 m against a floor of 2.5, on a build where
+   nothing about the escape had changed. */
 const b = await chromium.launch({ executablePath: CHROME });
 const p = await b.newPage({ viewport: { width: 900, height: 640 } });
 const errs = [];
@@ -48,18 +55,32 @@ async function shove(wanted) {
        (la+lb)*0.34, about 3 m between centres — parking the car 9 m back just
        lets it get a run-up and ram its way through, which never reproduced. */
     window.__tp(-200, 0, 0);                       // facing east along the road
+    /* AND NOBODY ELSE ON THE ROAD. What is being measured is how far the car
+       gets once it is past the ONE vehicle pinning it, over two hundred metres
+       of street — and the street has live traffic on it. That was a fair enough
+       hazard while everything on it was a hatchback to be shoved aside; with one
+       in ten an eleven-tonne bus it is a wall, and the run came in at 74 m on one
+       try in four against 200 to 296 on the others. The rest of the traffic is
+       not part of the question. */
+    traffic.length = Math.min(traffic.length, 1);
     window.__putTraffic(0, -197.4, 0, 0);          // 2.6 m ahead: already overlapping
+    /* AND IT IS A CIVILIAN CAR, which is what the report was about: a hatchback
+       pinning you at a junction. One in ten of the traffic is now an eleven-tonne
+       bus, and a bus you cannot shove aside is the mass model working rather than
+       the escape failing — measured, 50 m of progress against 296 with a car
+       there, on runs of the same build. */
+    window.__ordinaryCar(0);
     window.__hpById(window.__cars().traffic[0].id, 100);
     await new Promise(r => requestAnimationFrame(r));
     const x0 = window.__p().x;
-    const t0 = performance.now();
+    const t0 = window.__simT();
     let best = 0;
     await new Promise(res => {
       const tick = () => {
         window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
         const q = window.__p();
         best = Math.max(best, q.spd);
-        performance.now() - t0 < 5000 ? requestAnimationFrame(tick) : res();
+        window.__simT() - t0 < 5 ? requestAnimationFrame(tick) : res();
       };
       requestAnimationFrame(tick);
     });
@@ -80,22 +101,38 @@ out.heldStill = await p.evaluate(async () => {
   window.__tp(-200, 0, 0);
   await new Promise(r => requestAnimationFrame(r));
   const x0 = window.__p().x;
-  const t0 = performance.now();
+  const t0 = window.__simT(), n0 = window.__nudges();
+  let frames = 0;
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       const q = window.__p();
       window.__tp(q.x, q.y, q.h);            // same place, velocity killed: pinned
-      performance.now() - t0 < 5000 ? requestAnimationFrame(tick) : res();
+      frames++;
+      window.__simT() - t0 < 5 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
   const q = window.__p();
   window.__setInput(null);
-  return { crept: +(q.x - x0).toFixed(2) };
+  return { crept: +(q.x - x0).toFixed(2), nudges: window.__nudges() - n0,
+           frames, simSecs: +(window.__simT() - t0).toFixed(2) };
 });
-// ~1.2 m per nudge, a nudge every 1.3 s — three or more over five seconds
-out.escapesAWedge = out.heldStill.crept > 2.5;
+/* COUNT THE NUDGES, DO NOT INTEGRATE THEM. The escape is one 1.2 m shove every
+   STUCK_SECS of throttle held against a standstill, so five seconds is exactly
+   three of them — and that is a property of the rule, independent of frame rate,
+   which is what makes it worth asserting.
+   The distance was not. This pin kills the car's velocity once per FRAME while
+   the loop runs up to five physics steps in one, so what "crept" measured was
+   how much movement escaped between kills — and it moved the wrong way under
+   load, not the expected one: 300 frames gave 2.4 m and 185 frames gave 4.1,
+   because fewer kills let the car keep more of what it built up. Against a floor
+   of 2.5 that failed on a fast machine and passed on a slow one, which is the
+   opposite of a load-sensitive test and twice as confusing.
+   The distance is still checked, loosely, against the nudges actually counted —
+   a nudge that fires but moves nothing is the other way this could break. */
+out.escapesAWedge = out.heldStill.nudges >= 3 &&
+                    out.heldStill.crept > out.heldStill.nudges * 0.6;
 out.wantedOneStar = await shove(1);
 // 4 s of full throttle has to actually go somewhere — 2 km/h nose-to-tail is the bug
 out.getsPast = out.clearRoad.movedM > 60 && out.wantedOneStar.movedM > 60 &&
@@ -146,13 +183,13 @@ out.headOn = await p.evaluate(async () => {
   const id = window.__cars().traffic[0].id;
   let lowT = 100, lowP = 100;
   P.car.vx = 26; P.car.vy = 0;                 // straight at it, no steering
-  const t0 = performance.now();
+  const t0 = window.__simT();
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       for (const t of window.__cars().traffic) if (t.id === id) lowT = Math.min(lowT, t.hp);
       lowP = Math.min(lowP, window.__p().hp);
-      performance.now() - t0 < 1200 ? requestAnimationFrame(tick) : res();
+      window.__simT() - t0 < 1.2 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });

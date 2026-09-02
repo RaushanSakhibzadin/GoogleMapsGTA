@@ -701,6 +701,8 @@ window.__cars = () => ({
    So a test that wants a known car asks for one. The random top speed goes too —
    rand(11, 17) is a 21 km/h spread all by itself, which is wider than the
    tolerance one of those assertions is allowed. */
+// how many times the wedge escape has fired — see the nudge in game.js
+window.__nudges = () => P.nudges || 0;
 window.__ordinaryCar = i => {
   const t = traffic[i];
   if (!t) return false;

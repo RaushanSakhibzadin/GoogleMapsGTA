@@ -2184,6 +2184,12 @@ function update(dt) {
       if (solidAt(c.x + s * 2.4, c.y + t * 2.4)) continue;
       c.x += s * 1.2; c.y += t * 1.2;       // out of whatever the overlap is
       c.vx += s * UNSTICK; c.vy += t * UNSTICK;   // and moving, so it does not re-settle
+      /* Counted, so the escape can be measured as what it IS — one nudge every
+         STUCK_SECS — rather than as how far the car happened to travel while a
+         test held it still. The distance over a window is the integral of this
+         plus whatever the car managed under its own power, which is a different
+         quantity and a much noisier one. */
+      P.nudges = (P.nudges || 0) + 1;
       break;
     }
   }
