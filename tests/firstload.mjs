@@ -121,19 +121,36 @@ out.atStart = await p.evaluate(async () => {
      a floor of 200 on a run where nothing about the driving had changed. The
      harness note on GAME says this in as many words, and survive.mjs already
      drives every one of its waits off __simT for the same reason. */
+  /* AND AN EMPTY STREET TO DO IT ON. This is the "you are at the wheel of a real
+     city" claim, and the car meeting a bus in the first two seconds of it is
+     crashes.mjs's subject, not this one. It failed a suite at 193 km/h against a
+     floor of 200 with nothing else in the report to say why — and it is not the
+     frame rate, which is what the note above guards: throttled to an eighth of
+     the speed, the same probe still reads 235, because the window is simulated
+     seconds and the physics steps are fixed.
+     So the one uncontrolled thing left in it is cleared, and the three numbers
+     that would have identified the cause go into the report. */
+  traffic.length = 0; cops.length = 0; P.wanted = 0;
   const t0 = window.__simT();
-  let best = 0;
+  let best = 0, samples = 0, onRd = 0;
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       best = Math.max(best, window.__p().spd);
+      samples++;
+      if (window.__onRoad(window.__p().x, window.__p().y)) onRd++;
       window.__simT() - t0 < 2.5 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
   });
   window.__setInput(null);
   return { city: w.name, roads: w.roads, procedural: w.procedural,
-           onRoad: window.__onRoad(0, 0), topKmh: Math.round(best * 3.6) };
+           onRoad: window.__onRoad(0, 0), topKmh: Math.round(best * 3.6),
+           // a car that came up short: was it off the tarmac, or did it hit
+           // something? 100% and full health say neither, and the run is honest
+           onRoadPct: Math.round(100 * onRd / Math.max(1, samples)),
+           ranM: Math.round(Math.hypot(window.__p().x, window.__p().y)),
+           hp: Math.round(window.__p().hp), frames: samples };
 });
 out.streetsAtStart = asked.streets.length;
 
