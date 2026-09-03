@@ -1572,10 +1572,25 @@ function treeTexture() {
    Off SEPARATE hashes rather than off bits of `k`, which is already spoken for by
    the height and the rotation: a column that correlated with height would give
    every young tree the same size and undo the point of having two. */
-function pushTree(o, x, z, note) {
+/* HOW TALL A TREE IS, in one place because two renderers draw it. The GL path
+   bakes the height into the geometry and the software path projects a foot and a
+   top; they used to carry a copy each of `8.5 + k * 5.0`, which is the kind of
+   duplicate that stays right until the day somebody changes one of them.
+
+   AND THREE TIMES THAT IN A PARK. Asked for exactly that way — "here in this
+   park should be a lot of big trees, make them 3x higher than usual" — so a
+   street tree is 8.5 to 13.5 m and a park tree is 25 to 40, which is what a
+   mature plane actually reaches and a good deal taller than the blocks around
+   it. The multiplier is applied to the height alone; the width follows from it
+   in pushTree, so a big tree is a big tree and not a stretched one. */
+const TREE_H = 8.5, TREE_H_VAR = 5.0, PARK_TALL = 3;
+function treeHeight(x, z, tall) {
+  return (TREE_H + hash2(x, z) * TREE_H_VAR) * (tall ? PARK_TALL : 1);
+}
+function pushTree(o, x, z, note, tall) {
   const k = hash2(x, z);
   const y = terrainH(x, z);
-  const H = 8.5 + k * 5.0;                    // 8.5 to 13.5 m to the top
+  const H = treeHeight(x, z, tall);           // 8.5 to 13.5 m, or three times it
   const Wd = H * 0.62;                        // the texture is about as wide as tall
   note(y); note(y + H);
   const a = k * Math.PI;                      // each tree turned a little, from its own hash
@@ -1626,6 +1641,78 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
       }
     }
   }
+}
+
+/* AND THE PARKS THEMSELVES, WHICH HAD NONE.
+ *
+ * Reported from a green square in Stari grad with not one tree standing in it:
+ * planting was only ever done along drivable roads, so a park was a flat green
+ * polygon with a row of street trees around its edge. Every one of the 375 green
+ * areas in that capture was bare inside.
+ *
+ * A LATTICE, NOT AN EDGE WALK. A road is a line and its trees are spaced along
+ * it; a park is an area and wants filling. The lattice is world-aligned rather
+ * than park-aligned or cell-aligned, so the same tree comes back in the same
+ * place whichever cell asks and however the park is clipped — the same rule the
+ * street trees follow, for the same reason. Each lattice square offers one site,
+ * jittered inside itself off its own hash, so the result is a stand of trees and
+ * not an orchard.
+ *
+ * THE GROUND IS WALKED ONCE, NOT ONCE PER PARK — which is the difference between
+ * a tree and two trees in the same hole. OSM greens overlap constantly: a grass
+ * polygon inside a park, a garden inside the grass, the same lawn mapped twice by
+ * two surveys. Asking each park to plant its own lattice put 91 of 622 trees down
+ * twice in the capture this was reported from, each one a second set of quads
+ * exactly on top of the first, invisible in a screenshot and paid for on every
+ * frame. So the lattice belongs to the ground: each square offers one site, and
+ * the parks are asked whether anybody owns it.
+ *
+ * ONE CELL OWNS EACH TREE. The lattice is world-aligned rather than cell-aligned,
+ * so the same square gives the same point whichever cell is asking; the range is
+ * widened by one square because a square straddling the boundary has to be
+ * offered to both sides, and the point is then accepted only by the cell it
+ * actually lands in.
+ *
+ * Small greens mostly come out empty, which is right: a 5 by 5 metre garden
+ * catches a 20 m lattice about one time in sixteen, so it has a tree in it now
+ * and then, and forty metres of plane tree over a courtyard that size would be
+ * absurd. No area rule needed — the spacing is the rule.
+ *
+ * TWENTY METRES, AND THE NUMBER IS A FILL-RATE BUDGET. A tree three times as
+ * tall covers nine times the screen, and these are alpha-blended quads that
+ * write depth: a closed canopy is expensive in a way a closed row of buildings
+ * is not, because every layer of it is drawn. Standing in the middle of the
+ * largest park in the Palilula capture, spacing them at 14 m took the render
+ * from 9.7 ms a frame to 22.9 on the software rasteriser — half a frame gone to
+ * one park. At 20 m it is 11.5, the canopy still closes overhead, and the small
+ * courtyard greens this was reported from get three or four apiece. */
+const PARK_GAP = 20;
+function plantParks(o, x0, z0, x1, z1, note, sites) {
+  const fs = [];
+  for (const f of W.parks)
+    if (!(f.bb.x1 < x0 || f.bb.x0 >= x1 || f.bb.y1 < z0 || f.bb.y0 >= z1)) fs.push(f);
+  if (!fs.length) return;
+  const g = PARK_GAP;
+  const i1 = Math.floor(x1 / g) + 1, j1 = Math.floor(z1 / g) + 1;
+  for (let i = Math.floor(x0 / g) - 1; i <= i1; i++)
+    for (let j = Math.floor(z0 / g) - 1; j <= j1; j++) {
+      const gx = i * g, gz = j * g;
+      if (hash2(gx, gz) < 0.12) continue;     // a clearing, a path, a pond
+      const tx = gx + hash2(gx + 3.31, gz) * g;
+      const tz = gz + hash2(gx, gz + 3.31) * g;
+      if (tx < x0 || tx >= x1 || tz < z0 || tz >= z1) continue;
+      let green = false;
+      for (const f of fs) {
+        if (tx < f.bb.x0 || tx > f.bb.x1 || tz < f.bb.y0 || tz > f.bb.y1) continue;
+        if (pointInPoly(f.pts, tx, tz)) { green = true; break; }
+      }
+      if (!green) continue;
+      // the same two refusals the street trees make: never on the tarmac, never
+      // inside a building, because parks and footprints do overlap in the data
+      if (onTarmac(tx, tz) || insideBuilding(tx, tz)) continue;
+      pushTree(o, tx, tz, note, true);
+      if (sites) sites.push(tx, tz);
+    }
 }
 
 /* Everything in one 512 m square, turned into two GPU meshes. */
@@ -2081,6 +2168,7 @@ function buildCell(kx, kz) {
 
   // the planting, last, because it needs the buildings' footprints to avoid
   for (const r of rs) if (r.drive) treesAlong(tre, r, x0, z0, x1, z1, note);
+  plantParks(tre, x0, z0, x1, z1, note);
 
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   return {

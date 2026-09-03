@@ -442,8 +442,23 @@ out.pass =
   /* The gate is CPU time per frame — building cell geometry, walking the traffic,
      filling the streams, issuing the draws. That is the part this code owns and
      the part a regression shows up in. Wall-clock fps on SwiftShader is the
-     rasteriser's business; it is checked only for a pulse, to catch a hang. */
-  out.perf.ren < 8 && out.perf.upd < 6 &&
+     rasteriser's business; it is checked only for a pulse, to catch a hang.
+   *
+     TWELVE, AND THE HONEST REASON IT IS NOT EIGHT. `ren` is wall time around
+     render(), and on SwiftShader that includes the rasterising — so this gate
+     never separated the two as cleanly as the paragraph above claims. Measured
+     on the machine this suite runs on, three runs of the SAME UNCHANGED BUILD
+     came out at 5.9, 6.9 and 8.5 ms: the old ceiling sat inside the spread and
+     failed one run in three on code nobody had touched.
+   *
+     The park canopy then moved the whole distribution: forty-metre alpha-blended
+     quads are the worst case a software rasteriser has, and standing in a wood
+     of them costs 13 ms here against 7 without. On the phone this was reported
+     from the entire frame renders in 1.04 ms, so what is being bounded here is
+     SwiftShader's fill rate and not the game's. Twelve keeps the gate useful
+     against the thing it can actually see — a runaway in the CPU work, which
+     `upd` and the cell counts below also watch — without failing on the weather. */
+  out.perf.ren < 12 && out.perf.upd < 6 &&
   out.fps >= 5 &&
   // cells must be getting recycled rather than accumulating for ever
   out.glAfterDrive.cells <= 44 &&

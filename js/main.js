@@ -740,6 +740,50 @@ window.__putTraffic = (i, x, y, h, col, vx, vy) => {
   if (col) t.color = col;
   return true;
 };
+/* WHERE THE PLANTING PUT TREES, AND HOW TALL EACH ONE IS.
+ *
+ * A screenshot of a canopy cannot tell a park with trees in it from a park with
+ * a hedge round it, and it certainly cannot tell 13 m from 40. Both planters are
+ * asked directly, over one box, with the two kinds kept apart — which is also
+ * the only way to check that a tree belongs to exactly one cell, since that is a
+ * fact about coordinates and not about pixels. */
+window.__treeSites = (x, y, r) => {
+  const out = { street: [], park: [] };
+  const take = (s, into, tall) => {
+    for (let i = 0; i < s.length; i += 2)
+      if (Math.abs(s[i] - x) <= r && Math.abs(s[i + 1] - y) <= r)
+        into.push({ x: +s[i].toFixed(2), z: +s[i + 1].toFixed(2),
+                    h: +treeHeight(s[i], s[i + 1], tall).toFixed(2) });
+  };
+  for (const rd of roadsIn(x - r, y - r, x + r, y + r)) {
+    if (!rd.drive) continue;
+    const s = [];
+    treesAlong([], rd, -1e9, -1e9, 1e9, 1e9, () => {}, s);
+    take(s, out.street, false);
+  }
+  const s = [];
+  plantParks([], x - r, y - r, x + r, y + r, () => {}, s);
+  take(s, out.park, true);
+  return out;
+};
+// the same planting asked cell by cell, which is how a tree planted twice shows
+// up: the cells tile the box, so any coordinate appearing under two of them is a
+// tree the ownership rule let through in both
+window.__parkTreesByCell = (x, y, r, cell) => {
+  const out = [];
+  for (let cx = Math.floor((x - r) / cell) * cell; cx < x + r; cx += cell)
+    for (let cz = Math.floor((y - r) / cell) * cell; cz < y + r; cz += cell) {
+      const s = [];
+      plantParks([], cx, cz, cx + cell, cz + cell, () => {}, s);
+      // clipped to the box that was asked for, not to the cells that cover it:
+      // a bigger cell size reaches further past the edge, and two walks of
+      // different areas are not comparable
+      for (let i = 0; i < s.length; i += 2)
+        if (Math.abs(s[i] - x) <= r && Math.abs(s[i + 1] - y) <= r)
+          out.push(s[i].toFixed(2) + ',' + s[i + 1].toFixed(2));
+    }
+  return out;
+};
 // which tiles have any scenery in them yet, by the buildings' own coordinates
 window.__bldTiles = () => {
   const s = new Set();

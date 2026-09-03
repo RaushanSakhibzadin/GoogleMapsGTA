@@ -256,13 +256,25 @@ function softTreeSites(cx, cy) {
      asked for. */
   const near = [];
   const R2 = 140 * 140;
+  /* THE PARKS FIRST, and not out of fairness: their trees are three times the
+     height of a street tree, so when the cap below bites they are the ones worth
+     keeping. One call for the whole window, because the planter walks the ground
+     rather than each park in turn — see the note above plantParks. */
+  {
+    const sites = [];
+    plantParks([], cx - 140, cy - 140, cx + 140, cy + 140, () => {}, sites);
+    for (let i = 0; i < sites.length; i += 2) {
+      const d = dist2(sites[i], sites[i + 1], cx, cy);
+      if (d < R2) near.push({ d, x: sites[i], z: sites[i + 1], tall: 1 });
+    }
+  }
   for (const r of roadsIn(cx - 140, cy - 140, cx + 140, cy + 140)) {
     if (!r.drive) continue;
     const sites = [];
     treesAlong([], r, -1e9, -1e9, 1e9, 1e9, () => {}, sites);
     for (let i = 0; i < sites.length; i += 2) {
       const d = dist2(sites[i], sites[i + 1], cx, cy);
-      if (d < R2) near.push({ d, x: sites[i], z: sites[i + 1] });
+      if (d < R2) near.push({ d, x: sites[i], z: sites[i + 1], tall: 0 });
     }
     if (near.length > SOFT_MAX_TREES * 3) break;
   }
@@ -288,9 +300,8 @@ function softTreeSites(cx, cy) {
 function softTree(g, th, t) {
   const cv = treeCanvas();
   if (!cv) return;
-  const k = hash2(t.x, t.z);
   const y = terrainH(t.x, t.z);
-  const H = 8.5 + k * 5.0;
+  const H = treeHeight(t.x, t.z, t.tall);    // the GL path's own number, park or street
   const foot = softView(t.x, y, t.z, [0, 0, 0]);
   const top = softView(t.x, y + H, t.z, [0, 0, 0]);
   if (foot[2] > -SOFT_NEAR || top[2] > -SOFT_NEAR) return;   // behind the eye
