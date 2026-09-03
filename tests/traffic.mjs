@@ -114,7 +114,36 @@ const runIn = theme => p.evaluate(async name => {
    * it does. */
   const calm = () => { P.wanted = 0; cops.length = 0; };
   calm();
-  await new Promise(r => setTimeout(r, 4000));       // let the cap fill
+  /* THE CAP FILLED, NOT FOUR SECONDS PASSED.
+   *
+   * This waited four seconds and called it filled. Daylight carries three times
+   * the traffic of dusk, so it has three times as far to fill, and it fills at
+   * whatever rate the machine is managing — which is the one thing a test on
+   * this machine must never assume. Inside a full suite it measured 47 cars
+   * where it gets 70 on its own, and the run it compares against had had four
+   * seconds to fill a cap a third the size: dusk came out BUSIER than daylight,
+   * 3.1 cars on screen against 2.9, and "daylight is busier" failed on a build
+   * where daylight is busier.
+   *
+   * The pile-ups went with it. Four of the run's cars wrecked each other while
+   * the pool was still stuffing itself into a half-streamed city, which the
+   * report read as traffic detonating unprompted — the exact fault this file
+   * exists to catch, arriving as a false positive.
+   *
+   * So it waits for the count to stop moving, which is what "filled" means, and
+   * puts how long that took in the report so a starved run says so out loud. */
+  const fill0 = performance.now();
+  {
+    let last = -1, still = 0;
+    while (performance.now() - fill0 < 25000) {
+      await new Promise(r => setTimeout(r, 200));
+      calm();                                        // no heat while we wait
+      const n = window.__traffic().length;
+      if (n === last) { if (++still >= 5) break; } else { still = 0; last = n; }
+    }
+  }
+  const filledMs = Math.round(performance.now() - fill0);
+  const carsAtStart = window.__traffic().length;
   const w0 = window.__traf().wrecks;
   const t0 = performance.now();
   let frames = 0, samples = 0;
@@ -184,7 +213,7 @@ const runIn = theme => p.evaluate(async name => {
   });
   const el = (performance.now() - t0) / 1000;
   const cars = window.__traffic().length;
-  return { secs: +el.toFixed(1), cars,
+  return { secs: +el.toFixed(1), cars, carsAtStart, filledMs,
            // proof the staging held: a nonzero here invalidates the wreck count
            cops: window.__p().cops, wanted: window.__p().wanted,
            wrecks: window.__traf().wrecks - w0,
@@ -254,7 +283,21 @@ out.rush = await p.evaluate(async () => {
      finished, which is already full. */
   const calm = () => { P.wanted = 0; cops.length = 0; };
   calm();
-  await new Promise(r => setTimeout(r, 8000));            // let the cap fill
+  /* AND THE SAME HERE, for the same reason: eight seconds was an allowance and
+     the cap is 255. It came in at 119 cars against a floor of 120 on an idle
+     machine — the section that is supposed to be about density failing because
+     the density had not arrived yet. */
+  const fill0 = performance.now();
+  {
+    let last = -1, still = 0;
+    while (performance.now() - fill0 < 30000) {
+      await new Promise(r => setTimeout(r, 250));
+      calm();
+      const n = window.__traf().cars;
+      if (n === last) { if (++still >= 5) break; } else { still = 0; last = n; }
+    }
+  }
+  const filledMs = Math.round(performance.now() - fill0);
   const w0 = window.__traf().wrecks, t0 = performance.now();
   let frames = 0;
   await new Promise(res => {
@@ -272,7 +315,7 @@ out.rush = await p.evaluate(async () => {
     requestAnimationFrame(tick);
   });
   const el = (performance.now() - t0) / 1000;
-  return { cars: window.__traf().cars, cops: window.__p().cops,
+  return { cars: window.__traf().cars, filledMs, cops: window.__p().cops,
            wrecks: window.__traf().wrecks - w0,
            wrecksPerMin: +((window.__traf().wrecks - w0) / el * 60).toFixed(1),
            fps: Math.round(frames / el) };
