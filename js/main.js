@@ -471,6 +471,8 @@ window.__stick = () => {
            padsShown: getComputedStyle(document.getElementById('tA')).display !== 'none' };
 };
 window.__ctrl = m => { if (m) setCtrl(m); return CTRL; };
+// which way the steering goes in reverse: pass a boolean to set it, nothing to ask
+window.__revReal = v => { if (v !== undefined) setRevReal(v); return REV_REAL; };
 window.__touch = () => ({ ...touch });          // what the pads currently read
 /* THE PHYSICS FLAG, and it goes through the same gate the button does — so a
    test that wants GHOST has to unlock the perk first, exactly as a player does,

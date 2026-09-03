@@ -33,7 +33,11 @@ const isB = req => decodeURIComponent(req.postData() || '').includes('"building"
 // BOTH cans, not one: they are two buttons in two corners and either of them can
 // land on something. A list that names half a pair checks half a layout.
 const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars', 'chunk',
-             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn', 'sprayBtnR'];
+             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn', 'sprayBtnR',
+             // the settings gear: not a clash candidate — it is OUTSIDE #hud and
+             // always has been — but it is the right-hand wall of the strip the
+             // objective is centred in, so its box is needed to say where that is
+             'topBtns'];
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const out = [];
@@ -152,28 +156,41 @@ for (const [label, ctxOpts] of CASES) {
      across the top CENTRE, and the radar and the street name higher up than they
      were under it.
    *
-     A LANDSCAPE PHONE IS EXEMPT FROM THE CENTRING and says so rather than being
-     quietly excused. 342 points of height has one clear strip at the top and the
-     settings button already has it — see the media query in style.css — so the
-     objective stays at the head of the left column there. The radar assertion is
-     NOT exempt: it comes up on every shape, which is the half of the ask that
-     had nothing to do with orientation. */
-  const objB = geo.boxes.obj, miniB = geo.boxes.mini;
+     A LANDSCAPE PHONE IS EXEMPT FROM BOTH and says so rather than being quietly
+     excused. 342 points of height has one clear strip at the top and the settings
+     button already has it — see the media query in style.css — so there the
+     objective stays at the head of the left column with the radar under it, which
+     is the arrangement everywhere else has now moved on from. */
+  const objB = geo.boxes.obj, miniB = geo.boxes.mini, gearB = geo.boxes.topBtns;
   const place = { objMid: objB ? Math.round(objB.x + objB.w / 2) : null,
                   screenMid: Math.round(geo.vw / 2),
                   objBottom: objB ? objB.y + objB.h : null,
                   miniTop: miniB ? miniB.y : null };
   const short = geo.vh <= 520;
-  // within a twentieth of the screen's width of the middle
+  /* CENTRED IN THE SPACE IT HAS, not on the screen — which is a change of
+     question, and the ask changed it. "Almost touching the screen top" put the
+     radar at the top left, and a banner running the full width would then run
+     through it. It is inset past the radar on one side and the gear on the
+     other, so the middle it is centred on is the middle of THAT strip. Measuring
+     it against the screen's own middle would now be measuring the radar's width,
+     which nobody asked about. */
+  place.bandL = miniB ? miniB.x + miniB.w : 0;
+  place.bandR = gearB ? gearB.x : geo.vw;
+  place.bandMid = Math.round((place.bandL + place.bandR) / 2);
   place.centred = short ? 'n/a (landscape)'
-    : !!objB && Math.abs(place.objMid - place.screenMid) <= geo.vw * 0.05;
-  /* 56 IS THE NUMBER THE ASK IS ABOUT. The radar used to hang below two and a
-     half lines of reserved objective height and started 60 points down a phone
-     and further on a desktop; with the objective lifted out into its own banner
-     it starts at 46 on every shape measured. */
-  place.radarIsHigh = !!miniB && place.miniTop <= 56;
-  // and the objective still sits above it rather than through it
-  place.objAboveRadar = !objB || !miniB || place.objBottom <= place.miniTop + 2;
+    : !!objB && Math.abs(place.objMid - place.bandMid) <= geo.vw * 0.05;
+  /* SIXTEEN POINTS. Asked for twice — "higher", and then "almost touching the
+     screen top" — and it has been three numbers: 60 under the old stacked
+     column, 46 once the objective became a banner, and 8 now that the banner
+     moved out of its way. The bound is tight on purpose: at 56 this assertion
+     would still pass on the layout the second ask was a complaint about. */
+  place.radarIsHigh = !!miniB && place.miniTop <= (short ? 56 : 16);
+  /* AND THE TWO ARE STILL SEPARATE. They no longer stack, so the claim is not
+     "above" any more — it is that the banner does not run through the radar,
+     which on this layout means it starts to the right of it. The clash list
+     below catches it too; this names it, so a failure says which rule broke. */
+  place.objClearOfRadar = !objB || !miniB ||
+    objB.x >= miniB.x + miniB.w || place.objBottom <= miniB.y;
   out.push({ label, vw: geo.vw, vh: geo.vh, where, clashes, onCar, nearest, arrowOk, place, errs });
   await p.close(); await ctx.close();
 }
@@ -191,7 +208,7 @@ for (const [label, ctxOpts] of CASES) {
    each other is not. */
 const bad = out.filter(c => c.clashes.length || c.errs.length ||
                            c.place.centred === false || !c.place.radarIsHigh ||
-                           !c.place.objAboveRadar);
+                           !c.place.objClearOfRadar);
 const pass = bad.length === 0;
 console.log(JSON.stringify({ cases: out, failing: bad.map(c => c.label), pass }, null, 1));
 await browser.close();

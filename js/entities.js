@@ -536,6 +536,12 @@ function stockCops(target) {
    settles at accel/drag, so 40/9.5 is about 4.2 m/s — the ceiling is a shade
    above that so the number on the clock is one the car genuinely reaches
    rather than an asymptote it creeps towards, same argument as the top speed. */
+/* Whether the PLAYER's steering flips when the car is going backwards, the way a
+   real one does. Declared here rather than in io.js, which is where it is set
+   from: drive() reads it, entities.js loads first, and a test that calls drive()
+   without ever touching the settings must not find it in a temporal dead zone.
+   Off by default — see the long note at the bottom of drive(). */
+let REV_REAL = false;
 const STRAY_DRAG = 9.5;
 const STRAY_TOP = 4.5;              // ≈16 km/h
 const STRAY_TOL = 10;               // metres of slack before any of it applies
@@ -699,10 +705,27 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
   c.steer += (steerIn - c.steer) * decay(Math.abs(steerIn) > Math.abs(c.steer) ? 7 : 11, dt);
   const yaw = c.steer * c.turn * auth * rolling;
 
-  /* Reversing inverts the steering — but a drift is not reversing. vf goes
-     negative as the heading swings past 90° in a 180, and inverting there made
-     the car rotate back and fight its own spin exactly halfway through it. */
-  c.h += yaw * dt * (!hand && vf < -.5 ? -1 : 1);
+  /* REVERSING, AND WHOSE IDEA OF IT.
+   *
+   * A real car reversing rotates the other way: heading rate is (v/L)·tan δ, and
+   * v is negative, so turning the wheel left swings the nose right. That is what
+   * this did for everybody, and it is correct — and it is also the single most
+   * complained-about thing in every driving game that does it, because a thumb
+   * on a stick is not a pair of hands on a wheel. Reported here as exactly that:
+   * "when I put it back and side, the side should be inverted".
+   *
+   * So the player gets the stick taken literally by default — back-and-left
+   * reverses to the left — and REV_REAL puts the car's own physics back for
+   * anyone who wants it. AI cars are never asked: they steer towards a target by
+   * computing an angle, and an angle that lies to them is a cop reversing into a
+   * wall it was trying to avoid.
+   *
+   * A DRIFT IS STILL NOT REVERSING, whichever way round it is set. vf goes
+   * negative as the heading swings past 90° in a 180, and inverting there made
+   * the car rotate back and fight its own spin exactly halfway through it. */
+  const backwards = !hand && vf < -.5;
+  const flipSteer = backwards && (c.kind !== 'player' || REV_REAL);
+  c.h += yaw * dt * (flipSteer ? -1 : 1);
 
   /* THE TURN. Once armed, the heading is driven straight to its target angle on
      a smoothstep — eased in and eased out, so it loads up, whips through the

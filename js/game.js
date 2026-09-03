@@ -601,6 +601,7 @@ async function startGame(query, lat, lon, label) {
      body that is about to be visible. Defaults to the stick and remembers what
      was chosen; the pads are still there, one switch away. */
   setCtrl(store.get('vm_ctrl', 'stick'), false);
+  setRevReal(store.get('vm_revreal', '0') === '1', false);
   /* AND IT HAS TO ANNOUNCE ITSELF ONCE. The stick is drawn under the thumb and
      nowhere else, which is what makes it work for either hand — and it means a
      phone arriving at the game shows no driving controls at all until something

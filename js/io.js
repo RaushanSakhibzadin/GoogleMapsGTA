@@ -339,6 +339,29 @@ function setCtrl(mode, save) {
     if (el) el.setAttribute('aria-pressed', CTRL === 'stick' ? 'true' : 'false');
   }
 }
+/* REVERSE STEERING, the other half of the same preference.
+   STICK means the stick is taken literally — back-and-left reverses to the left.
+   CAR means the car's own physics, which turns the other way. Stored for the
+   same reason the scheme is: somebody who wants one wants it tomorrow too. */
+function setRevReal(on, save) {
+  REV_REAL = !!on;
+  if (save !== false) store.set('vm_revreal', REV_REAL ? '1' : '0');
+  const el = $('revBtn');
+  if (el) {
+    /* The key goes on the element, not just the text. Switching language
+       re-walks every [data-i18n] and rewrites it from its key, so a button whose
+       label had been set by hand would come back saying STICK while the car was
+       still steering like a car. */
+    const key = REV_REAL ? 'mix.revCar' : 'mix.revStick';
+    el.setAttribute('data-i18n', key);
+    el.textContent = txt(key);
+    el.setAttribute('aria-pressed', REV_REAL ? 'false' : 'true');
+  }
+}
+{
+  const el = $('revBtn');
+  if (el) el.onclick = () => setRevReal(!REV_REAL);
+}
 // both copies of the switch, wired the way the GHOST pair is
 for (const id of ['ctrlM', 'ctrlP', 'ctrlX']) {
   const el = $(id);
