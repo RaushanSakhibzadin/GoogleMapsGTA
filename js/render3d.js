@@ -1116,7 +1116,7 @@ function syncIndex3() {
     dropAllCells();
   }
 }
-function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); GL.free(c.sgn); GL.free(c.tre); }
+function freeCell(c) { GL.free(c.gnd); GL.free(c.lit); GL.free(c.sgn); GL.free(c.tre); GL.free(c.wood); }
 function dropAllCells() {
   for (const c of G3.cells.values()) freeCell(c);
   G3.cells.clear();
@@ -1619,6 +1619,155 @@ function pushTree(o, x, z, note, tall) {
   quad(c2, s2);
 }
 
+/* A PARK TREE IS GROWN, NOT STAMPED.
+ *
+ * Asked for after the first version went in: use tree algorithms to generate
+ * them. js/proctex.js already grows one — a recursive branching, each generation
+ * shorter and thinner than its parent, forking wider as it goes — but it grows
+ * it in TWO dimensions and paints the result into a sprite, and a sprite scaled
+ * to forty metres is a forty-metre picture of a tree. Standing under one you saw
+ * a flat plank for a trunk. So the same recursion runs here in three, and what
+ * comes out is geometry.
+ *
+ * THE BRANCHES ARE LIT GEOMETRY AND THE LEAVES ARE NOT. A limb is an opaque
+ * three-sided tapered prism in the ordinary building mesh, so it takes the sun,
+ * the shadow pass and the fog like everything else in the city, and it costs
+ * nothing to overdraw. The foliage stays in the tree mesh — the same fractal
+ * atlas, the same half-transparency — but as a dozen small clusters hung off the
+ * outer twigs instead of one crown-sized billboard. That is the principle the
+ * 2D grower already states and could not act on: a canopy's outline should come
+ * from where the branches actually reached.
+ *
+ * IT ALSO COSTS LESS THAN THE BILLBOARD IT REPLACES. Twelve clusters at a third
+ * of the width each add up to rather less blended area than two full-height
+ * quads, and blended area was the whole expense of the tall trees — the branches
+ * that replace it are opaque and go through early-z like a wall.
+ *
+ * THREE SIDES, AND DEPTH THREE. Both are budgets rather than ideals: a park cell
+ * holds a few hundred of these, so a limb is six triangles and a tree is about
+ * fifteen limbs. From a car you read a trunk, a fork and a mass of leaves, and
+ * the fourth generation of twigs is a triangle apiece at that distance.
+ *
+ * GROWN INTO A LIST, MEASURED, AND THEN FITTED — the same lesson as the atlas,
+ * where a tree that grew off the top of its cell came out with a straight edge.
+ * A random walk does not know how tall it will get, and this one has to end up
+ * exactly as tall as treeHeight says it is, or the height the rest of the game
+ * believes in is a different number from the one on the screen. */
+const LIMB_SIDES = 3, LIMB_DEPTH = 3, LIMB_SPREAD = 0.85, LIMB_RATIO = 0.74;
+const PHYLLO = 2.399963;                        // the angle a real stem rolls between leaves
+const BARK = [86 / 255, 74 / 255, 60 / 255];  // theme-free: the lit pass does the light
+function growTree3(lit, tre, x, z, H, note) {
+  /* Its own stream, seeded off the position like everything else planted here,
+     so a cell dropped and rebuilt grows the same tree in the same place. Xorshift
+     rather than a linear congruential generator for the reason the atlas gives:
+     consecutive draws here are an angle and then a length. */
+  let s = (Math.imul(Math.round(x * 16) | 0, 374761393) ^
+           Math.imul(Math.round(z * 16) | 0, 668265263) ^ 0x9e3779b9) >>> 0;
+  const rnd = () => {
+    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    return s / 4294967296;
+  };
+  const limbs = [], leaves = [];
+  let top = 0;
+  const grow = (px, py, pz, dx, dy, dz, len, rad, depth) => {
+    const ex = px + dx * len, ey = py + dy * len, ez = pz + dz * len;
+    const r2 = rad * 0.62;
+    limbs.push([px, py, pz, ex, ey, ez, rad, r2]);
+    if (ey > top) top = ey;
+    // leaves on the outer TWO generations, not only the last: hang them off the
+    // tips alone and the crown comes out hollow with the trunk showing through
+    if (depth <= 1) leaves.push([ex, ey, ez, len]);
+    if (depth <= 0) return;
+    const gen = LIMB_DEPTH - depth;                       // 0 at the trunk
+    // the fork angle opens with every generation — a trunk forks tightly and
+    // twigs splay, which is what makes the silhouette tall below and broad above
+    const sp = LIMB_SPREAD * (0.40 + gen * 0.30);
+    /* A FRAME TO FORK IN. Any vector not parallel to the limb gives one; up is
+       the obvious choice and the one that fails, because the trunk IS up. */
+    let ax = 0, ay = 1, az = 0;
+    if (Math.abs(dy) > 0.9) { ax = 1; ay = 0; }
+    let ux = ay * dz - az * dy, uy = az * dx - ax * dz, uz = ax * dy - ay * dx;
+    let ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    const vx = dy * uz - dz * uy, vy = dz * ux - dx * uz, vz = dx * uy - dy * ux;
+    const n = rnd() < 0.25 ? 3 : 2;
+    const roll = rnd() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const t = sp * (0.7 + rnd() * 0.6);
+      const phi = roll + i * PHYLLO + (rnd() - 0.5) * 0.5;
+      const ct = Math.cos(t), st = Math.sin(t), cp = Math.cos(phi), sp2 = Math.sin(phi);
+      let nx = dx * ct + (ux * cp + vx * sp2) * st;
+      let ny = dy * ct + (uy * cp + vy * sp2) * st;
+      let nz = dz * ct + (uz * cp + vz * sp2) * st;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      grow(ex, ey, ez, nx / nl, ny / nl, nz / nl,
+           len * (LIMB_RATIO + rnd() * 0.10), r2, depth - 1);
+    }
+  };
+  grow(0, 0, 0, 0, 1, 0, 0.42, 0.042, LIMB_DEPTH);
+  const k = H / (top || 1);                    // fitted, so the tree is the height it claims
+  const y0 = terrainH(x, z);
+  note(y0); note(y0 + H);
+
+  for (const [ax, ay, az, bx, by, bz, r0, r1] of limbs) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const L = Math.hypot(dx, dy, dz) || 1;
+    const ex = dx / L, ey = dy / L, ez = dz / L;
+    let px = 0, py = 1, pz = 0;
+    if (Math.abs(ey) > 0.9) { px = 1; py = 0; }
+    let ux = py * ez - pz * ey, uy = pz * ex - px * ez, uz = px * ey - py * ex;
+    const ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    const vx = ey * uz - ez * uy, vy = ez * ux - ex * uz, vz = ex * uy - ey * ux;
+    const ring = (cx, cy, cz, r, i) => {
+      const a = i / LIMB_SIDES * Math.PI * 2;
+      const c = Math.cos(a) * r * k, s2 = Math.sin(a) * r * k;
+      return [cx + ux * c + vx * s2, cy + uy * c + vy * s2, cz + uz * c + vz * s2];
+    };
+    const A = [x + ax * k, y0 + ay * k, z + az * k];
+    const B = [x + bx * k, y0 + by * k, z + bz * k];
+    for (let i = 0; i < LIMB_SIDES; i++) {
+      const p0 = ring(A[0], A[1], A[2], r0, i), p1 = ring(A[0], A[1], A[2], r0, i + 1);
+      const q0 = ring(B[0], B[1], B[2], r1, i), q1 = ring(B[0], B[1], B[2], r1, i + 1);
+      // the outward normal of this face: across the pair, then along the limb
+      const mx = (p0[0] + p1[0]) / 2 - A[0], my = (p0[1] + p1[1]) / 2 - A[1],
+            mz = (p0[2] + p1[2]) / 2 - A[2];
+      const ml = Math.hypot(mx, my, mz) || 1;
+      const nx = mx / ml, ny = my / ml, nz = mz / ml;
+      // no window grid, no gate, nothing to paint: bark is bark
+      for (const v of [p0, p1, q1, p0, q1, q0])
+        lit.push(v[0], v[1], v[2], nx, ny, nz, BARK[0], BARK[1], BARK[2], 0, 0, 0, 0, 0);
+    }
+  }
+
+  /* THE FOLIAGE, still the atlas. Crossed pairs like the billboard, because from
+     any one viewpoint a cross reads as a picture of leaves — but a third of the
+     size and a dozen of them, hung where the twigs ended. Each takes its column
+     and its mirror from its own position, so no two clusters on one tree are the
+     same picture. */
+  const cols = treeCols(), e = 0.002;
+  for (const [lx, ly, lz, len] of leaves) {
+    const cx = x + lx * k, cy = y0 + ly * k, cz = z + lz * k;
+    const R = Math.max(1.2, len * k * 1.5);
+    const col = Math.min(cols - 1, Math.floor(hash2(cx, cz + 7.77) * cols));
+    const mir = hash2(cx + 7.77, cz) < 0.5;
+    const lo = col / cols + e, hi = (col + 1) / cols - e;
+    const uL = mir ? hi : lo, uR = mir ? lo : hi;
+    const a = hash2(cx, cz) * Math.PI;
+    const quad = (dx, dz) => {
+      tre.push(cx - dx, cy - R / 2, cz - dz, uL, 0,
+               cx + dx, cy - R / 2, cz + dz, uR, 0,
+               cx + dx, cy + R / 2, cz + dz, uR, 1);
+      tre.push(cx - dx, cy - R / 2, cz - dz, uL, 0,
+               cx + dx, cy + R / 2, cz + dz, uR, 1,
+               cx - dx, cy + R / 2, cz - dz, uL, 1);
+    };
+    quad(Math.cos(a) * R / 2, Math.sin(a) * R / 2);
+    quad(Math.cos(a + Math.PI / 2) * R / 2, Math.sin(a + Math.PI / 2) * R / 2);
+    note(cy + R / 2);
+  }
+}
+
 function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
   const off = r.w / 2 + TREE_VERGE;
   for (let i = 0; i < r.pts.length - 1; i++) {
@@ -1687,7 +1836,7 @@ function treesAlong(o, r, x0, z0, x1, z1, note, sites) {
  * one park. At 20 m it is 11.5, the canopy still closes overhead, and the small
  * courtyard greens this was reported from get three or four apiece. */
 const PARK_GAP = 20;
-function plantParks(o, x0, z0, x1, z1, note, sites) {
+function plantParks(o, lit, x0, z0, x1, z1, note, sites) {
   const fs = [];
   for (const f of W.parks)
     if (!(f.bb.x1 < x0 || f.bb.x0 >= x1 || f.bb.y1 < z0 || f.bb.y0 >= z1)) fs.push(f);
@@ -1710,7 +1859,11 @@ function plantParks(o, x0, z0, x1, z1, note, sites) {
       // the same two refusals the street trees make: never on the tarmac, never
       // inside a building, because parks and footprints do overlap in the data
       if (onTarmac(tx, tz) || insideBuilding(tx, tz)) continue;
-      pushTree(o, tx, tz, note, true);
+      /* Grown when there is somewhere to put the branches, and a billboard when
+         there is not: the software renderer and the site-gathering callers ask
+         for positions only, and neither has a lit mesh to grow into. */
+      if (lit) growTree3(lit, o, tx, tz, treeHeight(tx, tz, true), note);
+      else pushTree(o, tx, tz, note, true);
       if (sites) sites.push(tx, tz);
     }
 }
@@ -1845,6 +1998,7 @@ function buildCell(kx, kz) {
      three cells in view were flagged. It is the individual wall panel that has
      the hole, and there are a handful of those in a city. */
   const litG = [];
+  const wood = [];       // branches: lit like a building, but not a shadow caster
   let ymin = Infinity, ymax = -Infinity;
   const note = y => { if (y < ymin) ymin = y; if (y > ymax) ymax = y; };
 
@@ -2168,7 +2322,7 @@ function buildCell(kx, kz) {
 
   // the planting, last, because it needs the buildings' footprints to avoid
   for (const r of rs) if (r.drive) treesAlong(tre, r, x0, z0, x1, z1, note);
-  plantParks(tre, x0, z0, x1, z1, note);
+  plantParks(tre, wood, x0, z0, x1, z1, note);
 
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   return {
@@ -2179,6 +2333,14 @@ function buildCell(kx, kz) {
        numbers before linking, either program can read either mesh. */
     litG: litG.length ? GL.mesh(new Float32Array(litG), LIT_ATTR()) : null,
     lit: GL.mesh(new Float32Array(lit), LIT_ATTR()),
+    /* THE BRANCHES, IN A MESH OF THEIR OWN, and the reason is the shadow pass.
+       They are ordinary lit geometry and want the sun, the fog and the grime
+       like a wall — but casting them costs a second run over every twig in the
+       wood, which measured 6 ms a frame standing in a park, and the front-face
+       culling the caster relies on assumes closed volumes, which an open-ended
+       tapered tube is not. Trees have never cast shadows here; this keeps it
+       that way, deliberately, and says so. */
+    wood: wood.length ? GL.mesh(new Float32Array(wood), LIT_ATTR()) : null,
     sgn: sgn.length ? GL.mesh(new Float32Array(sgn),
                               [[G3.sign.a.aPos, 3], [G3.sign.a.aUV, 2],
                                [G3.sign.a.aInk0, 3], [G3.sign.a.aInk1, 3]]) : null,
@@ -3195,6 +3357,7 @@ function render3D() {
   }
   useLit(G3.lit);
   drawLit('lit');
+  drawLit('wood');
   /* ---- the planting ----
 
      Alpha-tested, so it writes depth and needs no sorting: a tree occludes what

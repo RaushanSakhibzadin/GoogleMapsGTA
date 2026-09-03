@@ -262,7 +262,7 @@ function softTreeSites(cx, cy) {
      rather than each park in turn — see the note above plantParks. */
   {
     const sites = [];
-    plantParks([], cx - 140, cy - 140, cx + 140, cy + 140, () => {}, sites);
+    plantParks([], null, cx - 140, cy - 140, cx + 140, cy + 140, () => {}, sites);
     for (let i = 0; i < sites.length; i += 2) {
       const d = dist2(sites[i], sites[i + 1], cx, cy);
       if (d < R2) near.push({ d, x: sites[i], z: sites[i + 1], tall: 1 });

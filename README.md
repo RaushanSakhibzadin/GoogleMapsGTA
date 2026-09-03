@@ -47,8 +47,10 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
 - **Traffic, police, pedestrians, a wanted level**, repair shops, and a day/night switch.
 - **Trees where OSM says there is green.** Street trees along the verges, and a stand of mature
   ones — three times a street tree, 25 to 40 m — filling every park, garden and courtyard lawn
-  in the data. Grown from the same fractals as everything else, planted off a world-aligned
-  lattice so a rebuilt block comes back identical.
+  in the data. The park ones are **grown, not stamped**: a recursive branching in three
+  dimensions, each generation shorter and thinner and forking wider than its parent, with the
+  foliage hung on the outer twigs so the canopy's outline comes from where the branches actually
+  reached. Planted off a world-aligned lattice, so a rebuilt block comes back identical.
 - **Red or black.** OpenStreetMap knows where the casinos are, so they are on the map where they
   really are — Belgrade has dozens. Two buttons at the table, a tenth of your money on a fair
   coin, and whichever colour you pick more is the side you are on. From the first bet you carry

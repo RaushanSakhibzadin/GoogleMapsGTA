@@ -95,7 +95,7 @@ out.courtyards = await p.evaluate(() => {
        green in the box; this one is asked about by putting its own polygon back
        over the answer. */
     const s = [];
-    plantParks([], f.bb.x0, f.bb.y0, f.bb.x1, f.bb.y1, () => {}, s);
+    plantParks([], null, f.bb.x0, f.bb.y0, f.bb.x1, f.bb.y1, () => {}, s);
     let n = 0;
     for (let i = 0; i < s.length; i += 2) if (pointInPoly(f.pts, s[i], s[i + 1])) n++;
     near.push(n);
@@ -142,6 +142,18 @@ out.eachTreePlantedOnce = out.ownership.at512 > 40 &&
   out.ownership.at512 === out.ownership.unique512 &&
   out.ownership.at256 === out.ownership.unique256 &&
   out.ownership.agree;
+
+/* READ BEFORE SECTION 5 EMPTIES THE WORLD OF PARKS. The pixel A/B below takes
+   W.parks away and rebuilds every cell to get its control frame, so a count of
+   branch geometry taken after it is a count of a city with no parks in it —
+   which is what this returned the first time, zero, on a build whose trees were
+   plainly on the screen. Asserted in section 6, where it belongs; read here,
+   where it still means something. */
+out.inTheWorld = await p.evaluate(() => {
+  let cells = 0, withWood = 0, tris = 0;
+  for (const c of G3.cells.values()) { cells++; if (c.wood) { withWood++; tris += c.wood.n / 3; } }
+  return { cells, withWood, tris };
+});
 
 /* ---------- 5. and they are on the screen ---------- */
 /* Parked in the middle of the largest park within reach, looking across it, and
@@ -216,10 +228,100 @@ out.view = await p.evaluate(async src => {
 out.canopyIsOnScreen = !!out.view.note ||
   (out.view.withTrees.pct > 5 && out.view.without.pct < out.view.withTrees.pct * 0.25);
 
+/* ---------- 6. and they are grown, not stamped ---------- */
+/* Asked for after the first version shipped: use tree algorithms to generate
+   them. A billboard passes every section above — it is planted, it is 40 m tall,
+   it fills the top of the frame — and is still a photograph of a tree on a
+   plank. What separates the two is structure, so the structure is what is
+   measured, straight out of the vertex buffer the renderer is handed.
+
+   THE FLAT-FAN TRAP is the one worth the section. A 2D recursion embedded in a
+   3D world looks like a tree from one side and like a cardboard cutout from
+   ninety degrees round — and it is the easy mistake, because the grower this
+   one descends from IS two-dimensional. So the branch cloud's horizontal spread
+   is taken along BOTH its principal axes, and the narrow one has to be a real
+   fraction of the wide one. */
+out.grown = await p.evaluate(() => {
+  // a build that has no grower fails the section rather than throwing out of it,
+  // which is what the A/B against the billboard version needs it to do
+  if (typeof growTree3 !== 'function') return { note: 'no grower', limbs: 0, leafQuads: 0,
+    verts: 0, tallness: 0, asked: 0, major: 0, minor: 0, baseR: 0, topR: 0, same: false };
+  const lit = [], tre = [];
+  const H = 30, gx = 40.5, gz = 90.5;
+  growTree3(lit, tre, gx, gz, H, () => {});
+  const F = LIT_FLOATS, n = lit.length / F;
+  const y0 = terrainH(gx, gz);
+  let hi = -1e9;
+  let sxx = 0, szz = 0, sxz = 0, mx = 0, mz = 0;
+  for (let i = 0; i < n; i++) {
+    const x = lit[i * F], y = lit[i * F + 1], z = lit[i * F + 2];
+    if (y > hi) hi = y;
+    mx += x - gx; mz += z - gz;
+  }
+  mx /= n; mz /= n;
+  for (let i = 0; i < n; i++) {
+    const dx = lit[i * F] - gx - mx, dz = lit[i * F + 2] - gz - mz;
+    sxx += dx * dx; szz += dz * dz; sxz += dx * dz;
+  }
+  sxx /= n; szz /= n; sxz /= n;
+  // the two principal spreads of the branch cloud seen from above
+  const tr = sxx + szz, det = sxx * szz - sxz * sxz;
+  const rt = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+  const major = Math.sqrt(Math.max(0, tr / 2 + rt)), minor = Math.sqrt(Math.max(0, tr / 2 - rt));
+  /* THE TRUNK IS THE FIRST LIMB PUSHED, three faces of six vertices; its base
+     ring sits on the ground and its top ring one limb up. The distance of each
+     from the trunk's own axis is the radius there, so the taper the recursion
+     applies is readable directly. */
+  const ring = (from, to, lowHalf) => {
+    let r = 0, m = 0;
+    for (let i = from; i < to; i++) {
+      const x = lit[i * F], y = lit[i * F + 1], z = lit[i * F + 2];
+      const isLow = y - y0 < 1.0;
+      if (isLow !== lowHalf) continue;
+      r += Math.hypot(x - gx, z - gz); m++;
+    }
+    return m ? r / m : 0;
+  };
+  const baseR = ring(0, 18, true), topR = ring(0, 18, false);
+  return { verts: n, limbs: Math.round(n / (3 * 6)),
+           leafQuads: tre.length / (5 * 6),
+           tallness: +(hi - y0).toFixed(2), asked: H,
+           major: +major.toFixed(2), minor: +minor.toFixed(2),
+           baseR: +baseR.toFixed(3), topR: +topR.toFixed(3),
+           // the same seed twice has to give the same tree, or every cell that
+           // is dropped and rebuilt grows a different wood
+           same: (() => { const a = [], b = [];
+                          growTree3(a, [], gx, gz, H, () => {});
+                          growTree3(b, [], gx, gz, H, () => {});
+                          return a.length === b.length && a.every((v, i) => v === b[i]); })() };
+});
+const G = out.grown;
+/* A DOZEN LIMBS AND A DOZEN CLUSTERS. Three generations of forking gives about
+   fifteen of each; the floor is set well under that so a change of one in the
+   branching factor is not a failure, and the point is that it is MANY, which a
+   billboard's zero is not. */
+out.hasBranches = G.limbs >= 8 && G.leafQuads >= 8 && G.verts > 100;
+/* Grown into a list and then fitted, so the tree really is the height it claims.
+   The `note` guard is not decoration: with no grower both numbers are zero and
+   "nothing is exactly as tall as nothing" passed the A/B. */
+out.fitsItsHeight = !G.note && G.asked > 0 && Math.abs(G.tallness - G.asked) < 0.5;
+// and it is a tree in three dimensions, not a fan painted on a plane
+out.branchesInTheRound = G.minor > G.major * 0.35 && G.major > 1;
+// each generation thinner than its parent — 0.62 in the recursion
+out.trunkTapers = G.baseR > G.topR * 1.3 && G.topR > 0;
+out.samePlaceSameTree = G.same;
+/* AND THE BRANCHES REACH THE CELL MESHES — read above, before the parks were
+   taken away. They are built into a mesh of their own so the shadow pass can
+   skip them, which is exactly the sort of wiring that can be right in the buffer
+   and missing from the world. */
+out.cellsCarryTheWood = out.inTheWorld.withWood > 0 && out.inTheWorld.tris > 500;
+
 out.errs = errs.slice(0, 5);
 out.failing = Object.keys(out).filter(k => out[k] === false);
 out.pass = out.parksArePlanted && out.threeTimesTaller && out.courtyardsGetTrees &&
            out.nothingInAWall && out.eachTreePlantedOnce && out.canopyIsOnScreen &&
+           out.hasBranches && out.fitsItsHeight && out.branchesInTheRound &&
+           out.trunkTapers && out.samePlaceSameTree && out.cellsCarryTheWood &&
            !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

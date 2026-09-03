@@ -762,7 +762,7 @@ window.__treeSites = (x, y, r) => {
     take(s, out.street, false);
   }
   const s = [];
-  plantParks([], x - r, y - r, x + r, y + r, () => {}, s);
+  plantParks([], null, x - r, y - r, x + r, y + r, () => {}, s);
   take(s, out.park, true);
   return out;
 };
@@ -774,7 +774,7 @@ window.__parkTreesByCell = (x, y, r, cell) => {
   for (let cx = Math.floor((x - r) / cell) * cell; cx < x + r; cx += cell)
     for (let cz = Math.floor((y - r) / cell) * cell; cz < y + r; cz += cell) {
       const s = [];
-      plantParks([], cx, cz, cx + cell, cz + cell, () => {}, s);
+      plantParks([], null, cx, cz, cx + cell, cz + cell, () => {}, s);
       // clipped to the box that was asked for, not to the cells that cover it:
       // a bigger cell size reaches further past the edge, and two walks of
       // different areas are not comparable
