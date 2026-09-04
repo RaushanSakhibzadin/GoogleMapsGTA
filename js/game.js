@@ -896,7 +896,15 @@ function updateRetries() {
    Six is above the shove and still well below any speed you would call a
    collision. */
 const UNSTICK = 4.5;       // the impulse that frees a car stuck inside a footprint
-const BLD_MIN = 6;         // and the speed below which touching a wall is free
+/* AND THE SPEED BELOW WHICH TOUCHING A WALL IS FREE. Six metres a second is 21
+   km/h, which is not a low speed — it is a speed you reach reversing out of a
+   parking space. Reported as "on low speed there should be no damage for the car
+   from the building", and manoeuvring is exactly when a wall gets touched: the
+   old point-based collision made it worse, because a car that had squeezed half
+   its body into a footprint came out with an ejection speed that had nothing to
+   do with how fast it was going in. Nine is 32 km/h — still a proper bump, and
+   above anything you do on purpose within a car length of a wall. */
+const BLD_MIN = 9;
 const BLD_MAX = 26;        // clipping a building at speed
 const TRAFFIC_MAX = 18;    // t-boning a civilian
 const COP_MAX = 12;        // a cruiser ramming you, now once every 0.6 s
@@ -1998,6 +2006,80 @@ function repairAt(p) {
         txt('toast.repaired', { n: cost }), 1800);
 }
 
+/* ---- THE PAUK ----
+ *
+ * "Pauk" is the spider, and in Belgrade it is what the tow truck is called;
+ * PAUK NOSI — the spider is carrying it off — is what you say when a car has
+ * gone. It is the way out of a wedge, and it is a Belgrade joke, and it is the
+ * same thing.
+ *
+ * A HUNDRED, OR WHAT YOU HAVE. Asked for exactly that way, and it matters: a
+ * rescue you cannot afford is not a rescue. Somebody with nothing gets carried
+ * for nothing, which is also the only way the button can be a promise rather
+ * than a trap — it can never leave you worse off than stuck.
+ *
+ * It goes out through respawn('police') because that is already the machinery
+ * for "you wake up at the nearest station": it resolves the point while the car
+ * is still where it went wrong, hands the fare back onto the pavement rather
+ * than carrying them to the cells, and gives two and a bit seconds of screen for
+ * the truck to arrive on. */
+const PAUK_FINE = 100;
+const PAUK_ARM = 5;         // seconds wedged before the button appears
+const PAUK_AUTO = 25;       // and before it comes without being asked
+function pauk() {
+  if (!P.car || P.dead || P.tow) return false;
+  const fine = Math.min(PAUK_FINE, Math.max(0, P.cash));
+  P.cash -= fine;
+  store.set('vm_cash', P.cash);
+  P.wedgeT = 0;
+  P.paukBtn = false;
+  $('paukBtn').classList.remove('on');
+  P.tow = spawnPauk();
+  bigMsg(txt('big.pauk'), '#ffe36a',
+         fine ? txt('big.paukSub', { n: fine }) : txt('big.paukFree'));
+  respawn('police');
+  return true;
+}
+/* The truck itself, put into `traffic` so both renderers draw it for free — it
+   is a lorry, and there has been a lorry in the fleet since the service vehicles
+   landed. It is NOT driven by the traffic AI: it has two seconds to cross forty
+   metres and arrive, which is a scripted approach and not a car going about its
+   business, so updateTraffic hands it straight back and stepPauk moves it. */
+function spawnPauk() {
+  const c = P.car;
+  /* Coming from the road if there is one — a tow truck that arrives through a
+     wall is funny once. Failing that, from behind, which is where the street
+     was when you drove into whatever this is. */
+  const a = c.h + Math.PI + rand(-.5, .5);
+  const t = makeCar(c.x + Math.cos(a) * 42, c.y + Math.sin(a) * 42, a + Math.PI, 'traffic');
+  t.livery = 'lorry';
+  t.l = 8.2; t.w = 2.45; t.bh = 3.1; t.mass = 9;
+  t.color = '#ffb320';
+  t.tow = true;
+  t.hp = 100;
+  traffic.push(t);
+  return t;
+}
+function stepPauk(dt) {
+  const t = P.tow, c = P.car;
+  if (!t || !c) return;
+  const dx = c.x - t.x, dy = c.y - t.y;
+  const d = Math.hypot(dx, dy) || 1;
+  t.h = Math.atan2(dy, dx);
+  // it closes on the car and stops a length short of it rather than driving
+  // through it, which is what a tow truck hooking you up looks like from behind
+  const want = Math.max(0, d - c.l);
+  const step = Math.min(want, 26 * dt);
+  t.x += dx / d * step; t.y += dy / d * step;
+  t.vx = dx / d * (step / Math.max(dt, 1e-3)); t.vy = dy / d * (step / Math.max(dt, 1e-3));
+}
+function clearPauk() {
+  if (!P.tow) return;
+  const i = traffic.indexOf(P.tow);
+  if (i >= 0) traffic.splice(i, 1);
+  P.tow = null;
+}
+
 function busted() {
   const lost = P.cash - Math.floor(P.cash / 2);
   P.cash = Math.floor(P.cash / 2);
@@ -2037,6 +2119,8 @@ function respawn(kind) {
   }
 }
 function doRespawn() {
+  clearPauk();                 // the spider has done its job and drives out of the world
+  P.wedgeT = 0;
   const sp = P.recover || P.spawn;
   P.car.x = sp.x; P.car.y = sp.y; P.car.h = sp.h;
   P.car.vx = P.car.vy = 0; P.car.hp = 100;
@@ -2195,6 +2279,44 @@ function update(dt) {
     }
   }
 
+  /* --- AND WHEN THE NUDGE IS NOT ENOUGH: THE PAUK.
+   *
+   * Belgrade's tow truck is called the spider, and being carried off by it is a
+   * civic institution. Asked for as the way out of a wedge you cannot drive out
+   * of: a button, or long enough sitting there, and it comes and takes you to
+   * the nearest station for a hundred.
+   *
+   * STUCK IS NOT THE SAME AS STOPPED, and the difference is the whole of not
+   * ruining somebody's afternoon. A car parked on purpose — at a body shop, at a
+   * kerb while you read the map — must never be towed. So the clock only runs
+   * when the car is going nowhere WHILE BEING ASKED TO: throttle, brake or
+   * steering held. Let go and it resets.
+   *
+   * TWO THRESHOLDS, because the two are different promises. At five seconds the
+   * button appears — you have to be stuck for it to be there at all, which is
+   * also what makes it discoverable at the moment it means something. At
+   * twenty-five it comes anyway, for the player who has given up pressing. */
+  /* MEASURED AS GROUND COVERED, NOT AS SPEED. The obvious version of this — "the
+     clock runs while the car is slower than walking pace" — never reaches five
+     seconds, because the nudge above hands out 4.5 m/s every 1.3 s and the clock
+     resets on every one of them. What it costs you is 1.2 m: you are still in
+     the same slot, being flung against the same two walls. So the clock is
+     anchored to a POSITION, and only getting eight metres away from it counts as
+     having got somewhere. */
+  const asking = inp.gas || inp.brake || Math.abs(inp.steer) > .2;
+  if (!P.dead && !P.tow && (asking || c.wall)) {
+    if (!P.wedgeAt || Math.hypot(c.x - P.wedgeAt.x, c.y - P.wedgeAt.y) > 8) {
+      P.wedgeAt = { x: c.x, y: c.y };
+      P.wedgeT = 0;
+    } else P.wedgeT = (P.wedgeT || 0) + dt;
+  } else if (!P.dead) { P.wedgeT = 0; P.wedgeAt = null; }
+  const wantBtn = !P.dead && !P.tow && P.wedgeT > PAUK_ARM;
+  if (wantBtn !== P.paukBtn) {
+    P.paukBtn = wantBtn;
+    $('paukBtn').classList.toggle('on', wantBtn);
+  }
+  if (P.wedgeT > PAUK_AUTO) pauk();
+
   /* --- building impact. Rate-limited the same way car-to-car already is: this
      ran every frame the car was overlapping, so LEANING on a wall was sixty
      damage events a second. It only stayed survivable because the old engine
@@ -2218,6 +2340,7 @@ function update(dt) {
   // --- traffic
   trafficGrid();                       // before anything asks who is nearby
   for (const t of traffic) updateTraffic(t, dt);
+  if (P.tow) stepPauk(dt);             // scripted, not driven — see spawnPauk
   trafficCollisions();                 // once per pair, off the same grid
   // anything out of health goes up; the list filters below drop the wreckage
   for (const o of traffic) checkWreck(o, dt);
@@ -2510,6 +2633,9 @@ function sparks(x, y, col) {
 }
 
 function updateTraffic(t, dt) {
+  // the tow truck rides in this list so both renderers draw it, but it is on
+  // rails for two seconds and has no business being steered — see spawnPauk
+  if (t.tow) return;
   const r = t.road_;
   if (!r || r.pts.length < 2) { rehome(t); return; }
 

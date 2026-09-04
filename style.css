@@ -754,6 +754,25 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
   text-shadow:3px 4px 0 rgba(0,0,0,.8),0 0 30px rgba(255,227,106,.8);white-space:pre-line}
 #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 
+/* THE PAUK BUTTON. Bottom centre, above the radio bar and between the two thumb
+   pads — the one part of the lower screen that is not already a control, and the
+   place a thumb reaches without letting go of either stick. It is not there
+   until the game has decided you are stuck, so it never competes with anything.
+
+   Wide and short rather than round: it is pressed once, deliberately, when you
+   have given up, and it carries a word. The spray cans are round because they
+   are pressed repeatedly while parked. */
+#paukBtn{position:fixed;left:50%;transform:translateX(-50%) translateY(8px);
+  bottom:calc(var(--edgeB) + var(--radioBar) + 10px);z-index:34;
+  display:none;align-items:center;gap:8px;
+  padding:10px 18px;border-radius:999px;
+  font-family:var(--ui);font-weight:800;font-size:14px;letter-spacing:.16em;
+  color:#12061d;background:linear-gradient(180deg,#ffe36a,#e8b528);
+  border:2px solid rgba(18,6,29,.55);box-shadow:0 6px 20px rgba(0,0,0,.45);
+  opacity:0;transition:opacity .25s,transform .25s;pointer-events:auto}
+#paukBtn.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#paukBtn:active{filter:brightness(.9)}
+.paukIcon{font-size:19px;line-height:1}
 /* big centred status: WASTED / BUSTED */
 #big{position:fixed;inset:0;height:var(--vh,100dvh);z-index:50;display:none;align-items:center;justify-content:center;
   flex-direction:column;background:rgba(20,0,30,.55);backdrop-filter:blur(3px)}

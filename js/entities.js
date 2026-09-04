@@ -753,6 +753,10 @@ function drive(c, throttle, brake, steerIn, hand, dt) {
      is threading between two buildings towards something. The crawl itself
      stays; the steering is yours. */
 
+  /* WHERE THE BODY WAS BEFORE THIS STEP. buildingCollide needs somewhere to put
+     a car back to when both walls of a gap are pushing it out at once, and the
+     only place that is certainly clear is the place it came from. */
+  c.px = c.x; c.py = c.y;
   c.x += c.vx * dt; c.y += c.vy * dt;
 
   /* And now the vertical half of the step: what height the wheels are at, which
@@ -833,35 +837,131 @@ function nearestEdge(pts, x, y) {
   return { x: bx, y: by, d: Math.sqrt(bd) };
 }
 
-function buildingCollide(c) {
-  const k0x = Math.floor((c.x - 3) / W.bcell), k1x = Math.floor((c.x + 3) / W.bcell);
-  const k0y = Math.floor((c.y - 3) / W.bcell), k1y = Math.floor((c.y + 3) / W.bcell);
+/* A CAR IS A BODY, NOT A POINT — which is the whole of the "you can drive
+ * between two buildings" report, and the whole of the wedge that follows it.
+ *
+ * This tested ONE point, the centre of the car, and returned on the first
+ * building it found it inside. Two things fell out of that, and they are the same
+ * bug seen from either end:
+ *
+ *   A 2 m wide car whose CENTRE is in a 1.2 m gap is inside neither footprint, so
+ *   it drove down the gap with a metre of bodywork buried in the wall on each
+ *   side. That is the picture that was reported.
+ *
+ *   And when the centre did cross a wall, it was pushed out of that building —
+ *   often straight into the one opposite, which was never consulted because the
+ *   function had already returned. Next frame the other one pushed it back. That
+ *   is the wedge, and no amount of throttle gets you out of it because both
+ *   walls are winning.
+ *
+ * So: eight samples around the car's own rectangle in its own heading frame, all
+ * the overlapping buildings gathered once, and the deepest penetration resolved.
+ * If a second push OPPOSES the first — which is exactly what a gap narrower than
+ * the car produces, and nothing else does — the car is put back where it started
+ * the step and stopped. A gap you cannot fit through is a wall, not a corridor,
+ * and that is true for the police and the traffic as well because they all come
+ * through here.
+ *
+ * PUT BACK ONLY IF THERE IS SOMEWHERE TO PUT IT. If the pre-step position is
+ * itself buried — a car that spawned inside a footprint, or one shoved in by a
+ * blast — restoring it would be a life sentence. Then the deepest push is
+ * applied instead and the car works its way out, which is what UNSTICK in
+ * game.js is for. */
+const BODY_PTS = [[.5, .5], [.5, -.5], [-.5, .5], [-.5, -.5],
+                  [.5, 0], [-.5, 0], [0, .5], [0, -.5]];
+const BLD_SKIN = 0.06;          // a few centimetres of daylight, so it is not re-inside next frame
+const BLD_CAND = [];            // scratch: the buildings a body can currently reach
+function buildingsNear(x, y, r) {
+  BLD_CAND.length = 0;
+  const k0x = Math.floor((x - r) / W.bcell), k1x = Math.floor((x + r) / W.bcell);
+  const k0y = Math.floor((y - r) / W.bcell), k1y = Math.floor((y + r) / W.bcell);
   for (let kx = k0x; kx <= k1x; kx++) for (let ky = k0y; ky <= k1y; ky++) {
     const arr = W.buckets.get(kx + ',' + ky); if (!arr) continue;
     for (const bi of arr) {
       const b = W.buildings[bi];
-      // solidAt() a few lines up already guards this and this did not, which is
-      // the sort of difference that stays invisible until something empties
-      // W.buildings without clearing the hash — and then it throws once per
-      // bucket per frame, from inside the physics loop
-      if (!b || b.passable) continue;   // a road runs through it: tunnel or archway
-      if (c.x < b.bb.x0 - 2 || c.x > b.bb.x1 + 2 || c.y < b.bb.y0 - 2 || c.y > b.bb.y1 + 2) continue;
-      if (!pointInPoly(b.pts, c.x, c.y)) continue;
-
-      const e = nearestEdge(b.pts, c.x, c.y);
-      // n points from the wall towards the car — and the car is inside, so n aims
-      // deeper into the building. Stepping back along it puts us out on the street.
-      let nx = c.x - e.x, ny = c.y - e.y;
-      const nl = Math.hypot(nx, ny) || 1;
-      nx /= nl; ny /= nl;
-      c.x = e.x - nx * (c.l * .5); c.y = e.y - ny * (c.l * .5);
-      const into = c.vx * nx + c.vy * ny;     // closing speed along the inward normal
-      if (into > 0) {
-        c.vx -= nx * into * 1.5; c.vy -= ny * into * 1.5;   // cancel it, plus a bounce
-        return into;
-      }
-      return 0;
+      // a road runs through it: tunnel or archway. And the null guard matters —
+      // something can empty W.buildings without clearing the hash, and this runs
+      // inside the physics loop
+      if (!b || b.passable) continue;
+      if (x + r < b.bb.x0 || x - r > b.bb.x1 || y + r < b.bb.y0 || y - r > b.bb.y1) continue;
+      if (BLD_CAND.indexOf(b) < 0) BLD_CAND.push(b);
     }
+  }
+  return BLD_CAND;
+}
+// is any part of this car's body inside a wall, with the body put at x,y?
+function bodyBuried(c, x, y, cands) {
+  const cs = Math.cos(c.h), sn = Math.sin(c.h);
+  for (const [fx, fy] of BODY_PTS) {
+    const ox = fx * c.l, oy = fy * c.w;
+    const px = x + cs * ox - sn * oy, py = y + sn * ox + cs * oy;
+    for (const b of cands) {
+      if (px < b.bb.x0 || px > b.bb.x1 || py < b.bb.y0 || py > b.bb.y1) continue;
+      if (pointInPoly(b.pts, px, py)) return true;
+    }
+  }
+  return false;
+}
+function buildingCollide(c) {
+  c.wall = false;              // touching one THIS step: see the wedge clock in game.js
+  const reach = Math.hypot(c.l, c.w) * .5 + 1;
+  const cands = buildingsNear(c.x, c.y, reach);
+  if (!cands.length) return 0;
+  /* The candidate list is shared scratch and bodyBuried() below re-walks it, so
+     it is copied the moment there is anything to resolve — cheap, and only on
+     the frames where a car is actually touching something. */
+  const cs = Math.cos(c.h), sn = Math.sin(c.h);
+  let bx = 0, by = 0, deep = 0;              // the deepest push, and how deep
+  for (const [fx, fy] of BODY_PTS) {
+    const ox = fx * c.l, oy = fy * c.w;
+    const px = c.x + cs * ox - sn * oy, py = c.y + sn * ox + cs * oy;
+    for (const b of cands) {
+      if (px < b.bb.x0 || px > b.bb.x1 || py < b.bb.y0 || py > b.bb.y1) continue;
+      if (!pointInPoly(b.pts, px, py)) continue;
+      const e = nearestEdge(b.pts, px, py);
+      // out of the wall: from the sample towards the nearest edge, and past it
+      let nx = e.x - px, ny = e.y - py;
+      const nl = Math.hypot(nx, ny) || 1e-6;
+      nx /= nl; ny /= nl;
+      const push = nl + BLD_SKIN;
+      if (push > deep) { deep = push; bx = nx; by = ny; }
+      break;                                  // one wall per sample is enough
+    }
+  }
+  if (!deep) return 0;
+  c.wall = true;
+  const cands2 = cands.slice();
+  const hit = Math.hypot(c.vx, c.vy);
+  const rx = c.x + bx * deep, ry = c.y + by * deep;
+  /* AND THEN ASK WHETHER THAT ACTUALLY FIXED ANYTHING.
+   *
+   * This is the whole of "a gap narrower than the car is a wall", and it took
+   * two goes to get right. The first version compared the pushes against each
+   * other and called it squeezed when two of them opposed — which is true of a
+   * car sitting exactly in the middle of a slot, and false of one hugging the
+   * left-hand block. That one touches ONE wall per frame, gets pushed right into
+   * the other, touches that one next frame, gets pushed back — and threads the
+   * gap sideways while its forward speed is never once cancelled, because
+   * neither push has a forward component. It went twenty metres down a 1.2 m
+   * slot with the assertion watching.
+   *
+   * So the test is not "do these two pushes disagree" but "is the place this
+   * push leads to any better" — which is exact, needs no threshold, and is one
+   * more sweep of the same eight points on the frames where a car is touching
+   * something at all. If the resolved position is buried too, there is nowhere
+   * to go: back where it came from, and stopped. */
+  if (bodyBuried(c, rx, ry, cands2)) {
+    if (c.px !== undefined && !bodyBuried(c, c.px, c.py, cands2)) { c.x = c.px; c.y = c.py; }
+    else { c.x = rx; c.y = ry; }              // already buried when it got here: work out
+    c.vx = c.vy = 0;
+    return hit;
+  }
+  c.x = rx; c.y = ry;
+  const into = -(c.vx * bx + c.vy * by);      // closing speed into the wall
+  if (into > 0) {
+    // cancel the closing speed, plus a little bounce, along the wall's normal
+    c.vx += bx * into * 1.5; c.vy += by * into * 1.5;
+    return into;
   }
   return 0;
 }

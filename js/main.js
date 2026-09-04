@@ -473,6 +473,28 @@ window.__stick = () => {
 window.__ctrl = m => { if (m) setCtrl(m); return CTRL; };
 // which way the steering goes in reverse: pass a boolean to set it, nothing to ask
 window.__revReal = v => { if (v !== undefined) setRevReal(v); return REV_REAL; };
+/* THE PAUK, from the outside: how long the car has been wedged, whether the
+   button is up, whether the truck is on its way — and a way to call it, since a
+   test cannot sit on a wall for twenty-five seconds of simulated time cheaply. */
+window.__pauk = () => ({
+  wedgeT: +(P.wedgeT || 0).toFixed(2),
+  btn: !!P.paukBtn,
+  shown: $('paukBtn').classList.contains('on'),
+  towing: !!P.tow,
+  tow: P.tow ? { x: +P.tow.x.toFixed(1), y: +P.tow.y.toFixed(1),
+                 livery: P.tow.livery,
+                 d: +Math.hypot(P.tow.x - P.car.x, P.tow.y - P.car.y).toFixed(1) } : null,
+  arm: PAUK_ARM, auto: PAUK_AUTO, fine: PAUK_FINE,
+  big: $('big').classList.contains('on') ? $('bigT').textContent : null,
+  sub: $('bigS').textContent
+});
+window.__callPauk = () => pauk();
+/* Is any part of this car's body inside a wall? The whole of the "you can drive
+   between two buildings" report is that the answer used to be about a POINT. */
+window.__bodyInWall = c => {
+  const car = c || P.car;
+  return bodyBuried(car, car.x, car.y, buildingsNear(car.x, car.y, Math.hypot(car.l, car.w) * .5 + 1).slice());
+};
 window.__touch = () => ({ ...touch });          // what the pads currently read
 /* THE PHYSICS FLAG, and it goes through the same gate the button does — so a
    test that wants GHOST has to unlock the perk first, exactly as a player does,

@@ -45,6 +45,11 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
   a police station, a fire station, a hospital. The engine and the ambulance are their own
   vehicles, not repainted cars.
 - **Traffic, police, pedestrians, a wanted level**, repair shops, and a day/night switch.
+- **Buildings you cannot squeeze between.** A car is a body rather than a point, so a gap
+  narrower than the car is a wall — for the police and the traffic as well. And when something
+  does have you pinned, the **pauk** comes: Belgrade's tow truck, either from the button that
+  appears once you have been stuck for a few seconds or on its own after twenty-five, and it
+  carries you to the nearest police station for $100 — or for nothing, if you have nothing.
 - **Trees where OSM says there is green.** Street trees along the verges, and a stand of mature
   ones — three times a street tree, 25 to 40 m — filling every park, garden and courtyard lawn
   in the data. The park ones are **grown, not stamped**: a recursive branching in three

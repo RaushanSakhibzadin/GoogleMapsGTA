@@ -362,6 +362,14 @@ function setRevReal(on, save) {
   const el = $('revBtn');
   if (el) el.onclick = () => setRevReal(!REV_REAL);
 }
+/* THE PAUK. It is only on screen once the game has decided you are wedged — see
+   the note beside PAUK_ARM — so this is wired once and the class does the rest.
+   audioStart() because this is very often the first thing touched after a long
+   silence, and the tow plays a sound off the back of it. */
+{
+  const el = $('paukBtn');
+  if (el) el.onclick = () => { audioStart(); if (state === 'play') pauk(); };
+}
 // both copies of the switch, wired the way the GHOST pair is
 for (const id of ['ctrlM', 'ctrlP', 'ctrlX']) {
   const el = $(id);
