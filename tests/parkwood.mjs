@@ -65,21 +65,45 @@ out.settled = await p.evaluate(async () => {
 out.sites = await p.evaluate(() => {
   const s = window.__treeSites(P.car.x, P.car.y, 400);
   const band = a => a.length ? [Math.min(...a.map(t => t.h)), Math.max(...a.map(t => t.h))] : null;
+  /* THE SHAPE OF THE PARK BAND, not just its ends. The multiplier is a range
+     now, so what has to be shown is that the range is USED: five buckets across
+     it and how many trees land in each. Two ends and nothing between them is
+     exactly what a broken range looks like, and a min and a max cannot tell you
+     the difference. */
+  // the whole band: a street tree at its shortest, up to the tallest one tripled
+  const lo = 8.5, hi = (8.5 + 5) * 3;
+  const bins = [0, 0, 0, 0, 0];
+  for (const t of s.park) bins[Math.min(4, Math.max(0, Math.floor((t.h - lo) / ((hi - lo) / 5))))]++;
+  const mean = s.park.length
+    ? +(s.park.reduce((a, t) => a + t.h, 0) / s.park.length).toFixed(2) : 0;
   return { street: s.street.length, streetH: band(s.street),
-           park: s.park.length, parkH: band(s.park) };
+           park: s.park.length, parkH: band(s.park), bins, mean };
 });
 /* A DOZEN, NOT ONE. The complaint was a bare park, and one tree in eight hundred
    metres of city is a bare park with an exception in it. */
 out.parksArePlanted = out.sites.park >= 12 && out.sites.street > 0;
-/* THREE TIMES, AT BOTH ENDS. A street tree is 8.5 to 13.5 m and the multiplier
-   is 3, so the park band is 25.5 to 40.5 — and the two bands must not touch,
-   which is the part a wrong multiplier breaks first. Half a metre of slack each
-   side, because these are the tallest and shortest of a sample and not the
-   limits themselves. */
-out.threeTimesTaller = !!out.sites.parkH && !!out.sites.streetH &&
-  out.sites.streetH[0] >= 8.4 && out.sites.streetH[1] <= 13.6 &&
-  out.sites.parkH[0] >= 25.4 && out.sites.parkH[1] <= 40.6 &&
-  out.sites.parkH[0] > out.sites.streetH[1];
+/* ONE TIMES TO THREE TIMES, AND THE MIDDLE USED.
+ *
+ * This asserted that the park band and the street band DO NOT TOUCH, which was
+ * right when every park tree was exactly 3x and is the wrong question now: the
+ * ask changed to "not only 3x tall but in random range from 1x to 3x", so the
+ * bottom of the park band is a street tree's height by design and the two bands
+ * are meant to meet.
+ *
+ * What replaces it is the range itself, from three directions. The ENDS: nothing
+ * under 1x, nothing over 3x, and something up near the top — a build that
+ * multiplied by 1 everywhere would otherwise pass a bounds check happily. The
+ * SPREAD: at least four of the five buckets across the band occupied, which is
+ * what says the middle exists rather than a crowd at each end. And the MEAN: the
+ * multiplier is uniform on [1, 3], so the average park tree should sit near 2x
+ * a street tree's own average of 11 m, and a build with a bimodal distribution
+ * lands nowhere near it. */
+const S = out.sites;
+out.streetBandIsUnchanged = !!S.streetH && S.streetH[0] >= 8.4 && S.streetH[1] <= 13.6;
+out.parkRangeIsOneToThree = !!S.parkH &&
+  S.parkH[0] >= 8.4 && S.parkH[1] <= 40.6 && S.parkH[1] > 34;
+out.parkHeightsAreSpread = S.bins.filter(n => n > 0).length >= 4 &&
+                           S.mean > 16 && S.mean < 30;
 
 /* ---------- 2. and the small greens the report came from have them too ---------- */
 /* The park in the capture was 1,740 m² — a courtyard, not a boulevard. A rule
@@ -318,7 +342,8 @@ out.cellsCarryTheWood = out.inTheWorld.withWood > 0 && out.inTheWorld.tris > 500
 
 out.errs = errs.slice(0, 5);
 out.failing = Object.keys(out).filter(k => out[k] === false);
-out.pass = out.parksArePlanted && out.threeTimesTaller && out.courtyardsGetTrees &&
+out.pass = out.parksArePlanted && out.streetBandIsUnchanged &&
+           out.parkRangeIsOneToThree && out.parkHeightsAreSpread && out.courtyardsGetTrees &&
            out.nothingInAWall && out.eachTreePlantedOnce && out.canopyIsOnScreen &&
            out.hasBranches && out.fitsItsHeight && out.branchesInTheRound &&
            out.trunkTapers && out.samePlaceSameTree && out.cellsCarryTheWood &&

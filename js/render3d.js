@@ -1577,15 +1577,29 @@ function treeTexture() {
    top; they used to carry a copy each of `8.5 + k * 5.0`, which is the kind of
    duplicate that stays right until the day somebody changes one of them.
 
-   AND THREE TIMES THAT IN A PARK. Asked for exactly that way — "here in this
-   park should be a lot of big trees, make them 3x higher than usual" — so a
-   street tree is 8.5 to 13.5 m and a park tree is 25 to 40, which is what a
-   mature plane actually reaches and a good deal taller than the blocks around
-   it. The multiplier is applied to the height alone; the width follows from it
-   in pushTree, so a big tree is a big tree and not a stretched one. */
+   AND UP TO THREE TIMES THAT IN A PARK. Asked for as "3x higher than usual"
+   first, and then as "not only 3x tall but in random range from 1x to 3x" — so
+   the multiplier is a range now rather than a number. A street tree is 8.5 to
+   13.5 m; a park tree is that times anything from one to three, which puts the
+   band at 8.5 to 40.5 and means a park is saplings and half-grown trees under a
+   few mature ones rather than a stand of identical giants. That is what a real
+   park looks like, and it is cheaper: the fill a tree costs goes with the square
+   of its height, so the average park tree is now a good deal less than the 3x
+   one it replaces.
+
+   OFF A SEPARATE HASH from the base height, for the reason the paragraph above
+   this one gives about the atlas column: hash2(x, z) is already spoken for, and
+   a multiplier drawn from the same number would hand every tall-for-its-kind
+   tree the big multiplier as well. The two would compound, the band would come
+   out bimodal — a crowd of small ones and a crowd of enormous ones with nothing
+   between — and the point of a range is the middle of it.
+
+   The multiplier is applied to the height alone; the width follows from it in
+   pushTree, so a big tree is a big tree and not a stretched one. */
 const TREE_H = 8.5, TREE_H_VAR = 5.0, PARK_TALL = 3;
 function treeHeight(x, z, tall) {
-  return (TREE_H + hash2(x, z) * TREE_H_VAR) * (tall ? PARK_TALL : 1);
+  const k = TREE_H + hash2(x, z) * TREE_H_VAR;
+  return tall ? k * (1 + hash2(x + 5.13, z - 3.77) * (PARK_TALL - 1)) : k;
 }
 function pushTree(o, x, z, note, tall) {
   const k = hash2(x, z);

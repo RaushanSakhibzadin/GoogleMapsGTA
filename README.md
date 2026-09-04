@@ -50,9 +50,10 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
   does have you pinned, the **pauk** comes: Belgrade's tow truck, either from the button that
   appears once you have been stuck for a few seconds or on its own after twenty-five, and it
   carries you to the nearest police station for $100 — or for nothing, if you have nothing.
-- **Trees where OSM says there is green.** Street trees along the verges, and a stand of mature
-  ones — three times a street tree, 25 to 40 m — filling every park, garden and courtyard lawn
-  in the data. The park ones are **grown, not stamped**: a recursive branching in three
+- **Trees where OSM says there is green.** Street trees along the verges, and a stand of them
+  filling every park, garden and courtyard lawn in the data — anything from a street tree's own
+  height up to three times it, 8 to 40 m, so a park is saplings and half-grown trees under a few
+  mature ones. The park ones are **grown, not stamped**: a recursive branching in three
   dimensions, each generation shorter and thinner and forking wider than its parent, with the
   foliage hung on the outer twigs so the canopy's outline comes from where the branches actually
   reached. Planted off a world-aligned lattice, so a rebuilt block comes back identical.
