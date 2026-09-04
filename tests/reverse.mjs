@@ -50,22 +50,45 @@ const out = {};
    would hand the car a different amount of reversing on every run. */
 const RUN = `async (steer) => {
   traffic.length = 0; cops.length = 0; P.wanted = 0;
+  /* AND NO WALLS, which this did not need until buildings started stopping cars
+     properly. Reversing at full lock for a second and a half is an ARC — the car
+     leaves the carriageway almost at once, whichever straight it is parked on —
+     and a city street has nothing like the clear ground that needs. It used to
+     clip a corner and carry on; now it stops dead, and two runs in four came
+     back having reversed 2.5 m instead of 19.
+     What is under test is which way the heading turns, so the city is taken out
+     of the way and put back. Emptying the array is enough: the bucket hash still
+     holds the indices and buildingCollide already guards for a missing one. */
+  const keepB = W.buildings;
+  W.buildings = [];
   P.car.vx = P.car.vy = 0; P.car.steer = 0; P.car.spin = null;
-  const h0 = P.car.h, x0 = P.car.x, y0 = P.car.y;
+  const x0 = P.car.x, y0 = P.car.y;
+  /* TOTAL ROTATION, SUMMED FRAME BY FRAME, rather than the end heading minus the
+     start. At full lock the car comes round about half a circle, and half a
+     circle is exactly where a difference of two angles wraps: the forward
+     reference read +3.058 on one run and −3.132 on the next, which is the same
+     rotation either side of pi and made every sign in this file a coin toss.
+     Wrapping each STEP is safe — a step is a fraction of a degree — and the sum
+     has no ceiling. */
+  let dh = 0, ph = P.car.h, minVf = 0;
   const t0 = window.__simT();
   // brake from a standstill is reverse: drive() turns sustained braking into it
-  while (window.__simT() - t0 < 2.6) {
+  while (window.__simT() - t0 < 1.5) {
     window.__setInput({ gas: 0, brake: 1, steer, hand: 0 });
     await new Promise(r => requestAnimationFrame(r));
+    let d = P.car.h - ph; ph = P.car.h;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    dh += d;
+    // forward speed, signed: negative means it really is going backwards, and
+    // the WORST of those is the honest reading — by the end of an arc the car
+    // has turned so far that its own axis no longer points where it came from
+    const vf = P.car.vx * Math.cos(P.car.h) + P.car.vy * Math.sin(P.car.h);
+    if (vf < minVf) minVf = vf;
   }
   window.__setInput(null);
-  let dh = P.car.h - h0;
-  while (dh > Math.PI) dh -= 2 * Math.PI;
-  while (dh < -Math.PI) dh += 2 * Math.PI;
-  const spd = Math.hypot(P.car.vx, P.car.vy);
-  // forward speed, signed: negative means it really did go backwards
-  const vf = P.car.vx * Math.cos(P.car.h) + P.car.vy * Math.sin(P.car.h);
-  return { dh: +dh.toFixed(3), vf: +vf.toFixed(2), spd: +spd.toFixed(2),
+  W.buildings = keepB;
+  return { dh: +dh.toFixed(3), vf: +minVf.toFixed(2),
            moved: +Math.hypot(P.car.x - x0, P.car.y - y0).toFixed(1) };
 }`;
 
@@ -89,17 +112,21 @@ const runBoth = async () => {
  * round the axes are. */
 const FWD = `async (steer) => {
   traffic.length = 0; cops.length = 0;
+  const keepB = W.buildings;                   // the same clear ground as RUN
+  W.buildings = [];
   P.car.vx = P.car.vy = 0; P.car.steer = 0; P.car.spin = null;
-  const h0 = P.car.h;
+  let dh = 0, ph = P.car.h;                    // summed, for the reason RUN gives
   const t0 = window.__simT();
-  while (window.__simT() - t0 < 2.0) {
+  while (window.__simT() - t0 < 1.2) {
     window.__setInput({ gas: 1, brake: 0, steer, hand: 0 });
     await new Promise(r => requestAnimationFrame(r));
+    let d = P.car.h - ph; ph = P.car.h;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    dh += d;
   }
   window.__setInput(null);
-  let dh = P.car.h - h0;
-  while (dh > Math.PI) dh -= 2 * Math.PI;
-  while (dh < -Math.PI) dh += 2 * Math.PI;
+  W.buildings = keepB;
   return +dh.toFixed(3);
 }`;
 await p.evaluate(() => window.__revReal(false));
@@ -112,7 +139,7 @@ out.stick = await runBoth();
 /* THE STAGING, ASSERTED. Every number below is a heading change while going
    backwards, so a run that never went backwards proves nothing — and holding the
    brake against a car that is already rolling forwards is just braking. */
-out.reallyReversed = out.stick.left.vf < -2 && out.stick.right.vf < -2 &&
+out.reallyReversed = out.stick.left.vf < -4 && out.stick.right.vf < -4 &&
                      out.stick.left.moved > 3 && out.stick.right.moved > 3;
 
 /* ---------- 3. STICK: the side you push is the side it goes ---------- */
