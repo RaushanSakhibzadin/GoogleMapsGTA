@@ -3,7 +3,7 @@
    car you gained accel*dt a frame and handed 0.78 of the closing speed straight
    back — an equilibrium at walking pace that never resolves. */
 import { chromium } from 'playwright';
-import { CHROME, GAME, ROOT, stubRadio } from './harness.mjs';
+import { CHROME, GAME, ROOT, stubRadio, parkOnAStraight } from './harness.mjs';
 const OUT = process.env.SHOTS || '/tmp';
 const LAT0 = 44.8125, LON0 = 20.4489;                      // Savski venac, Belgrade
 const M_LAT = 110540, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
@@ -159,10 +159,26 @@ out.getsPast = out.clearRoad.movedM > 60 && out.wantedOneStar.movedM > 60 &&
    stationary car is deterministic — and it exercises the thing this section is
    actually about, since massOf() gives the player three times a civilian's mass
    and that asymmetry is what "mass didn't break the crashes" means. */
-out.headOn = await p.evaluate(async () => {
+/* ON A STRAIGHT, NOT AT THE ORIGIN.
+ *
+ * This teleported to (0, 0) and put the target ten metres up the x axis, which
+ * assumes ten metres of clear ground at the middle of the city. Whether there is
+ * depends on which tiles have streamed in by the time this section runs, and
+ * that depends on how far the two runs above happened to drive — so once
+ * buildings started stopping cars properly, one run in four had the player hit a
+ * wall at six metres and never reach the car at all. It came back as
+ * [100, 82] with the target moved 0.4 m: the collision model reported working
+ * on the player and broken on the civilian, when what had happened is that the
+ * two never met.
+ *
+ * parkOnAStraight is the same helper five other files here use for the same
+ * reason. The line is the road's, not the x axis's. */
+const spot = await parkOnAStraight(p, 60, 10);
+out.headOn = await p.evaluate(async spot => {
   window.__ghost(false);
   window.__heal();
-  window.__tp(0, 0, 0);
+  const h = P.car.h, ux = Math.cos(h), uy = Math.sin(h);
+  const at = { x: P.car.x + ux * 10, y: P.car.y + uy * 10 };
   /* TEN METRES, NOT TWENTY, and the impact inside a third of a second.
 
      The target is a traffic car and traffic drives: at twenty metres it had
@@ -171,7 +187,7 @@ out.headOn = await p.evaluate(async () => {
      out of three. Ten metres at 26 m/s closes in 0.38 s, in which an AI car
      pulling 7 m/s² from rest covers half a metre. It is still there when the
      player gets to it. */
-  window.__putTraffic(0, 10, 0, Math.PI, null, 0, 0);
+  window.__putTraffic(0, at.x, at.y, h + Math.PI, null, 0, 0);
   /* A CAR, NOT WHATEVER IS IN SLOT ZERO. What is being measured is that a
      head-on hurts both parties, which is about the damage model rather than
      about vehicle types — and one in ten of the traffic is now an eleven-tonne
@@ -181,14 +197,17 @@ out.headOn = await p.evaluate(async () => {
   window.__ordinaryCar(0);
   window.__setCarHp('traffic', 0, 100);
   const id = window.__cars().traffic[0].id;
-  let lowT = 100, lowP = 100;
-  P.car.vx = 26; P.car.vy = 0;                 // straight at it, no steering
+  let lowT = 100, lowP = 100, wall = false;
+  P.car.vx = ux * 26; P.car.vy = uy * 26;      // straight at it, no steering
   const t0 = window.__simT();
   await new Promise(res => {
     const tick = () => {
       window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
       for (const t of window.__cars().traffic) if (t.id === id) lowT = Math.min(lowT, t.hp);
       lowP = Math.min(lowP, window.__p().hp);
+      // whether the player met a building on the way, which is the one thing
+      // that could make this report a collision failure when the staging failed
+      if (P.car.wall) wall = true;
       window.__simT() - t0 < 1.2 ? requestAnimationFrame(tick) : res();
     };
     requestAnimationFrame(tick);
@@ -196,9 +215,10 @@ out.headOn = await p.evaluate(async () => {
   window.__setInput(null);
   const t = window.__cars().traffic.find(q => q.id === id);
   return { lowest: [+lowT.toFixed(1), +lowP.toFixed(1)],
-           targetMoved: t ? +Math.hypot(t.x - 10, t.y).toFixed(1) : null,
+           targetMoved: t ? +Math.hypot(t.x - at.x, t.y - at.y).toFixed(1) : null,
+           hitWall: wall, street: spot ? spot.street : null,
            bothHurt: lowT < 100 && lowP < 100 };
-});
+}, spot);
 
 await p.screenshot({ path: `${OUT}/shot-stuck.png` });
 out.errs = errs.slice(0, 4);
