@@ -49,47 +49,78 @@ const out = {};
 
 // the screenshot exactly: one star, a civilian pinned directly ahead, throttle down
 async function shove(wanted) {
-  return p.evaluate(async w => {
+  /* ON A STRAIGHT THE WORLD ACTUALLY HAS, not at a coordinate typed in here.
+   *
+   * This teleported to (-200, 0) "facing east along the road" and measured how
+   * far east the car got. That was two assumptions about the bundled city, and
+   * the second one was already known to be shaky: the comment below records a
+   * 74 m run against 200-296 on the others, blamed on traffic and fixed by
+   * trimming it. The number came back — 74.2 m, the same spot — once buildings
+   * started stopping cars properly, because what is 74 m east of that point is a
+   * wall the car used to squeeze past.
+   *
+   * The road picks the line now, and the distance is measured along it. */
+  const spot = await parkOnAStraight(p, 120, 10);
+  return p.evaluate(async ([w, sp]) => {
     window.__addWanted(w - window.__p().wanted);
+    const h = P.car.h, ux = Math.cos(h), uy = Math.sin(h);
+    const x0 = P.car.x, y0 = P.car.y;
+    /* AND NOBODY ELSE ON THE ROAD. What is being measured is how far the car
+       gets once it is past the ONE vehicle pinning it — and the street has live
+       traffic on it. That was a fair enough hazard while everything on it was a
+       hatchback to be shoved aside; with one in ten an eleven-tonne bus it is a
+       wall. The rest of the traffic is not part of the question. */
+    /* THE BLOCKER IS BUILT, NOT BORROWED. This reached into traffic slot zero,
+       which assumes there is one — and right after a teleport there need not be,
+       so it threw on four runs in six reading `.id` of undefined. It also had to
+       normalise whatever it found, because one in ten of the traffic is an
+       eleven-tonne bus and a bus you cannot shove aside is the mass model
+       working rather than the escape failing (measured: 50 m of progress against
+       296 with a car there, on runs of the same build).
+       Making the car here settles both: it is always present and it is always a
+       hatchback, which is what the report was about — one pinning you at a
+       junction. */
+    traffic.length = 0;
     /* IN CONTACT and at rest, which is the reported state. Contact radius is
        (la+lb)*0.34, about 3 m between centres — parking the car 9 m back just
        lets it get a run-up and ram its way through, which never reproduced. */
-    window.__tp(-200, 0, 0);                       // facing east along the road
-    /* AND NOBODY ELSE ON THE ROAD. What is being measured is how far the car
-       gets once it is past the ONE vehicle pinning it, over two hundred metres
-       of street — and the street has live traffic on it. That was a fair enough
-       hazard while everything on it was a hatchback to be shoved aside; with one
-       in ten an eleven-tonne bus it is a wall, and the run came in at 74 m on one
-       try in four against 200 to 296 on the others. The rest of the traffic is
-       not part of the question. */
-    traffic.length = Math.min(traffic.length, 1);
-    window.__putTraffic(0, -197.4, 0, 0);          // 2.6 m ahead: already overlapping
-    /* AND IT IS A CIVILIAN CAR, which is what the report was about: a hatchback
-       pinning you at a junction. One in ten of the traffic is now an eleven-tonne
-       bus, and a bus you cannot shove aside is the mass model working rather than
-       the escape failing — measured, 50 m of progress against 296 with a car
-       there, on runs of the same build. */
-    window.__ordinaryCar(0);
-    window.__hpById(window.__cars().traffic[0].id, 100);
+    const blk = makeCar(x0 + ux * 2.6, y0 + uy * 2.6, h, 'traffic');
+    blk.l = 4.5; blk.w = 2.0; blk.bh = 1.45; blk.mass = 1; blk.maxSpeed = 15;
+    blk.hp = 100; blk.livery = null;
+    traffic.push(blk);
     await new Promise(r => requestAnimationFrame(r));
-    const x0 = window.__p().x;
     const t0 = window.__simT();
-    let best = 0;
+    let best = 0, wall = false;
     await new Promise(res => {
       const tick = () => {
         window.__setInput({ gas: 1, brake: 0, steer: 0, hand: 0 });
         const q = window.__p();
         best = Math.max(best, q.spd);
+        // whether a building was what stopped it, which is the one thing that
+        // makes this report the escape failing when the staging failed
+        if (P.car.wall) wall = true;
         window.__simT() - t0 < 5 ? requestAnimationFrame(tick) : res();
       };
       requestAnimationFrame(tick);
     });
     const q = window.__p();
     window.__setInput(null);
-    return { wanted: w, movedM: +(q.x - x0).toFixed(1), topKmh: Math.round(best * 3.6),
-             endKmh: Math.round(q.spd * 3.6) };
-  }, wanted);
+    // along the road it was parked on, not along the x axis
+    const moved = (P.car.x - x0) * ux + (P.car.y - y0) * uy;
+    /* AND WHETHER IT ACTUALLY GOT PAST, which is the report in one number and
+       the one this file was missing. Distance alone cannot tell "shoved the
+       blocker down the street for seventy metres" from "slipped past it and
+       drove three hundred" — both are the escape working, and the first came in
+       at 73.7 m against a floor of 60, which is a coin toss waiting to happen. */
+    const alive = traffic.indexOf(blk) >= 0;
+    const ahead = alive
+      ? ((P.car.x - blk.x) * ux + (P.car.y - blk.y) * uy) : 999;
+    return { wanted: w, movedM: +moved.toFixed(1), topKmh: Math.round(best * 3.6),
+             endKmh: Math.round(q.spd * 3.6), hitWall: wall,
+             aheadM: +ahead.toFixed(1), street: sp ? sp.street : null };
+  }, [wanted, spot]);
 }
+
 out.clearRoad = await shove(0);
 /* The escape itself, tested directly. Boxing the car in with four cars held
    rigidly in place is not a fair test — no escape exists from that, and a real
@@ -134,8 +165,14 @@ out.heldStill = await p.evaluate(async () => {
 out.escapesAWedge = out.heldStill.nudges >= 3 &&
                     out.heldStill.crept > out.heldStill.nudges * 0.6;
 out.wantedOneStar = await shove(1);
-// 4 s of full throttle has to actually go somewhere — 2 km/h nose-to-tail is the bug
-out.getsPast = out.clearRoad.movedM > 60 && out.wantedOneStar.movedM > 60 &&
+/* PAST IT, AND MOVING. The reported bug is a car pinned nose-to-tail doing 2
+   km/h, so the claim is that it ends up in FRONT of the thing that was pinning
+   it and covered real ground doing so. `aheadM` is the direct reading and does
+   not care whether it got there by shoving the blocker or by slipping round it;
+   the distance floor comes down to 40 because it is no longer carrying the whole
+   assertion on its own. */
+out.getsPast = out.clearRoad.aheadM > 2 && out.wantedOneStar.aheadM > 2 &&
+               out.clearRoad.movedM > 40 && out.wantedOneStar.movedM > 40 &&
                out.wantedOneStar.topKmh > 40;
 
 /* And a head-on shunt must still hurt both, i.e. mass didn't break the crashes.
