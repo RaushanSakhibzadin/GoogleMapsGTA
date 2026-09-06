@@ -473,6 +473,27 @@ window.__stick = () => {
 window.__ctrl = m => { if (m) setCtrl(m); return CTRL; };
 // which way the steering goes in reverse: pass a boolean to set it, nothing to ask
 window.__revReal = v => { if (v !== undefined) setRevReal(v); return REV_REAL; };
+/* WHERE THE CHASE CAMERA IS AND WHICH WAY IT IS LOOKING. `behind` is the one
+   number that matters: the angle between where the camera sits and where the car
+   is pointing, so 0 means it is behind the nose and PI means it has come round
+   in front — which is what reversing is supposed to do to it. Taken from the eye
+   the renderer actually used rather than from cam.h, because the eye is what you
+   look through. */
+window.__camView = () => {
+  const c = P.car, C = G3.cam;
+  const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI;
+                      while (a < -Math.PI) a += 2 * Math.PI; return a; };
+  // from the car towards the eye, against the way the nose points
+  const toEye = Math.atan2(C.ez - c.y, C.ex - c.x);
+  const vf = c.vx * Math.cos(c.h) + c.vy * Math.sin(c.h);
+  return { camH: +C.h.toFixed(3), carH: +c.h.toFixed(3),
+           lag: +wrap(C.h - c.h).toFixed(3),
+           behind: +Math.abs(wrap(toEye - (c.h + Math.PI))).toFixed(3),
+           backView: !!P.backView, vf: +vf.toFixed(2),
+           // and where the camera is aimed, which has to lead the way you go
+           leadAhead: +(((cam.x - c.x) * Math.cos(c.h) +
+                         (cam.y - c.y) * Math.sin(c.h))).toFixed(1) };
+};
 /* THE PAUK, from the outside: how long the car has been wedged, whether the
    button is up, whether the truck is on its way — and a way to call it, since a
    test cannot sit on a wall for twenty-five seconds of simulated time cheaply. */

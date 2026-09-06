@@ -910,6 +910,35 @@ const TRAFFIC_MAX = 18;    // t-boning a civilian
 const COP_MAX = 12;        // a cruiser ramming you, now once every 0.6 s
 const BLAST_MAX = 38;      // standing in an explosion
 
+/* WHICH WAY THE CAMERA FACES, and it is the way you are GOING rather than the
+ * way the nose is pointing.
+ *
+ * Asked for: "make the camera always turn the side that my car moves — for
+ * example when the car goes back, camera turns back". Reversing in a chase view
+ * locked to the nose is driving blind: the whole screen is the road you have
+ * already covered, and the wall you are backing into is behind the camera.
+ *
+ * TWO THRESHOLDS, NOT ONE, and the gap between them is the whole of not making
+ * somebody seasick. A single threshold chatters: shunting back and forth to get
+ * out of a space crosses it several times a second, and the camera would whip
+ * round on each crossing. So it comes round once you are properly reversing —
+ * nine km/h, which is a deliberate manoeuvre and not a roll — and does not go
+ * back until you are nearly stopped. Between the two it holds whatever it is
+ * already doing.
+ *
+ * It is a SPEED ALONG THE HEADING and not the raw velocity, because a car in a
+ * drift is travelling sideways while pointing forwards, and a camera that chased
+ * the velocity vector through a slide would spin. */
+const BACKVIEW_ON = 2.5, BACKVIEW_OFF = 0.8;
+function backView(c) {
+  const vf = c.vx * Math.cos(c.h) + c.vy * Math.sin(c.h);
+  if (vf < -BACKVIEW_ON) P.backView = true;
+  else if (vf > -BACKVIEW_OFF) P.backView = false;
+  return P.backView;
+}
+// the direction the camera should be looking along, in world radians
+function viewHeading(c) { return c.h + (backView(c) ? Math.PI : 0); }
+
 /* WHAT COUNTS AS A HIT WORTH CALLING THE POLICE OVER, in metres per second of
    closing speed along the point of contact — the same number the damage is
    scaled from. Separate from the thresholds above on purpose: a car takes paint
@@ -2607,9 +2636,15 @@ function update(dt) {
   cam.shake = Math.max(0, cam.shake - dt * 2.2);
   if (!c.road && spd > 6) cam.shake = Math.min(.28, cam.shake + dt * .55);
 
-  // --- camera: follow with a little lead, pull back with speed
+  /* --- camera: follow with a little lead, pull back with speed.
+     THE LEAD GOES THE WAY THE CAR IS GOING. It led along the heading, which is
+     the same thing forwards and exactly wrong in reverse: the point the chase
+     camera looks at ran twenty-six metres up the road AHEAD of the nose while
+     the car went backwards, so the eye — which hangs off the car — ended up
+     between the car and the thing it was aimed at. See viewHeading. */
+  const face = viewHeading(c);
   const lead = clamp(spd / 45, 0, 1) * 26;
-  const tx = c.x + Math.cos(c.h) * lead, ty = c.y + Math.sin(c.h) * lead;
+  const tx = c.x + Math.cos(face) * lead, ty = c.y + Math.sin(face) * lead;
   const k = decay(6.5, dt);
   cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
   cam.s += (lerp(9.4, 4.6, clamp(spd / TOP_SPEED, 0, 1)) * zoomK - cam.s) * decay(2.4, dt);

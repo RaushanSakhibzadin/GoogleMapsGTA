@@ -63,6 +63,9 @@ the tarmac. Backers get the word that unlocks it, in a post on the page.
   a spray can: a wall you paint goes your colour in the street, in the chase view and on the
   radar, with an unreadable tag across its ground floor. Every so often the other side takes one
   back. A city with no casinos in OSM simply has none, and nothing else changes.
+- **The camera faces the way you are going.** Reverse hard and it swings round the front of the
+  car so you are looking at the road you are backing into, and comes back when you drive on. Two
+  thresholds with a dead band between them, so shunting out of a parking space does not spin it.
 - **Three renderers**: Canvas 2D top-down, hand-written WebGL2 for the chase view, and software 3D
   for a browser with WebGL turned off.
 - **No image assets.** Every texture is grown from fractal noise at load.

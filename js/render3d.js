@@ -2948,8 +2948,14 @@ function camera3D(dt) {
   const C = G3.cam;
   /* In a drift the car points somewhere other than where it is going, and a
      camera locked to the nose spends the whole slide staring at a kerb. It
-     follows the heading, but slowly, and slower still the faster you go. */
-  C.h += angDiff(C.h, c.h) * decay(lerp(5.5, 2.6, k), dt);
+     follows the heading, but slowly, and slower still the faster you go.
+   *
+     AND IN REVERSE IT COMES ROUND THE OTHER SIDE. viewHeading is the heading
+     plus half a turn once you are properly backing up — see the note beside it
+     in game.js for why that needs two thresholds. The lag does the rest: the
+     eye is placed on a circle around the car, so half a turn of target swings it
+     round the outside over about half a second rather than cutting through. */
+  C.h += angDiff(C.h, viewHeading(c)) * decay(lerp(5.5, 2.6, k), dt);
   C.d += (lerp(13.5, 25, k) * lerp(1.22, 1, zoomK) - C.d) * decay(2.2, dt);
   /* LOW, AND LOOKING NEARLY LEVEL. The first version sat six metres up and
      aimed at the car's roofline, which is an 18° downward tilt — a view of a lot
