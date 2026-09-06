@@ -275,8 +275,19 @@ out.frozeSky = await freeze();
   /* Twelve rows clear of the horizon, not one. The skyline is antialiased and
      the terrain behind it is uneven, so the rows immediately above it are a
      blend of sky and hillside and step by several units — which is real, and
-     nothing to do with the gradient being measured. */
-  const first = hz + 12;
+     nothing to do with the gradient being measured.
+   *
+     AND THEN UP PAST ANYTHING STILL IN THE WAY. hz is the lowest row that is
+     more than half sky, but a single tower poking through the skyline can take
+     a row above it back under half — so hz + 12 is not guaranteed to be sky at
+     all, and when it is not, rows[] holds NaN and the reading came out as null.
+     That is what it did inside a full suite, on a run where one more tile of
+     city had streamed in than usual: every other number in this section was
+     identical to the passing runs and this one was missing. The quantity wanted
+     is the sky just above the roofline, so the search walks up to the first row
+     that actually is sky and says which one it used. */
+  let first = hz + 12;
+  while (first < H - 1 && Number.isNaN(rows[first])) first++;
   const low = rows[first], high = rows[H - 1];
   let jump = 0;
   for (let y = first + 1; y < H; y++)
@@ -284,6 +295,7 @@ out.frozeSky = await freeze();
       jump = Math.max(jump, Math.abs(rows[y] - rows[y - 1]));
   out.sky = {
     horizonRow: hz,
+    sampledRow: first,
     lumFloor: +floor.toFixed(1),
     skyRows: H - first,
     atHorizon: +low.toFixed(1),
