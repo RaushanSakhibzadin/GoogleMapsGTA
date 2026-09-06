@@ -315,12 +315,16 @@ body.perked .perk .keyRow{display:none}
    thumb lands rather than living in a corner, and a control in the top centre is
    a reach across the whole screen from either grip — which is what was reported.
 
-   The pair are the SAME BUTTON TWICE, not two halves of anything. Whichever hand
-   is free presses it, which is the only reason there are two.
+   ONE CAN, HARD AGAINST THE LEFT. It was one in the top centre, then two — one
+   in each bottom corner, then both pulled in towards the middle — and it is one
+   again now, on the left, asked for each time by somebody actually holding the
+   phone. The pair existed because either hand could reach one; the report is
+   that two of the same button reads as two different buttons, and the left is
+   where the spare thumb is.
 
-   Round, and big: 15vw is a thumb, and a circle is what a thumb hits. They carry
-   the side you are on as their rim, so which colour you are about to spray is
-   answerable without pressing one. */
+   Round, and big: 15vw is a thumb, and a circle is what a thumb hits. It carries
+   the side you are on as its rim, so which colour you are about to spray is
+   answerable without pressing it. */
 :root{--sprayD:clamp(58px,15vw,84px)}
 .sprayCan{position:fixed;bottom:calc(var(--edgeB) + 2px);z-index:46;
   display:none;align-items:center;justify-content:center;pointer-events:auto;
@@ -329,17 +333,13 @@ body.perked .perk .keyRow{display:none}
   background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.35);
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
-/* IN FROM THE CORNERS, EITHER SIDE OF THE MIDDLE. Asked for as "both closer to
-   the screen center": hard against the edges is where a thumb rests, which is
-   why they went there, but it is also the furthest point on the glass from
-   where the eye is and it reads as two unrelated buttons rather than as a pair.
-   A fifth of the width in from each edge puts them plainly either side of
-   centre and still inside an easy thumb's reach, and the cap keeps them from
-   drifting out to the middle of a desktop where a fifth is two hundred points
-   and more. */
-:root{--sprayIn:min(20%,220px)}
+/* AND ALMOST TOUCHING THE EDGE, asked for in those words. Six points is a hair
+   of glass — enough that the rim is not clipped by a rounded display corner and
+   not enough to read as an inset. It was a fifth of the width in when there were
+   two of them and they had to sit either side of centre; with one there is
+   nothing to be either side of. */
+:root{--sprayIn:6px}
 #sprayBtn{left:var(--sprayIn)}
-#sprayBtnR{right:var(--sprayIn)}
 .sprayCan.on{display:flex}
 .sprayCan[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
 .sprayCan[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
@@ -733,7 +733,16 @@ body.theme-day #radio.live #radioN{color:#8a5a00;border-color:rgba(180,120,0,.55
 #chunk.on{opacity:1}
 body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,255,.9)}
 /* district name: persistent, flashes on entry (Vice City zone style) */
-#zone{position:absolute;right:14px;bottom:calc(12px + var(--radioBar) + clamp(46px,10vw,74px));
+/* CLEAR OF THE DRIFT BUTTON, WHICHEVER IS LOWER. Its own offset is measured up
+   from the radio bar and was right while DRIFT was a short text pill; as a
+   circle the button reaches 26 points higher and went through the label on four
+   of the six viewports hud.mjs checks. The floor is the button's own top edge
+   plus a gap, expressed in the button's own terms, so the two cannot drift
+   apart again — and max() means the radio-bar offset still wins wherever it was
+   already the taller of the two. */
+#zone{position:absolute;right:14px;
+  bottom:max(calc(12px + var(--radioBar) + clamp(46px,10vw,74px)),
+             calc(var(--edgeB) + 24px + var(--gas) + var(--driftD)));
   max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
   color:var(--gold);opacity:0;transition:opacity .5s}
 #zone.on{opacity:.95}
@@ -964,8 +973,19 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
 #tB{right:calc(var(--edgeR) + 10px + var(--gas))}
 #tA{right:var(--edgeR);background:rgba(51,230,255,.22);
   width:var(--gas);height:var(--gas);font-size:34px}
-#tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));width:auto;height:auto;
-  padding:12px 16px;border-radius:12px;font-size:14px;letter-spacing:.1em}
+/* DRIFT IS A PICTURE NOW, so it is a round button like everything else you
+   press with a thumb rather than a text pill sized by its own padding. Two
+   thirds of the accelerator: big enough to hit mid-corner without being mistaken
+   for the throttle it sits above. The emoji stack is the spray can's — a colour
+   emoji falls back to a hollow outline glyph without it on some Androids. */
+/* Its diameter is a variable because the district name above it has to know:
+   the button used to be a 41 point text pill and is a 67 point circle, and it
+   grows UPWARDS — there is no room below, the accelerator is there. */
+:root{--driftD:calc(var(--gas) * .58)}
+#tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));
+  width:var(--driftD);height:var(--driftD);
+  border-radius:50%;padding:0;font-size:calc(var(--gas) * .3);letter-spacing:0;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",var(--hud)}
 /* Day/night is a row in the settings panel now, not a pad — see #mix. All that
    is left of it here is --hpH, the armor block's rendered height, which the
    spray can hangs off. */
@@ -1037,7 +1057,15 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
   #spdN{font-size:clamp(30px,7.5vw,46px)}
   #toast{top:30%}
   /* DRIFT shares the right-hand side, so the district name lifts clear of it */
-  #zone{bottom:calc(var(--edgeB) + 94px + var(--gas));max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
+  /* AND THE SAME FLOOR HERE, because this rule is the one that wins on a phone
+     and on an iPad — the base rule's max() never gets a look in, which is how
+     the DRIFT button went through this label on two viewports after the base
+     rule had been fixed. The button sits 34 up from the edge in this query
+     rather than 14, so the floor is written against that number and not against
+     the other one. */
+  #zone{bottom:max(calc(var(--edgeB) + 94px + var(--gas)),
+                   calc(var(--edgeB) + 44px + var(--gas) + var(--driftD)));
+    max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
 }
 /* Landscape phones. There is barely any height here — a top-left column, the
    armor bar, the day/night button and a row of thumb pads do not all fit down

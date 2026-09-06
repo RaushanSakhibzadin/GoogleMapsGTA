@@ -206,10 +206,19 @@ if (!out.gl) {
  * Two claims, because either alone can be satisfied by something unusable: the
  * GLYPH has to come off the button, and the BUTTON has to come off the ground
  * behind it. A dark-on-dark pad passes the first and fails the second. */
-out.pads = await p.evaluate(() => {
-  const cs = getComputedStyle(document.getElementById('tH'));
-  return { bg: cs.backgroundColor, fg: cs.color };
-});
+/* THE GLYPH IS READ OFF A PAD THAT STILL HAS ONE. This took both numbers from
+   the DRIFT pad, and DRIFT is a colour emoji now: an emoji paints its own
+   colours and ignores `color` entirely, so `fg` there would be a CSS value that
+   nothing on the screen uses — the assertion would keep passing while the glyph
+   went invisible, which is the exact failure this section exists to catch.
+   The background half still comes from DRIFT, because that is the pad the
+   report was about; the glyph half comes from the accelerator, which is a
+   monochrome triangle and does take the colour. Same stylesheet rule, same
+   claim, both halves still measuring something. */
+out.pads = await p.evaluate(() => ({
+  bg: getComputedStyle(document.getElementById('tH')).backgroundColor,
+  fg: getComputedStyle(document.getElementById('tA')).color
+}));
 const rgba = s => { const n = (String(s).match(/[\d.]+/g) || []).map(Number);
   return { r: n[0] || 0, g: n[1] || 0, b: n[2] || 0, a: n.length > 3 ? n[3] : 1 }; };
 const hexRGB = h => { const n = parseInt(String(h).slice(1), 16);

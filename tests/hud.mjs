@@ -33,7 +33,7 @@ const isB = req => decodeURIComponent(req.postData() || '').includes('"building"
 // BOTH cans, not one: they are two buttons in two corners and either of them can
 // land on something. A list that names half a pair checks half a layout.
 const IDS = ['obj', 'mini', 'street', 'hpWrap', 'zone', 'speed', 'cash', 'stars', 'chunk',
-             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn', 'sprayBtnR',
+             'tH', 'tL', 'tR', 'tA', 'tB', 'jobBtn', 'sprayBtn',
              // the settings gear: not a clash candidate — it is OUTSIDE #hud and
              // always has been — but it is the right-hand wall of the strip the
              // objective is centred in, so its box is needed to say where that is

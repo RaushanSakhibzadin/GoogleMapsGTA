@@ -59,7 +59,8 @@
    three places that touch them (the click, the show/hide, the reset on a new
    run), because a second button is exactly the kind of thing that gets added to
    two of three. */
-const SPRAY_IDS = ['sprayBtn', 'sprayBtnR'];
+// One can now — see the note beside .sprayCan in style.css.
+const SPRAY_IDS = ['sprayBtn'];
 const TEAMS = {
   red:   { wall: '#8f1622', roof: '#c9202f', ink: '#ff8a96', map: '#d0263a',
            mWall: [150, 26, 38], mRoof: [205, 40, 55] },

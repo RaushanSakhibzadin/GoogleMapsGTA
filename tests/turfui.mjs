@@ -37,9 +37,15 @@ await p.waitForFunction(() => window.__s && window.__s() === 'play', null, { tim
 await p.waitForTimeout(1500);
 
 const out = {};
-const IDS = ['sprayBtn', 'sprayBtnR'];
+/* ONE CAN. There were two — one in each bottom corner, then both pulled in
+   towards the middle — and the ask came back the other way: "make the paint
+   button only one, not two, and move it closer to the left side of the screen,
+   almost touching it". The list stays a list because SPRAY_IDS is one, and a
+   test that hard-codes a single id would not notice a second button reappearing
+   unwired. */
+const IDS = ['sprayBtn'];
 
-/* ---------- 1. neither can is up until there is a side to spray for ---------- */
+/* ---------- 1. the can is not up until there is a side to spray for ---------- */
 out.before = await p.evaluate(ids => ids.map(id => {
   const el = document.getElementById(id);
   return { id, exists: !!el, on: !!el && el.classList.contains('on'),
@@ -47,7 +53,7 @@ out.before = await p.evaluate(ids => ids.map(id => {
 }), IDS);
 out.hiddenUntilYouPlay = out.before.every(b => b.exists && !b.on && !b.shown);
 
-/* ---------- 2. and then both of them are, and both are a thumb ---------- */
+/* ---------- 2. and then it is, and it is a thumb ---------- */
 out.geo = await p.evaluate(ids => {
   TURF.team = 'red'; TURF.bets = 2; TURF.picks.red = 2;
   syncTurfUI();
@@ -66,26 +72,26 @@ const C = out.geo.cans;
 /* ROUND is width equal to height with a radius of half of it — a "round" button
    that is 84 by 40 with a 50% radius is a lozenge, and 50% on its own does not
    say which. BIGGER is against the 44 point tap target every other button in
-   this game is built to; these are the ones pressed with a thumb while parked,
-   and they were 38 points tall as a rounded rectangle in the top centre. */
-out.bothAreRoundAndBig = C.length === 2 && C.every(c =>
+   this game is built to; this is the one pressed with a thumb while parked, and
+   it was 38 points tall as a rounded rectangle in the top centre. */
+out.bothAreRoundAndBig = C.length === 1 && C.every(c =>
   c.on && c.display !== 'none' && c.w >= 56 && Math.abs(c.w - c.h) <= 1 &&
   /50%|9999px/.test(c.radius));
-/* EITHER SIDE OF THE MIDDLE, AND IN FROM THE EDGES. Asked for in two goes:
-   "one on the left, the other on the right" and "closer to the bottom" first,
-   then "both closer to the screen center" — so a corner is now a failure as
-   much as the middle is. Each has to be plainly in its own half AND plainly off
-   its own edge, which is what the second pair of bounds says. Both stay in the
-   bottom quarter of the screen. */
-const mid = c => c.x + c.w / 2;
-out.oneEachSide = C.length === 2 &&
-  mid(C[0]) < out.geo.vw * 0.42 && mid(C[0]) > out.geo.vw * 0.10 &&
-  mid(C[1]) > out.geo.vw * 0.58 && mid(C[1]) < out.geo.vw * 0.90 &&
-  C.every(c => c.y > out.geo.vh * 0.72);
-// and they carry the side you are on, which is what the rim is for
+/* AND THERE IS EXACTLY ONE OF IT. Counted in the DOM rather than off the list
+   above, which would happily agree with itself: a second .sprayCan left in the
+   markup is the specific thing being removed here. */
+out.count = await p.evaluate(() => document.querySelectorAll('.sprayCan').length);
+out.justTheOne = out.count === 1;
+/* HARD AGAINST THE LEFT, asked for as "almost touching it". Its left edge inside
+   twenty points of the glass, which is the difference between a button on the
+   edge and a button a fifth of the way in — where this one was until the ask
+   came back. Still in the bottom quarter of the screen. */
+out.onTheLeftEdge = C.length === 1 && C[0].x < 20 &&
+                    C[0].y > out.geo.vh * 0.72;
+// and it carries the side you are on, which is what the rim is for
 out.bothCarryTheTeam = C.every(c => c.team === 'red');
 
-/* ---------- 3. and BOTH of them spray ---------- */
+/* ---------- 3. and it sprays ---------- */
 /* Tapped for real rather than calling sprayPaint twice: what is being checked
    is that the second button is wired to anything at all. Parked at a wall by
    hand first, because a can pressed in open ground correctly does nothing. */
@@ -106,7 +112,7 @@ for (const id of IDS) {
   const after = await p.evaluate(() => window.__turf().owned.red + window.__turf().owned.black);
   out.taps.push({ id, parked, before, after, painted: after > before });
 }
-out.bothSpray = out.taps.length === 2 && out.taps.every(t => t.painted);
+out.bothSpray = out.taps.length === 1 && out.taps.every(t => t.painted);
 
 /* ---------- 4. and the paint is on the big map ---------- */
 /* THE MAP'S OWN PIXELS, before and after. Zoomed in on the district being
@@ -156,7 +162,8 @@ out.paintShowsOnTheMap = out.map.painted > 5 &&
   pct(out.map.after.red) > 0.03 && pct(out.map.after.black) > 0.01;
 
 out.errs = errs.slice(0, 5);
-out.pass = out.hiddenUntilYouPlay && out.bothAreRoundAndBig && out.oneEachSide &&
+out.pass = out.hiddenUntilYouPlay && out.bothAreRoundAndBig && out.justTheOne &&
+           out.onTheLeftEdge &&
            out.bothCarryTheTeam && out.bothSpray && out.paintShowsOnTheMap && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
