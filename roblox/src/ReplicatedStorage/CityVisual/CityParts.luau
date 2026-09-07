@@ -281,6 +281,62 @@ function CityParts.streets(data, meta, parent: Instance): number
 	return made
 end
 
+-- ---------------------------------------------------------------- the trees
+
+-- TWO PARTS A TREE, and no mesh: a cylinder for the trunk and an ellipsoid for
+-- the canopy. Roblox has no cone primitive, which is the only reason a conifer
+-- here is a tall narrow ellipsoid rather than a spire -- and a narrow upright
+-- crown is what a Belgrade poplar looks like anyway, so it is not much of a
+-- compromise.
+--
+-- A CYLINDER PART'S AXIS IS ITS X, which is the one thing about this that is
+-- not obvious: Size is (length, diameter, diameter) and it lies down until you
+-- stand it up, so the quarter turn about Z below is what makes a trunk a trunk
+-- rather than a log.
+--
+-- Every number arrives from the bake in studs and every position was already
+-- checked against the real footprints and the real carriageway widths, so this
+-- places what it is given and tests nothing.
+function CityParts.trees(data, parent: Instance, onEach: (() -> ())?): number
+	local colours = data.colours
+	local leaf = { colours.leafA, colours.leafB, colours.conifer }
+	local made = 0
+
+	for _, t in data.trees :: { { number } } do
+		if onEach then
+			(onEach :: () -> ())()
+		end
+		local x, z, h, spread, bare, form = t[1], t[2], t[3], t[4], t[5], t[6]
+
+		local trunkD = math.max(0.35, spread * 0.11)
+		local trunk = BOX:Clone()
+		trunk.Shape = Enum.PartType.Cylinder
+		trunk.Size = Vector3.new(bare + spread * 0.3, trunkD, trunkD)
+		trunk.CFrame = CFrame.new(x, (bare + spread * 0.3) * 0.5, z) * CFrame.Angles(0, 0, math.pi * 0.5)
+		trunk.Color = colours.trunk
+		trunk.Material = Enum.Material.Wood
+		trunk.Parent = parent
+
+		local crown = h - bare
+		local canopy = BOX:Clone()
+		canopy.Shape = Enum.PartType.Ball
+		-- A Ball part is a sphere at its smallest dimension and an ellipsoid
+		-- otherwise, which is the whole of the species difference: form 2 is
+		-- taller than it is wide, the broadleaves are wider than they are tall.
+		canopy.Size = if form == 2
+			then Vector3.new(spread, crown, spread)
+			else Vector3.new(spread, crown * 0.92, spread)
+		canopy.CFrame = CFrame.new(x, bare + crown * 0.5, z)
+		canopy.Color = leaf[form + 1]
+		canopy.Material = Enum.Material.LeafyGrass
+		canopy.Parent = parent
+
+		made += 2
+	end
+
+	return made
+end
+
 -- ---------------------------------------------------------------- the ground
 
 function CityParts.ground(halfStuds: number, colour: Color3, parent: Instance): BasePart

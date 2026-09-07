@@ -114,6 +114,74 @@ function CarBuild.new(colour: Color3): Model
 	return model
 end
 
+-- ---------------------------------------------------------------- traffic
+
+-- THE SAME CAR WITH THE DETAIL TAKEN OFF, for the seventy-odd vehicles that are
+-- not yours.
+--
+-- Three parts instead of eleven, and the reason is what has to happen to them
+-- every frame rather than how many of them there are: a PivotTo moves every
+-- part in the model, so eleven parts a car at this count is eight hundred and
+-- fifty parts being written sixty times a second to draw wheels nobody can see
+-- from a chase camera. The hull, the cabin and a glass band are what reads as a
+-- car at the only distance you ever see one of these from.
+--
+-- AND THE DIMENSIONS ARE THE VEHICLE. A bus is this function with l = 10.4 and
+-- a cabin that runs nearly the whole length; a fire appliance is the same boxes
+-- again. That is exactly what js/carmesh.js does -- every vehicle in the
+-- browser game is the car's own eight corners with different numbers in them --
+-- and it is why a fleet of five service vehicles costs no modelling at all.
+--
+-- Sized in METRES; the studs conversion happens here, once, at build time.
+function CarBuild.npc(colour: Color3, lengthM: number, widthM: number, heightM: number, boxy: boolean): Model
+	local L, W, H = lengthM * S, widthM * S, heightM * S
+
+	local model = Instance.new("Model")
+	model.Name = "Traffic"
+
+	-- THE HULL SITS AT THE MODEL'S ORIGIN and everything else is measured from
+	-- it, because PivotTo moves a model by its PrimaryPart: give the hull an
+	-- offset of its own and every place() lands the car that far off the road.
+	local hullH = H * (if boxy then 0.45 else 0.62)
+	local hull = box("Body", W, hullH, L, colour)
+	hull.CFrame = CFrame.new()
+	hull.Parent = model
+	model.PrimaryPart = hull
+
+	-- A van body is a cabin that runs nearly the whole length and sits square on
+	-- the hull; a car is a cabin set back from the nose, which is what gives the
+	-- silhouette a bonnet and says which way it faces.
+	local cabinH = H * (if boxy then 0.55 else 0.5)
+	local cabin = box(
+		"Cabin",
+		W * (if boxy then 0.98 else 0.86),
+		cabinH,
+		L * (if boxy then 0.82 else 0.46),
+		colour:Lerp(Color3.new(0, 0, 0), 0.14)
+	)
+	cabin.CFrame = CFrame.new(0, (hullH + cabinH) * 0.5 - H * 0.06, L * (if boxy then 0.06 else 0.1))
+	cabin.Parent = model
+
+	-- One dark band where the windows are. It is what makes a coloured box read
+	-- as a vehicle rather than as a crate, and at three parts a car it is worth
+	-- more than the wheels would be.
+	local glass = box(
+		"Glass",
+		W * (if boxy then 1.0 else 0.88),
+		H * 0.22,
+		L * (if boxy then 0.8 else 0.44),
+		Color3.fromRGB(52, 64, 78)
+	)
+	glass.CFrame = CFrame.new(0, hullH * 0.5 + cabinH * 0.62, L * (if boxy then 0.02 else 0.06))
+	glass.Parent = model
+
+	-- WHERE THE PIVOT WANTS TO BE, so the caller does not have to re-derive the
+	-- hull height it was never told. Half the hull, which stands the vehicle on
+	-- the road rather than in it.
+	model:SetAttribute("BodyY", hullH * 0.5)
+	return model
+end
+
 -- Put the whole car at a world position and heading.
 --
 -- x and y are METRES in the browser game's world (+x east, +y south) and h is

@@ -1,7 +1,9 @@
 # The Roblox bake
 
-Turns `data/belgrade.js` into a voxel city as Luau, for the port described in
-`ROBLOX_PORT_PLAN.md`. Runs in Node, needs nothing installed, takes about a second.
+Turns `data/belgrade.js` into a city as Luau, for the port described in
+`ROBLOX_PORT_PLAN.md`. Runs in Node, needs nothing installed, takes about twelve
+seconds — eleven of which are the voxel path, which is still baked so that
+switching renderer is one line of `config.mjs` rather than a re-bake.
 
 ```
 node tools/roblox/bake.mjs
@@ -22,6 +24,8 @@ rojo serve roblox/default.project.json
 | `3-mesh.mjs` | greedy-mesh cubes into boxes | → `build/chunks.json` |
 | `4-collide.mjs` | collision volumes, road mask, depots | → `build/collision.json` |
 | `5-emit.mjs` | Luau, laid out for Rojo | → `roblox/src/**.luau` |
+| `6-flat.mjs` | extruded footprints and the drawn streets | → `roblox/src/**/FlatData/*.luau` |
+| `7-life.mjs` | the road graph, the solid mask, the trees | → `roblox/src/**/RoadNet.luau`, `SolidMask.luau`, `Trees.luau` |
 
 Each stage runs on its own too, and they hand JSON to each other rather than
 calling each other — so working on the mesher does not mean re-parsing the city
@@ -48,6 +52,80 @@ which never enter a physics broadphase and can be thinned or dropped on a weak
 device. What a car actually hits is `ServerScriptService/Data/Collision.luau` —
 a few thousand anchored boxes built by the server. The two are fitted to the
 same lattice on purpose, so what you can see is what you can hit.
+
+## The road graph, and why a mask was not enough
+
+Stage 4 bakes a drivable **mask** — one bit per 8 m cell, "is there tarmac
+here" — and that is everything a car steered by a human needs. Nothing steered
+by a human ever asks *which way the street runs*, so nothing in the mask records
+it.
+
+Traffic and pedestrians need exactly that. `updateTraffic` walks a polyline
+looking for a point ten metres further along it; `pedWalkPoint` takes the same
+polyline and offsets it sideways to find the pavement. So stage 7 ships the
+centrelines themselves: 688 drivable ways, 2,830 points, and the junction table
+below — about 180 kB of Luau, twice the minimap raster that already ships and a
+fraction of the city itself. No case for streaming it.
+
+**It also ships the junctions, and that is the part the browser has not got.**
+`updateTraffic` has one answer for running out of road: turn round and drive
+back. On this data that is a U-turn every five seconds — OSM splits a street at
+every junction, so the mean drivable way here is 62 m long and 92% of way ends
+touch another way. A U-turn on an eight metre street goes through the pavement
+and into the building behind it. `RoadNet.links` gives every way end its
+continuations, and `Streets.turning` picks between them by how nearly
+straight-on each one is.
+
+## Verifying the parts that cannot be run
+
+Nothing in this repository can execute a line of Luau, so every bug in
+`Shared/Traffic` or `Shared/Pedestrians` otherwise costs a round trip through
+somebody's screen in Studio.
+
+```
+node tools/roblox/verify-life.mjs        # or with a seed: ... 7
+```
+
+transliterates those two files, plus `Streets` and the `VehicleModel.step` they
+run on, into Node and points them at the **actually emitted** `RoadNet.luau`,
+`SolidMask.luau` and `RoadMask.luau`. Then it drives 78 cars and walks 34 people
+for ninety seconds and measures where they end up. It is seeded, so a number
+that moves means the code moved.
+
+It is a transliteration and not the article, which is the honest caveat — the
+two copies can drift, and a bug it passes may still be in the Luau. What it
+cannot do is miss an algorithm that does not work. Three real bugs came out of
+it and none of them out of reading:
+
+| | before | after |
+|---|---:|---:|
+| traffic inside a real footprint | 12.8% | 1.0% |
+| traffic lane-holding error, median | 0.76 m | 0.18 m |
+| pedestrians that never move at all | 8 of 34 | 0 of 34 |
+
+The syntax of every `.luau` in `roblox/src` can also be checked without Studio,
+with the upstream Luau CLI (`brew install luau`):
+
+```
+find roblox/src -name '*.luau' -exec luau-compile --binary {} \; > /dev/null
+```
+
+`luau-analyze` is not much use here — it has no Roblox type definitions and
+cannot resolve a `WaitForChild` require, so every line comes back unknown.
+
+## Trees, which are invented
+
+`js/render3d.js` draws no vegetation at all, so there is nothing to be faithful
+to here and the trees are the second thing in the port that is not in the source
+game (the first being the hills in `js/terrain.js`).
+
+**Where they go is real, though.** OSM knows the parks, and it knows every
+centreline and carriageway width, so a street tree goes on the verge — just
+outside the kerb — rather than being scattered and hoped over. Both placements
+are rejected at bake time against the real building polygons and the real road
+widths, so nothing is checked at runtime and a tree cannot end up inside a wall.
+2,321 of them on this district, two Parts each: a cylinder and an ellipsoid, no
+mesh and no texture.
 
 ## What the game's own code does here
 

@@ -2,12 +2,16 @@
  *
  *   node tools/roblox/bake.mjs
  *
- * Five stages, each of which can also be run on its own while you are working
+ * Seven stages, each of which can also be run on its own while you are working
  * on it — they hand JSON to each other through build/ rather than calling each
  * other, so re-running stage 3 after a tweak does not re-parse the city.
  *
- * The whole thing takes about a second. That is on purpose: a bake you can run
- * on every change is one you will actually re-run, and the alternative is a
+ * The whole thing takes about twelve seconds, and eleven of them are the voxel
+ * path — stages 2, 3 and 5, which are still baked even though CONFIG.render is
+ * 'flat'. Both paths stay baked so switching renderer is one line of config and
+ * a reconnect rather than a re-bake.
+ *
+ * Fast enough to run on every change, which is the point: the alternative is a
  * pipeline where nobody is sure whether the .luau in the tree matches the
  * config that produced it.
  */
@@ -19,7 +23,8 @@ const STAGES = [
   ['3-mesh.mjs', 'greedy meshing into boxes'],
   ['4-collide.mjs', 'collision volumes, road mask, depots'],
   ['5-emit.mjs', 'Luau for Rojo'],
-  ['6-flat.mjs', 'extruded footprints and the painted ground']
+  ['6-flat.mjs', 'extruded footprints and the painted ground'],
+  ['7-life.mjs', 'the road graph, the solid mask and the trees']
 ];
 
 const t0 = Date.now();

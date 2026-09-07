@@ -238,6 +238,52 @@ export const CONFIG = {
   },
 
 
+  /* ---------------- trees ----------------
+
+   * INVENTED, LIKE THE HILLS. This is the second thing in the port that is not
+   * in the source game: js/render3d.js draws no vegetation at all, so there is
+   * nothing to be faithful to and the honest thing is to say so rather than to
+   * pretend a browser file was ported.
+   *
+   * WHAT IS REAL IS WHERE THEY GO. OSM knows the parks (D.parks, from
+   * leisure=park and friends) and it knows every centreline and carriageway
+   * width, so a street tree can be put on the verge -- just outside the kerb,
+   * clear of the tarmac and clear of the footprints -- rather than scattered at
+   * random and hoped over. Both placements are rejected against the real
+   * building polygons and the real road widths at bake time, so nothing has to
+   * be checked at runtime and a tree cannot end up inside a wall.
+   *
+   * DETERMINISTIC, like everything else here: species, height and lean come out
+   * of hash01 of the position, so two people see the same tree on the same
+   * corner and a re-bake does not reshuffle the city. */
+  trees: true,
+  treeStreetEveryM: 21,    // spacing along a verge
+  treeVergeM: 2.6,         // metres beyond the kerb ribbon to the trunk
+  treeParkSpacingM: 12,    // jittered lattice inside a park
+  treeMinGapM: 6,          // no two trunks closer than this
+  treeRoadClass: ['residential', 'living_street', 'unclassified', 'tertiary',
+                  'secondary', 'primary'],   // verges: not motorways, not service roads
+  treeCol: {
+    /* Keyed to groundCol.park rather than picked freshly, so a canopy reads as
+       the same planting as the grass under it. Two leaf tones because a row of
+       one green is a hedge, not trees. */
+    trunk: '#4a3f36',
+    leafA: '#3f6b3c',
+    leafB: '#4e7a41',
+    conifer: '#2f5638'
+  },
+
+  /* ---------------- the solid mask ----------------
+
+   * WHERE A PERSON CANNOT WALK, one bit a cell. Pedestrians follow a pavement
+   * offset from a centreline, which is right nearly everywhere and wrong where
+   * a footprint has been mapped over the verge -- js/entities.js:walkPed calls
+   * solidAt() for exactly that case and crosses to the other side. That needs a
+   * building lookup sixty times a second for every walker, so it is baked flat
+   * rather than queried: 3 m is fine enough that a person does not walk through
+   * a wall and coarse enough to fit in about 20 kB. */
+  solidCell: 3,
+
   /* ---------------- paths ---------------- */
   src: 'data/belgrade.js',
   out: 'tools/roblox/build'

@@ -19,6 +19,7 @@ local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
 local CityParts = require(CityVisual:WaitForChild("CityParts"))
 local FlatMeta = require(CityVisual:WaitForChild("FlatMeta"))
 local StreetMeta = require(CityVisual:WaitForChild("StreetMeta"))
+local Trees = require(CityVisual:WaitForChild("Trees"))
 
 -- WAITED FOR, NOT INDEXED. `CityVisual.FlatData` throws "not a valid member" if
 -- the folder has not replicated yet, and an error here kills the whole script
@@ -86,7 +87,19 @@ for _, entry in FlatMeta.chunks do
 	folder.Parent = root
 end
 
+-- Trees last, and in their own folder. They are the one thing here that is not
+-- in the browser game -- see tools/roblox/7-life.mjs -- and keeping them
+-- separate means the whole planting can be switched off in Studio by hiding one
+-- folder, without touching a building.
+local treeFolder = Instance.new("Folder")
+treeFolder.Name = "Trees"
+-- BREATHING BETWEEN THEM like everything else here. Two parts a tree over a
+-- couple of thousand trees is the same order of work as the buildings, and
+-- doing it in one go is a visible stall on the frame the city appears.
+local planted = CityParts.trees(Trees, treeFolder, breathe)
+treeFolder.Parent = root
+
 print(
-	("[city] %d buildings, %d parts, %d street parts in %.2fs")
-		:format(buildings, made, streets, os.clock() - started)
+	("[city] %d buildings, %d parts, %d street parts, %d tree parts in %.2fs")
+		:format(buildings, made, streets, planted, os.clock() - started)
 )

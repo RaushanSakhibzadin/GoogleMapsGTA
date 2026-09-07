@@ -1,7 +1,8 @@
 # Porting VICE MAPS to Roblox — plan document
 
-Status: M0 built and measured. The preprocessor and the city are in `tools/roblox/` and
-`roblox/`; everything from §4 onward is still a plan.
+Status: M0–M2 built; M3 part-built — the city has traffic, pedestrians and trees in it.
+The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
+the remaining four roles and the radio are still a plan.
 Source read at commit `af6e9a7`.
 
 ---
@@ -792,6 +793,46 @@ beyond ~800 studs, and an 8 m voxel quality setting for weak devices.
 **Still to measure, and only a device can answer it:** memory and chunk-build time on the actual
 mobile floor. That is what M0 exists for.
 
+### 5.5 The road graph — what the mask could not answer
+
+Stage 4 bakes a drivable **mask**, one bit per 8 m cell. That answers "is there tarmac
+under this point", which is the only question a car steered by a human ever asks — and
+it is why `Tarmac`/`VehicleModel` need nothing else.
+
+Anything steered by *nothing* asks the opposite question. `updateTraffic` walks a
+polyline for a point ten metres further along it; `pedWalkPoint` offsets the same
+polyline sideways to find the pavement. A mask cannot say which way a street runs, so
+stage 7 ships the centrelines: 688 drivable ways, 2,830 points, and 4,436 junction
+continuations — ~180 kB of Luau. No case for streaming something that size.
+
+**It also ships junctions, which the browser has not got, and that turned out to be
+the difference between traffic that flows and traffic that pinballs.** `updateTraffic`
+has one answer for running out of road — turn round. On this data:
+
+| | |
+|---|---:|
+| drivable ways | 688 |
+| mean nodes per way | 4.1 |
+| mean way length | 62 m |
+| way ends touching another way | 92% |
+
+OSM splits a street at every junction, so "turn round at the end of the way" is a
+U-turn every five seconds, and a U-turn on an eight metre street goes through the
+pavement and into the building behind it. Measured before the fix: traffic was inside
+a real building footprint **12.8%** of the time, with a median lane-holding error of
+0.76 m and a p90 of 7.9 m. With junctions: **1.0%** and 0.18 m.
+
+`RoadNet.links` gives every way end its continuations — the way to join, the node, the
+direction, and the unit heading there — and `Streets.turning` picks between them by
+how nearly straight-on each is, with enough jitter that a junction does not send
+everybody the same way.
+
+**Trees are the second invented thing in this port** (the first is `js/terrain.js`'s
+hills): the browser draws no vegetation at all. Where they go is real, though — park
+polygons and road verges out of OSM, rejected at bake time against the actual building
+polygons and carriageway widths, so nothing is checked at runtime and a tree cannot end
+up inside a wall. 2,321 of them, two Parts each.
+
 ---
 
 ## 6. Radio
@@ -828,7 +869,7 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 
 ## 7. Risk register
 
-### Technical
+### 7.1 Technical
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
@@ -841,9 +882,10 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | R7 | **Chunk build hitching on join** | Medium | Build voxel chunks over multiple frames with a budget per frame; nearest-first; hold the player at a spawn overlook until the first ring is up. |
 | R8 | **Belgrade's real hills** | Low | v1 flat. Terrain is optional (§2) and adding it later only touches the preprocessor and the ground layer. |
 | R18 | **`StreamingEnabled` does not cover the voxel shell** | Medium | Streaming applies only to instances the *server* replicates. The shell is built by a LocalScript, so Roblox never streams it — the whole city builds regardless of where the player stands. Chunk load/unload has to be our own code, and the baked data is already chunked for it (128 m chunks). Correcting an error in the original mitigation list. |
-| R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Plan: TestEZ for pure Luau (VehicleModel, IncidentService, RecordService — all three are pure functions of state and deserve real tests), plus a manual QA checklist per milestone. Accept that rendering and feel are eyeballed. |
+| R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Partly addressed: `tools/roblox/verify-life.mjs` transliterates the traffic and pedestrian sims into Node and measures them against the emitted data, which found three real bugs; and `luau-compile` gives a syntax gate over every `.luau`. Still planned: TestEZ for pure Luau (VehicleModel, IncidentService, RecordService). Rendering and feel stay eyeballed. |
+| R19 | **Traffic and pedestrians are client-side** | Medium, deliberate | Every player sees their own traffic, and nothing about them is authoritative. Accepted for now; §7.3 says what would flip it and what it would cost. |
 
-### Moderation and IP
+### 7.2 Moderation and IP
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
@@ -855,6 +897,36 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | R15 | **OpenStreetMap ODbL** | Must handle | A voxel city derived from OSM is a Derivative Database. **Attribution is mandatory and must be visible inside the experience** — a credits panel with "Map data © OpenStreetMap contributors (ODbL)". A Roblox place file is not distributed as a database, so the share-alike trigger is arguable, but attribution is not. Put it in the pause menu and the description. |
 | R16 | **Real street names / real places** | Low | Real Belgrade street names are facts and fine. Do not put real business names on shopfronts even though OSM has 2,311 of them — that is the one place this crosses from geography into naming private entities. |
 | R17 | **Cyrillic rendering** | Low | Street name labels are Serbian Cyrillic. Verify font coverage on the Roblox fonts you pick, on mobile, early — a row of tofu boxes is a bad surprise in M3. |
+
+### 7.3 Traffic and pedestrians on the client — a compromise, stated
+
+`Shared/Traffic` and `Shared/Pedestrians` are pure simulations, and
+`StarterPlayerScripts/Life.client` gives them parts. **The whole thing runs on
+the client.** Two consequences, both real:
+
+- Every player sees their **own** traffic. Two people driving down the same
+  street do not see the same bus. In a city whose entire premise is that it is
+  shared, that is wrong.
+- Nothing about it is **authoritative**. Knocking somebody down is not scored,
+  raises no infraction and is not reported, because a client saying "I ran
+  somebody over" is a client saying anything it likes.
+
+What it buys is the whole feature at no server cost and no replication —
+about 110 moving models a frame that the server never sees, in a game whose
+city is already built client-side for exactly the same reason.
+
+**What would flip it** is §4.7: the moment a knockdown carries a penalty, the
+pedestrian who was knocked down has to be the server's pedestrian. When that
+happens the sims do not need rewriting — they are pure, they take the player's
+car as an argument and they hand back what was culled — but three things do
+have to be built: a server script that owns the `State`, replication of the
+models (or of positions, and rebuild client-side), and a spawn policy that
+scales with the number of players rather than with one player's cull radius.
+The last is the awkward one: 78 cars around one player is nothing, and 78 cars
+around each of twenty players spread across a district is not.
+
+Until then it is decoration, and decoration is a reasonable thing to run where
+it costs nothing.
 
 ---
 
@@ -882,10 +954,21 @@ saves it.
 Fire role, fire vehicle. `ProfileService` + money. Minimal HUD: dispatch card, money, objective marker.
 **Done when:** a solo player and a group of three both get a fire that fits them, from the same code.
 
-### M3 — The full roster
+### M3 — The full roster *(part-built)*
 Police, ambulance, taxi, courier. Three incident kinds (fire / medical / collision-response) plus
 competitive dispatch for taxi and courier (§4.6). Depots to sign on at, keyed off OSM POIs the way
 `JOBS`/`depotGate` already does. NPC traffic. Pedestrians with knockdown/get-up.
+
+**Built:** NPC traffic (78 cars, every tenth a bus, lorry, appliance, patrol car or ambulance),
+pedestrians with knockdown and get-up, and street trees — plus the road graph and junction
+table those need, which the mask could not provide (§5.5). Traffic follows centrelines and
+takes junctions; pedestrians hold the pavement. All of it client-side — see §7.3.
+
+**Not built:** the four remaining roles, the other two incident kinds, competitive dispatch,
+and depots for anything but repair — this district has two depots and both are car repair,
+so signing on as a firefighter has nowhere to happen. That is a district problem, not a code
+one, and it is the argument for a Stari Grad capture (§3.3).
+
 **Done when:** all five roles are playable and co-op incidents actually need each other.
 
 ### M4 — Infractions

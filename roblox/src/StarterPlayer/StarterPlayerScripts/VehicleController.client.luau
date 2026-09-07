@@ -31,6 +31,7 @@ local VehicleModel = require(Shared:WaitForChild("VehicleModel"))
 local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local Tarmac = require(Shared:WaitForChild("Tarmac"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
+local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -107,6 +108,11 @@ end
 local car = VehicleModel.newCar(0, 0, 0)
 local model: Model? = nil
 local backView = false
+
+-- PUBLISHED, so the traffic and the pedestrians on this client can see it -- and
+-- so the traffic can shunt it. See Shared/PlayerCar for why that is a module
+-- table rather than a remote.
+PlayerCar.set(car)
 
 local cars = workspace:WaitForChild("Cars")
 local function findMine(): Model?
