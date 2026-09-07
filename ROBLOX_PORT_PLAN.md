@@ -1,6 +1,7 @@
 # Porting VICE MAPS to Roblox — plan document
 
-Status: planning only. No implementation code in this pass.
+Status: M0 built and measured. The preprocessor and the city are in `tools/roblox/` and
+`roblox/`; everything from §4 onward is still a plan.
 Source read at commit `af6e9a7`.
 
 ---
@@ -680,13 +681,50 @@ walls merge either way) but not entirely.
 **Recommendation: 4 m for the first bake, and make it a single constant.** Bake both, look at
 them in Studio, decide with your eyes. The pipeline should not care.
 
-### 5.4 Part budget — **measured**
+### 5.4 Part budget — **measured, and the lattice chosen**
 
-The preprocessor is built (`tools/roblox/`), and these are no longer estimates. A 1.2 × 1.2 km
-slice centred on Palilula, 4 m voxels, 3 studs/m:
+The preprocessor is built (`tools/roblox/`) and the city has been stood up in
+Studio. These are measurements, not estimates. 1.2 × 1.2 km centred on Palilula,
+3 studs/m:
 
-| Layer | Before meshing | After greedy meshing | Estimated |
+| | 4 m voxels | **2 m voxels (chosen)** | First estimate |
 |---|---:|---:|---:|
+| Raw cubes | 190,248 | 794,156 | ~260,000 |
+| Building shells, meshed | 18,415 | — | ~18,000 ✅ |
+| Ground, meshed | 15,284 | — | ~6,000 ❌ |
+| **Visual boxes** | **33,699** | **73,354** | ~24,000 |
+| Meshing reduction | 5.6× | **10.8×** | 6–10× |
+| Collision boxes | 6,938 | 14,877 | ~2,200 ❌ |
+| **Total parts** | 40,637 | **88,231** | ~26,200 |
+| Client build time | **0.37s measured** | unmeasured | — |
+
+**2 m is the choice.** At 4 m a typical wall is only 2–4 cubes across and the
+city reads as plain slabs, not as voxels — the art direction disappears. And the
+cost is much lower than the raw cube count implies, because **greedy meshing does
+better at the finer lattice, not worse**: a wall two voxels wide has nothing to
+merge, one four voxels wide does. 2.2× the parts, not 4×.
+
+Where the first estimates went wrong, and it is worth keeping:
+
+- **The flat ground is the expensive layer, not the buildings.** Shells landed
+  almost exactly on estimate. The ground cost 15,284 parts at 4 m because the
+  kerb ring snakes around every road and shatters the runs meshing depends on —
+  **kerbs alone were 5,749 parts**, 17% of the budget, for decoration.
+  `CONFIG.kerbs = false` remains the biggest single lever.
+- **Collision is several times the estimate because Belgrade is not on a grid.**
+  Angled footprints rasterise into staircases, which decompose into thin strips.
+  Meshing the union of all buildings rather than one at a time recovered 7%.
+  Inherent to an axis-aligned lattice over a city that was not built on one.
+- **Per-voxel colour variation is not free.** The plan said it "costs nothing".
+  It costs nearly everything — greedy meshing merges *identical* voxels, so a
+  unique shade per voxel defeats the whole optimisation. `CONFIG.shades`
+  quantises it; default 1 (off).
+
+**Desktop is comfortable.** 33,699 parts built in 0.37s on a MacBook Pro, against
+a frame budget written expecting seconds. **Mobile is still unmeasured and is the
+open question** — that is what the phones are for.
+
+---|---:|---:|---:|
 | Building shells | 99,647 | 18,415 | ~18,000 ✅ |
 | Ground (road, kerb, park, plain) | 90,601 | 15,284 | ~6,000 ❌ |
 | **Visual total** | **190,248** | **33,699** | ~24,000 |
@@ -758,13 +796,14 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | R1 | **Float precision past 10k studs** | High if ignored | District sized to 3,600 studs (§3.2) — 4× headroom. No floating origin. Revisit only past ~8,000. |
-| R2 | **Part count / mobile memory** | **Highest** | Measured at **40,637 parts**, not the 26,200 first estimated (§5.4). Collision/visual split (§4.4), greedy meshing, `StreamingEnabled`, kerbs off (−5,749), voxel-size quality setting. Memory and chunk-build time on a real phone are still unmeasured and are what M0 is for. |
+| R2 | **Part count / mobile memory** | **Highest** | Measured at **88,231 parts** at the chosen 2 m lattice (§5.4). Desktop builds it in well under a second; **mobile is still unmeasured and is now the main open risk**. Levers: collision/visual split (§4.4), greedy meshing, kerbs off, an 8 m or 4 m quality setting, and a smaller district. Note `StreamingEnabled` does NOT help the visual shell — see R18. |
 | R3 | **Server-authoritative driving feels bad** | High | Do not do it. Client ownership + server validation (§4.1). This is a stated disagreement with the brief. |
 | R4 | **Incident claim races** | Medium | Synchronous no-yield critical section, idempotent claim tokens, per-player rate limit, one slot per player (§4.6). |
 | R5 | **DataStore throttling / duplicate profiles** | High | Session locking with heartbeat; 60 s dirty-write cadence + on-leave + `BindToClose`; single writer for money (§4.5). |
 | R6 | **Non-deterministic bakes** | Medium | Replace unseeded `rand()` in height derivation with a hash of the OSM way id, before the first bake (§1.5, §5.2). |
 | R7 | **Chunk build hitching on join** | Medium | Build voxel chunks over multiple frames with a budget per frame; nearest-first; hold the player at a spawn overlook until the first ring is up. |
 | R8 | **Belgrade's real hills** | Low | v1 flat. Terrain is optional (§2) and adding it later only touches the preprocessor and the ground layer. |
+| R18 | **`StreamingEnabled` does not cover the voxel shell** | Medium | Streaming applies only to instances the *server* replicates. The shell is built by a LocalScript, so Roblox never streams it — the whole city builds regardless of where the player stands. Chunk load/unload has to be our own code, and the baked data is already chunked for it (128 m chunks). Correcting an error in the original mitigation list. |
 | R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Plan: TestEZ for pure Luau (VehicleModel, IncidentService, RecordService — all three are pure functions of state and deserve real tests), plus a manual QA checklist per milestone. Accept that rendering and feel are eyeballed. |
 
 ### Moderation and IP

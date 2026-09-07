@@ -63,22 +63,54 @@ The three files are concatenated into **one** script before evaluation, because
 way `function` does. Loading them separately compiles fine and then hands you an
 undefined `ROADW`.
 
-## Measured, on the default config
+## Measured
 
-1.2 × 1.2 km centred on Palilula, 4 m voxels, 3 studs/m:
+1.2 × 1.2 km centred on Palilula, 3 studs/m, both lattices:
 
 ```
-district     1,519 buildings, 690 road pieces, 42.5 km of centreline
-voxels       190,248 cubes if built one Part each
-meshed       33,699 boxes          5.6x reduction
-collision    6,938 boxes           17.8 cells a box
-output       3,600 x 3,600 studs, 3.9x precision headroom, 1.5 MB of Luau
+                          4 m            2 m  (current)
+district        1,519 buildings, 690 road pieces, 42.5 km
+raw cubes           190,248        794,156
+meshed               33,699         73,354
+reduction              5.6x          10.8x
+collision             6,938         14,877
+TOTAL PARTS          40,637         88,231
+client build   0.37s measured    unmeasured
+output          3,600 x 3,600 studs, 3.9x precision headroom
 ```
 
-The plan estimated 24,000 visual and 2,200 collision. Both were optimistic —
-see the note on `CONFIG.kerbs` and `CONFIG.shades` for the two knobs that move
-the first number, and be aware that Belgrade's streets do not run along the
-lattice, which is most of why the second one is three times the estimate.
+**Greedy meshing does better at the finer lattice, not worse.** A wall two
+voxels wide has nothing to merge; four voxels wide does. So 2 m costs 2.2× the
+parts, not the 4× the raw cube count suggests. 2 m was chosen because at 4 m a
+typical wall is 2–4 cubes across and the city reads as plain slabs rather than
+as voxels.
+
+The plan first estimated 24,000 visual and 2,200 collision at 4 m. Both were
+optimistic: the flat ground layer costs far more than expected because the kerb
+ring fragments it (`CONFIG.kerbs = false` is worth 5,749 parts at 4 m), and
+collision is several times the estimate because Belgrade's streets do not run
+along the lattice, so angled footprints rasterise into staircases.
+
+## Four things that cost a whole afternoon in Studio
+
+Written down because none of them is guessable and every one looked like
+something else.
+
+1. **The default Baseplate z-fights the ground.** It is 512 × 512 at
+   `(0, -10, 0)`, so its top face is at y = 0 — exactly where this city's
+   ground layer's top face is. The ground churns every frame while the
+   buildings stay still. It looks exactly like a broken shadow map. All three
+   builders delete it now.
+2. **`Transparency = 1` does not stop a part casting a shadow.** `CastShadow`
+   defaults to true, so the invisible collision boxes were throwing every
+   shadow in the city while the visible shell threw none — and they are fitted
+   to the lattice rather than to the shell's faces, so nothing lined up.
+3. **Rojo writes `Color3` as 0–1 floats**, not the 0–255 triples used
+   everywhere else in this project. `OutdoorAmbient: [110, 112, 118]` is about
+   110× full white and blows the entire view out.
+4. **Rojo never resets a property to its default.** Removing a bad value from
+   the project file only stops it being written; the bad value stays in the
+   place. State the correct value explicitly instead.
 
 ## Toolchain
 
