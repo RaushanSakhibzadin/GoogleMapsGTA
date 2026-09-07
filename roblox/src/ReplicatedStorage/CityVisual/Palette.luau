@@ -43,8 +43,8 @@ return {
 	Color3.fromRGB(154, 174, 188),
 	Color3.fromRGB(128, 130, 136),
 	Color3.fromRGB(146, 148, 152),
-	Color3.fromRGB(143, 144, 137),
-	Color3.fromRGB(127, 168, 100),
-	Color3.fromRGB(160, 157, 150),
-	Color3.fromRGB(74, 74, 77),
+	Color3.fromRGB(52, 56, 62),
+	Color3.fromRGB(60, 92, 58),
+	Color3.fromRGB(92, 96, 104),
+	Color3.fromRGB(150, 156, 168),
 }

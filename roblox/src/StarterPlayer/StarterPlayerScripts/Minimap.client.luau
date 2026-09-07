@@ -45,13 +45,24 @@ local RES = 96 -- the image behind it; chunky on purpose
 local SPAN = 620 -- studs across the panel: about 200 m of city
 local HZ = 20 -- redraws a second
 
--- Class colours, as RGB triples so the inner loop writes bytes without
--- unpacking a Color3 nine thousand times.
+-- Class colours, TAKEN FROM THE CITY'S OWN PALETTE rather than repeated here.
+--
+-- These used to be a second copy, and the two drifted into exact opposites: the
+-- world drew dark asphalt on pale ground and the map drew pale tarmac on dark
+-- ground, so the same street was the light thing in one and the dark thing in
+-- the other. Reading them out of StreetMeta means they cannot disagree again.
+--
+-- Unpacked to RGB triples once, because the inner loop writes bytes nine
+-- thousand times an update and should not be pulling fields off a Color3.
+local StreetMeta = require(Shared.Parent:WaitForChild("CityVisual"):WaitForChild("StreetMeta"))
+local function triple(c: Color3): { number }
+	return { math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255) }
+end
 local CLASS = {
-	[0] = { 52, 56, 62 },
-	[1] = { 60, 92, 58 },
-	[2] = { 92, 96, 104 },
-	[3] = { 150, 156, 168 },
+	[0] = triple(StreetMeta.colours.plain),
+	[1] = triple(StreetMeta.colours.park),
+	[2] = triple(StreetMeta.colours.kerb),
+	[3] = triple(StreetMeta.colours.road),
 }
 
 -- ---------------------------------------------------------------- the panel

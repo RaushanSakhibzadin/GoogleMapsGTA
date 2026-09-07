@@ -6,10 +6,10 @@
 return {
 	lift = { park = 0.09, kerb = 0.18, road = 0.27 },
 	colours = {
-		plain = Color3.fromRGB(143, 144, 137),
-		park = Color3.fromRGB(127, 168, 100),
-		kerb = Color3.fromRGB(160, 157, 150),
-		road = Color3.fromRGB(74, 74, 77),
+		plain = Color3.fromRGB(52, 56, 62),
+		park = Color3.fromRGB(60, 92, 58),
+		kerb = Color3.fromRGB(92, 96, 104),
+		road = Color3.fromRGB(150, 156, 168),
 	},
 	chunks = {
 		{ -1, -1 },

@@ -223,16 +223,20 @@ export const CONFIG = {
    * So the ground gets its own four colours, and they are the way round they
    * are outdoors. */
   groundCol: {
-    plain: '#8f9089',      // undeveloped ground / yards, a neutral grey-green
-    park:  '#7fa864',      // grass, a shade deeper than the map's #9dbf86
-    /* Pavement. It IS the lightest thing at street level, but not by much: the
-       first attempt at this used #b9b5ad, and under an outdoor ambient a pale
-       warm grey next to dark asphalt blew out into white bands that read as
-       glare or as snow rather than as concrete — the same failure mode as the
-       navy it replaced, in the other direction. Concrete is a mid grey. */
-    kerb:  '#a09d96',
-    road:  '#4a4a4d'       // asphalt, and darker than everything around it
+    /* THE MINIMAP'S OWN SCHEME, and now the only one. These were two palettes,
+       and they were exact opposites: in the world the road was dark asphalt on
+       pale ground, on the minimap it was pale tarmac on dark ground. Both are
+       defensible on their own -- dark asphalt is what a street looks like, and
+       light-roads-on-dark is what a map looks like -- and having both at once
+       means reading the map one way and the street the other, which was
+       reported. The minimap's is the one that was pointed at, so it wins, and
+       the minimap now reads these rather than carrying its own copy. */
+    plain: '#34383e',      // ground with nothing on it
+    park:  '#3c5c3a',      // grass
+    kerb:  '#5c6068',      // pavement
+    road:  '#969ca8'       // tarmac
   },
+
 
   /* ---------------- paths ---------------- */
   src: 'data/belgrade.js',
