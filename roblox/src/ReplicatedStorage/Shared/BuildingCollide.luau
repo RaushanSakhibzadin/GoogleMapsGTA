@@ -24,6 +24,18 @@
 --
 -- Everything here is in METRES, like the driving model. The parts it queries
 -- are in studs, so the one conversion happens at the query boundary.
+--
+-- THE TEST IS 2D AND THE WORLD IS NOT. Resolving in the ground plane is right
+-- for a car -- it cannot climb, so height never decides whether it fits -- but
+-- it means a box's Y extent has to be dealt with BEFORE the test, not inside
+-- it. A building with an archway carved through it is exactly that case: the
+-- collision above the passage is a real box, and flattened into two dimensions
+-- it becomes a wall standing on the road. Reported as "the car is stuck here,
+-- cannot go through", under a visibly open arch.
+--
+-- So the broadphase query is a SLAB at the car's own height rather than a
+-- column through the whole world, and anything whose underside is above the
+-- roof simply never reaches the resolver.
 
 local BuildingCollide = {}
 
@@ -44,6 +56,12 @@ local BODY = {
 -- A few centimetres of daylight, so a resolved car is not immediately inside
 -- again on the next frame and jittering between the two states.
 local SKIN = 0.06
+
+-- How tall the car is, in metres, for the slab the broadphase asks about.
+-- Matches CarBuild.HEIGHT; a little under would let the car clip a soffit it
+-- should hit, and a lot over would put the archway's own ceiling back in the
+-- way of the car driving under it.
+BuildingCollide.CAR_H = 1.45
 
 export type Box = { x: number, z: number, hx: number, hz: number }
 
@@ -175,9 +193,15 @@ function BuildingCollide.near(
 	table.clear(out)
 	local S = studsPerMetre
 	local r = radius * S
+
+	-- A SLAB AT THE CAR'S HEIGHT, not a column through the world. This is what
+	-- lets a car drive under an archway: the collision above the passage is a
+	-- box like any other, and a query that reached from the ground to the sky
+	-- would return it and the 2D resolver would treat it as a wall.
+	local h = BuildingCollide.CAR_H * S
 	local hits = workspace:GetPartBoundsInBox(
-		CFrame.new(x * S, 0, y * S),
-		Vector3.new(r * 2, 4000, r * 2),
+		CFrame.new(x * S, h * 0.5, y * S),
+		Vector3.new(r * 2, h, r * 2),
 		params
 	)
 	for _, part in hits do
