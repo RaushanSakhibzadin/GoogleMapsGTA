@@ -77,8 +77,15 @@ if RENDER == "flat" then
 		end
 		folder.Parent = root
 	end
+	-- SAY WHAT FAILED, rather than quietly drawing fewer buildings. The first
+	-- version of this reported only what it made, so 1,519 buildings coming out
+	-- as one looked like a geometry bug rather than an exhausted resource.
 	print(("[city] %d buildings, %d meshes in %.2fs (extruded footprints)")
 		:format(buildings, made, os.clock() - started))
+	if CityFlat.failed > 0 then
+		warn(("[city] %d meshes FAILED -- first error: %s")
+			:format(CityFlat.failed, tostring(CityFlat.firstError)))
+	end
 else
 	local made, realHex = CityBuild.shell(CAST_SHADOWS, MS_PER_FRAME, function()
 		RunService.Heartbeat:Wait()

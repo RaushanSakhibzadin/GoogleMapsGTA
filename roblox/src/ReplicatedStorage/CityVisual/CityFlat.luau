@@ -38,24 +38,48 @@ local CityFlat = {}
 -- Build a MeshPart from a list of triangles, each three Vector3 in LOCAL space.
 -- Returns nil if EditableMesh is unavailable, which the caller reports once
 -- rather than per building.
+-- Why this counts its failures rather than swallowing them: see CityFlat.stats.
+CityFlat.made = 0
+CityFlat.failed = 0
+CityFlat.firstError = nil :: string?
+
 local function meshPart(tris: { Vector3 }, colour: Color3, at: Vector3): MeshPart?
+	-- HELD OUTSIDE THE pcall SO IT CAN BE DESTROYED WHETHER OR NOT IT THREW.
+	--
+	-- An EditableMesh is a live resource against a budget, not a throwaway
+	-- description. The hex prism gets away with never releasing one because it
+	-- makes exactly one; this makes three thousand, and leaking them exhausts
+	-- the budget after a handful -- which is why the first version of this drew
+	-- one building and then silently stopped. The MeshPart it produces is
+	-- independent of it, so the mesh can go the moment the part exists.
+	local em: EditableMesh? = nil
 	local ok, part = pcall(function()
-		local em = AssetService:CreateEditableMesh()
+		em = AssetService:CreateEditableMesh()
+		local m = em :: EditableMesh
 		local i = 1
 		while i <= #tris do
-			em:AddTriangle(em:AddVertex(tris[i]), em:AddVertex(tris[i + 1]), em:AddVertex(tris[i + 2]))
+			m:AddTriangle(m:AddVertex(tris[i]), m:AddVertex(tris[i + 1]), m:AddVertex(tris[i + 2]))
 			i += 3
 		end
-		return AssetService:CreateMeshPartAsync(Content.fromObject(em), {
+		return AssetService:CreateMeshPartAsync(Content.fromObject(m), {
 			-- The shell never collides -- the server's boxes do -- so the
 			-- cheapest fidelity is the right one, and it stops Roblox building
 			-- a hull for every building in the city.
 			CollisionFidelity = Enum.CollisionFidelity.Box,
 		})
 	end)
+	if em then
+		(em :: EditableMesh):Destroy()
+	end
+
 	if not ok or typeof(part) ~= "Instance" then
+		CityFlat.failed += 1
+		if not CityFlat.firstError then
+			CityFlat.firstError = tostring(part)
+		end
 		return nil
 	end
+	CityFlat.made += 1
 	local p = part :: MeshPart
 	p.Anchored = true
 	p.CanCollide = false
