@@ -47,6 +47,17 @@ return {
 		Color3.fromRGB(128, 130, 136),
 		Color3.fromRGB(154, 174, 188),
 	},
+	materials = {
+		Enum.Material.Brick,
+		Enum.Material.Pebble,
+		Enum.Material.Plaster,
+		Enum.Material.Asphalt,
+		Enum.Material.Slate,
+		Enum.Material.Concrete,
+		Enum.Material.Metal,
+		Enum.Material.WoodPlanks,
+		Enum.Material.Glass,
+	},
 	chunks = {
 		{ -1, -1, 11 },
 		{ -1, -2, 20 },

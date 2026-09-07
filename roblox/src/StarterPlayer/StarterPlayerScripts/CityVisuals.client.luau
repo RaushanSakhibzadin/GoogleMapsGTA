@@ -18,8 +18,7 @@ local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
 local CityBuild = require(CityVisual:WaitForChild("CityBuild"))
 local CityFlat = require(CityVisual:WaitForChild("CityFlat"))
 local FlatMeta = require(CityVisual:WaitForChild("FlatMeta"))
-local GroundTex = require(CityVisual:WaitForChild("GroundTex"))
-local Base64 = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Base64"))
+local StreetMeta = require(CityVisual:WaitForChild("StreetMeta"))
 
 -- 'flat' draws each building from its own footprint, the way the browser does;
 -- 'voxel' rasterises onto the lattice. Both are baked, so this is a one-word
@@ -52,7 +51,16 @@ if RENDER == "flat" then
 	root.Name = "City"
 	root.Parent = workspace
 
-	CityFlat.ground(GroundTex, Base64.decode, root)
+	CityFlat.ground(FlatMeta.halfStuds, StreetMeta.colours.park, root)
+
+	-- streets first: they are what tells you where you can drive
+	local streets = 0
+	for _, entry in StreetMeta.chunks do
+		local module = CityVisual.FlatData:FindFirstChild(("Street_%d_%d"):format(entry[1], entry[2]))
+		if module then
+			streets += CityFlat.streets(require(module), StreetMeta.colours, root)
+		end
+	end
 
 	local made, buildings = 0, 0
 	local t0 = os.clock()
@@ -65,7 +73,7 @@ if RENDER == "flat" then
 		local folder = Instance.new("Folder")
 		folder.Name = module.Name
 		for _, b in require(module) :: { any } do
-			made += CityFlat.building(b, FlatMeta.palette, folder)
+			made += CityFlat.building(b, FlatMeta.palette, FlatMeta.materials, folder)
 			buildings += 1
 			-- CreateMeshPartAsync yields on its own, so the budget here is about
 			-- not stacking a hundred of them into one frame's worth of work
@@ -80,8 +88,8 @@ if RENDER == "flat" then
 	-- SAY WHAT FAILED, rather than quietly drawing fewer buildings. The first
 	-- version of this reported only what it made, so 1,519 buildings coming out
 	-- as one looked like a geometry bug rather than an exhausted resource.
-	print(("[city] %d buildings, %d meshes in %.2fs (extruded footprints)")
-		:format(buildings, made, os.clock() - started))
+	print(("[city] %d buildings, %d meshes, %d street layers in %.2fs (extruded footprints)")
+		:format(buildings, made, streets, os.clock() - started))
 	if CityFlat.failed > 0 then
 		warn(("[city] %d meshes FAILED -- first error: %s")
 			:format(CityFlat.failed, tostring(CityFlat.firstError)))
