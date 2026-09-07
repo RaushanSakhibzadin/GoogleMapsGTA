@@ -1,26 +1,31 @@
 --!strict
--- The minimap: the district as a picture, with the fire on it.
---
--- Asked for as "it is hard to find the fire without it", which is the right
--- reason to build one -- an incident beam you can only see when nothing is in
--- the way is not navigation.
+-- The minimap: a hexagon of the district, turning with the car.
 --
 -- PAINTED, NOT UPLOADED. Roblox cannot ship an image without it being an
--- uploaded asset, which means the Open Cloud pipeline and a moderation pass for
--- something that is regenerated every time the district changes. So the bake
--- rasterises the district to two bits a pixel (64 kB for 512 squared) and this
--- paints it into an EditableImage once, at join. Same trick as the hex prism
--- mesh, and the same thing proctex.js does in the browser: nothing in this
--- project is a file somebody drew.
+-- uploaded asset, which means Open Cloud and a moderation pass for something
+-- regenerated every time the district changes. So the bake rasterises the whole
+-- district to two bits a pixel -- 64 kB for 512 squared, against 786 kB as RGB
+-- -- and this samples out of it into an EditableImage. Same trick as the hex
+-- prism mesh, and the same principle as proctex.js: nothing in this project is
+-- a file somebody drew.
 --
--- NORTH IS UP and the map does not rotate. A rotating map is what the browser
--- does and it is better once you know a city, but it is worse while you are
--- learning one -- and the whole point of this is that the city is unfamiliar.
--- The player arrow rotates instead.
+-- AND SAMPLED PER FRAME RATHER THAN SLID ABOUT, which is the decision that
+-- makes both of the things asked for possible at once.
 --
--- AND THERE IS A FALLBACK. If EditableImage is unavailable the panel still
--- draws the blips over a plain ground colour: no streets, but the fire is still
--- findable, which is the thing that was actually asked for.
+-- The obvious build is an ImageLabel of the whole district inside a clipping
+-- frame, moved so the player is centred -- cheap, and what this did first. But
+-- ClipsDescendants is RECTANGULAR and there is no other clip in Roblox, so a
+-- hexagonal panel is not expressible that way; and rotating the sheet leaves
+-- the corners swinging in and out of a square hole.
+--
+-- Generating the visible image instead solves both at once and adds a third
+-- thing for nothing: the hexagon is just which pixels get an alpha, the
+-- rotation is just what the sample offsets are rotated by, and the result is
+-- chunky in a way that suits a voxel city.
+--
+-- THE COST IS THE RESOLUTION, so it is small on purpose: 96 squared is 9,216
+-- samples an update at 20 Hz, which is a fifth of what 60 Hz at panel
+-- resolution would be. A minimap does not need either.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -35,15 +40,18 @@ local Base64 = require(Shared:WaitForChild("Base64"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
 
-local VIEW = 190 -- the panel, in GUI pixels
-local SPAN = 620 -- studs across the panel; about 200 m of city
+local VIEW = 196 -- the panel on screen, in GUI pixels
+local RES = 96 -- the image behind it; chunky on purpose
+local SPAN = 620 -- studs across the panel: about 200 m of city
+local HZ = 20 -- redraws a second
 
--- Class colours. Road darker than pavement, as on the ground.
+-- Class colours, as RGB triples so the inner loop writes bytes without
+-- unpacking a Color3 nine thousand times.
 local CLASS = {
-	[0] = Color3.fromRGB(52, 56, 62),
-	[1] = Color3.fromRGB(60, 92, 58),
-	[2] = Color3.fromRGB(92, 96, 104),
-	[3] = Color3.fromRGB(150, 156, 168),
+	[0] = { 52, 56, 62 },
+	[1] = { 60, 92, 58 },
+	[2] = { 92, 96, 104 },
+	[3] = { 150, 156, 168 },
 }
 
 -- ---------------------------------------------------------------- the panel
@@ -57,51 +65,72 @@ gui.Parent = player:WaitForChild("PlayerGui")
 local panel = Instance.new("Frame")
 panel.Size = UDim2.fromOffset(VIEW, VIEW)
 panel.Position = UDim2.new(1, -VIEW - 18, 0, 18)
-panel.BackgroundColor3 = CLASS[0]
-panel.BorderSizePixel = 0
-panel.ClipsDescendants = true
+panel.BackgroundTransparency = 1
 panel.Parent = gui
-local round = Instance.new("UICorner")
-round.CornerRadius = UDim.new(0, 8)
-round.Parent = panel
 
 local sheet = Instance.new("ImageLabel")
+sheet.Size = UDim2.fromScale(1, 1)
 sheet.BackgroundTransparency = 1
 sheet.ScaleType = Enum.ScaleType.Stretch
--- How big the whole district is, in GUI pixels, so that SPAN studs fill VIEW.
-local SHEET = (MapData.halfStuds * 2) / SPAN * VIEW
-sheet.Size = UDim2.fromOffset(SHEET, SHEET)
+-- No smoothing: at 96 across a 196 pixel panel the samples ARE the look, and
+-- bilinear would turn a crisp hex grid into porridge.
+sheet.ResampleMode = Enum.ResamplerMode.Pixelated
 sheet.Parent = panel
 
--- ---------------------------------------------------------------- painting
+-- ---------------------------------------------------------------- the source
 
-local painted = false
+local SRC = MapData.px
+local SRC_BITS = Base64.decode(MapData.bits)
+local HALF = MapData.halfStuds
+local SRC_PER_STUD = SRC / (HALF * 2)
+
+-- Class at a world position, or 0 outside the district.
+local function classAt(x: number, z: number): number
+	local i = math.floor((x + HALF) * SRC_PER_STUD)
+	local j = math.floor((z + HALF) * SRC_PER_STUD)
+	if i < 0 or i >= SRC or j < 0 or j >= SRC then
+		return 0
+	end
+	local at = j * SRC + i
+	return (buffer.readu8(SRC_BITS, at // 4) // (2 ^ ((at % 4) * 2))) % 4
+end
+
+-- ---------------------------------------------------------------- the hexagon
+
+-- Which output pixels are inside the panel's hexagon, worked out once.
+--
+-- POINTY-TOP, matching the lattice the city is built on (see
+-- tools/roblox/lattice.mjs) -- a flat-top minimap over a pointy-top city reads
+-- as a different shape rather than as the same one.
+--
+-- For circumradius R the hexagon is |x| <= R*sqrt(3)/2 and |y| <= R - |x|/sqrt(3):
+-- at x = 0 that is |y| <= R, the top and bottom points, and at the full width it
+-- is |y| <= R/2, the flat sides.
+local INSIDE = table.create(RES * RES, false)
+do
+	local c = (RES - 1) / 2
+	local R = c
+	local w = R * math.sqrt(3) / 2
+	for j = 0, RES - 1 do
+		for i = 0, RES - 1 do
+			local dx, dy = i - c, j - c
+			INSIDE[j * RES + i + 1] = math.abs(dx) <= w
+				and math.abs(dy) <= R - math.abs(dx) / math.sqrt(3)
+		end
+	end
+end
+
+-- ---------------------------------------------------------------- the image
+
+local image: EditableImage? = nil
+local rgba = buffer.create(RES * RES * 4)
 do
 	local ok, err = pcall(function()
-		local px = MapData.px
-		local bits = Base64.decode(MapData.bits)
-		local rgba = buffer.create(px * px * 4)
-
-		for i = 0, px * px - 1 do
-			-- two bits a pixel, four to a byte, low pair first
-			local byte = buffer.readu8(bits, i // 4)
-			local cls = (byte // (2 ^ ((i % 4) * 2))) % 4
-			local c = CLASS[cls]
-			local at = i * 4
-			buffer.writeu8(rgba, at, math.floor(c.R * 255))
-			buffer.writeu8(rgba, at + 1, math.floor(c.G * 255))
-			buffer.writeu8(rgba, at + 2, math.floor(c.B * 255))
-			buffer.writeu8(rgba, at + 3, 255)
-		end
-
-		local img = AssetService:CreateEditableImage({ Size = Vector2.new(px, px) })
-		img:WritePixelsBuffer(Vector2.zero, Vector2.new(px, px), rgba)
-		sheet.ImageContent = Content.fromObject(img)
+		image = AssetService:CreateEditableImage({ Size = Vector2.new(RES, RES) })
 	end)
-	painted = ok
 	if not ok then
 		warn("[minimap] EditableImage unavailable (" .. tostring(err) .. ") -- blips only")
-		sheet.Visible = false
+		image = nil
 	end
 end
 
@@ -121,17 +150,21 @@ local function dot(size: number, colour: Color3, z: number): Frame
 	return f
 end
 
-local me = Instance.new("ImageLabel")
-me.Size = UDim2.fromOffset(14, 14)
+-- The car sits in the middle and always points UP, because the map turns
+-- instead. That is the whole difference between a heading-up map and a
+-- north-up one, and it is why the arrow needs no rotation of its own.
+local me = Instance.new("Frame")
+me.Size = UDim2.fromOffset(4, 12)
 me.AnchorPoint = Vector2.new(0.5, 0.5)
 me.Position = UDim2.fromOffset(VIEW / 2, VIEW / 2)
-me.BackgroundTransparency = 1
-me.Image = "rbxasset://textures/ui/Controls/DirectionalIndicator.png"
-me.ImageColor3 = Color3.fromRGB(255, 255, 255)
+me.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+me.BorderSizePixel = 0
 me.ZIndex = 10
 me.Parent = panel
+local meCorner = Instance.new("UICorner")
+meCorner.CornerRadius = UDim.new(1, 0)
+meCorner.Parent = me
 
--- A pool, so a board that changes size does not churn instances every frame.
 local blips: { Frame } = {}
 local board: { any } = {}
 Board.OnClientEvent:Connect(function(list)
@@ -149,28 +182,59 @@ local function carPivot(): CFrame?
 	return nil
 end
 
-RunService.RenderStepped:Connect(function()
+local STUDS_PER_PX = SPAN / RES
+local acc = 1 / HZ
+
+RunService.RenderStepped:Connect(function(dt)
 	local pivot = carPivot()
 	if not pivot then
 		return
 	end
 	local p = pivot.Position
-	local half = MapData.halfStuds
+	local look = pivot.LookVector
 
-	-- Slide the sheet so the player sits in the middle of the panel.
-	if painted then
-		local fx = (p.X + half) / (half * 2)
-		local fz = (p.Z + half) / (half * 2)
-		sheet.Position = UDim2.fromOffset(VIEW / 2 - fx * SHEET, VIEW / 2 - fz * SHEET)
+	-- The car's own axes on the ground. `right` is look turned a quarter turn
+	-- clockwise about Y; `back` is straight behind. Screen +x is right and
+	-- screen +y is DOWN, which is behind the car -- so these two are exactly the
+	-- basis the output pixels are laid out in, and the map comes out heading-up
+	-- with no separate rotation step.
+	local lx, lz = look.X, look.Z
+	local rx, rz = -lz, lx
+	local bx, bz = -lx, -lz
+
+	acc += dt
+	if image and acc >= 1 / HZ then
+		acc = 0
+		local c = (RES - 1) / 2
+		local at = 0
+		for j = 0, RES - 1 do
+			local dy = (j - c) * STUDS_PER_PX
+			for i = 0, RES - 1 do
+				if INSIDE[j * RES + i + 1] then
+					local dx = (i - c) * STUDS_PER_PX
+					local wx = p.X + dx * rx + dy * bx
+					local wz = p.Z + dx * rz + dy * bz
+					local col = CLASS[classAt(wx, wz)]
+					buffer.writeu8(rgba, at, col[1])
+					buffer.writeu8(rgba, at + 1, col[2])
+					buffer.writeu8(rgba, at + 2, col[3])
+					buffer.writeu8(rgba, at + 3, 235)
+				else
+					-- Outside the hexagon is fully transparent, which is what
+					-- makes the panel a hexagon at all -- there is no clipping
+					-- in Roblox that would do it.
+					buffer.writeu8(rgba, at + 3, 0)
+				end
+				at += 4
+			end
+		end
+		;(image :: EditableImage):WritePixelsBuffer(Vector2.zero, Vector2.new(RES, RES), rgba)
+		sheet.ImageContent = Content.fromObject(image :: EditableImage)
 	end
 
-	-- The arrow points where the car does. The model's nose is -Z, so its look
-	-- vector gives the heading directly; atan2 on (X, -Z) puts north at zero and
-	-- turns clockwise, which is what a rotation in GUI space wants.
-	local look = pivot.LookVector
-	me.Rotation = math.deg(math.atan2(look.X, -look.Z))
-
+	-- Blips, in the same rotated basis as the pixels.
 	local n = 0
+	local scale = VIEW / SPAN
 	for _, inc in board do
 		n += 1
 		local f = blips[n]
@@ -182,16 +246,21 @@ RunService.RenderStepped:Connect(function()
 		f.BackgroundColor3 = if inc.filled > 0
 			then Color3.fromRGB(120, 200, 150)
 			else Color3.fromRGB(255, 140, 40)
-		-- Clamped to the panel edge rather than hidden, so an incident off the
-		-- map still tells you which way to drive.
-		local dx = (inc.x - p.X) / SPAN * VIEW
-		local dz = (inc.z - p.Z) / SPAN * VIEW
-		local edge = VIEW / 2 - 8
-		local m = math.max(math.abs(dx), math.abs(dz))
-		if m > edge then
-			dx, dz = dx / m * edge, dz / m * edge
+
+		local wx, wz = inc.x - p.X, inc.z - p.Z
+		local sx = (wx * rx + wz * rz) * scale
+		local sy = (wx * bx + wz * bz) * scale
+
+		-- CLAMPED TO THE HEXAGON'S EDGE rather than hidden, so an incident off
+		-- the map still says which way to drive. Scaled down the ray to the
+		-- boundary, so it lands on the flat sides as well as the points.
+		local R = VIEW / 2 - 7
+		local w = R * math.sqrt(3) / 2
+		local k = math.max(math.abs(sx) / w, (math.abs(sy) + math.abs(sx) / math.sqrt(3)) / R)
+		if k > 1 then
+			sx, sy = sx / k, sy / k
 		end
-		f.Position = UDim2.fromOffset(VIEW / 2 + dx, VIEW / 2 + dz)
+		f.Position = UDim2.fromOffset(VIEW / 2 + sx, VIEW / 2 + sy)
 	end
 	for i = n + 1, #blips do
 		blips[i].Visible = false
