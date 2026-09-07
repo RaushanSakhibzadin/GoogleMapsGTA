@@ -43,7 +43,9 @@
           0,
           0,
           0
-        ]
+        ],
+        "EnvironmentSpecularScale": 0,
+        "EnvironmentDiffuseScale": 1
       }
     }
   }

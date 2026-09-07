@@ -14,9 +14,9 @@
 -- the car to constraints and a real suspension would mean re-deriving all of
 -- them and getting a different game.
 --
--- Consequence: buildings do not stop the car yet. Collision is the next piece
--- of M1 -- the boxes are baked and in Workspace, but the model has no
--- buildingCollide() ported to it, so at the moment you drive through walls.
+-- Buildings stop it: after each step the car is resolved against the collision
+-- volumes by Shared/BuildingCollide, which is the browser's buildingCollide()
+-- with the same eight body points and the same wedge fallback.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,6 +30,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VehicleModel = require(Shared:WaitForChild("VehicleModel"))
 local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local Tarmac = require(Shared:WaitForChild("Tarmac"))
+local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -167,6 +168,30 @@ local onTarmac = function(x: number, y: number): boolean
 	return Tarmac.nearRoad(x, y)
 end
 
+-- ---------------------------------------------------------------- collision
+
+-- The collision folder is built by the server on boot, so it may not be there
+-- for the first frames of a join.
+local collisionFolder: Instance? = workspace:FindFirstChild("Collision")
+workspace.ChildAdded:Connect(function(child)
+	if child.Name == "Collision" then
+		collisionFolder = child
+	end
+end)
+
+local overlap = OverlapParams.new()
+overlap.FilterType = Enum.RaycastFilterType.Include
+overlap.MaxParts = 64
+
+-- Reused across frames rather than reallocated: this runs sixty times a second
+-- and the table is the only garbage the loop would otherwise make.
+local nearBoxes: { { x: number, z: number, hx: number, hz: number } } = {}
+
+-- HOW FAR TO LOOK. Half the car's diagonal plus a metre of margin, plus the
+-- furthest it can travel in one frame -- anything outside that cannot be
+-- touched before the next query.
+local LOOK = 14
+
 camera.CameraType = Enum.CameraType.Scriptable
 
 RunService.RenderStepped:Connect(function(dt)
@@ -183,9 +208,23 @@ RunService.RenderStepped:Connect(function(dt)
 	acc += dt
 
 	local inp = readInput()
+
+	-- ONE QUERY A FRAME, not one a step. The car moves at most a metre or two
+	-- between frames and the query reaches well past that, so the candidate set
+	-- is still correct for every sub-step -- and the broadphase lookup is the
+	-- most expensive thing in this loop.
+	if collisionFolder then
+		overlap.FilterDescendantsInstances = { collisionFolder }
+		BuildingCollide.near(car.x, car.y, LOOK, S, overlap, nearBoxes)
+	end
+
 	local guard = 0
 	while acc >= STEP and guard < 5 do
+		local px, py = car.x, car.y
 		VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
+		if #nearBoxes > 0 then
+			BuildingCollide.resolve(car, nearBoxes, px, py)
+		end
 		acc -= STEP
 		guard += 1
 	end
