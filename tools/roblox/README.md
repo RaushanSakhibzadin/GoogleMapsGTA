@@ -1,9 +1,14 @@
 # The Roblox bake
 
 Turns `data/belgrade.js` into a city as Luau, for the port described in
-`ROBLOX_PORT_PLAN.md`. Runs in Node, needs nothing installed, takes about twelve
-seconds — eleven of which are the voxel path, which is still baked so that
-switching renderer is one line of `config.mjs` rather than a re-bake.
+`ROBLOX_PORT_PLAN.md`. Runs in Node, needs nothing installed, takes about twenty
+seconds.
+
+The district is **2.4 × 2.4 km centred on Palilula** — 6,002 buildings, 2,271
+drivable ways, 8,186 trees. That is not a round number: it is exactly where the
+bundled data stops. Building density is flat at ~1,120/km² out to a 1,200 m
+half-width and collapses past it, because all 6,461 buildings in
+`data/belgrade.js` are inside it. See `CONFIG.half`.
 
 ```
 node tools/roblox/bake.mjs
@@ -20,17 +25,49 @@ rojo serve roblox/default.project.json
 | | | in → out |
 |---|---|---|
 | `1-extract.mjs` | OSM to a clipped district, in metres | `data/belgrade.js` → `build/district.json` |
-| `2-voxelise.mjs` | rasterise onto the voxel lattice | → `build/voxels.json` |
-| `3-mesh.mjs` | greedy-mesh cubes into boxes | → `build/chunks.json` |
+| `2-voxelise.mjs` | rasterise onto the voxel lattice *(voxel renderer only)* | → `build/voxels.json` |
+| `3-mesh.mjs` | greedy-mesh cubes into boxes *(voxel renderer only)* | → `build/chunks.json` |
 | `4-collide.mjs` | collision volumes, road mask, depots | → `build/collision.json` |
 | `5-emit.mjs` | Luau, laid out for Rojo | → `roblox/src/**.luau` |
 | `6-flat.mjs` | extruded footprints and the drawn streets | → `roblox/src/**/FlatData/*.luau` |
 | `7-life.mjs` | the road graph, the solid mask, the trees | → `roblox/src/**/RoadNet.luau`, `SolidMask.luau`, `Trees.luau` |
 
+Stages 2 and 3 **only run when `CONFIG.render` is `'voxel'`**. They used to run
+either way so that switching renderer was one line of config and a reconnect;
+the chunk files they feed are 7.3 MB at a 1.2 km district and four times that at
+2.4, which is a lot of committed generated data for a renderer measured at 83×
+the cost of the one in use. Switching to `'voxel'` is a re-bake now.
+
 Each stage runs on its own too, and they hand JSON to each other rather than
 calling each other — so working on the mesher does not mean re-parsing the city
 every time. `build/` is generated and gitignored; `roblox/src/` is committed, so
 you can check out the repo and open it in Studio without running Node at all.
+
+## What it costs, counted rather than guessed
+
+| | parts |
+|---|---:|
+| walls (one box an edge) | 38,484 |
+| roof (two wedges a triangle) | 52,936 |
+| glass bands (one per banded edge per course) | 87,981 |
+| streets | 16,510 |
+| parks | 4,308 |
+| trees | 16,372 |
+| **whole district** | **216,591** |
+| **live at once, streamed** | **~42,000** |
+
+**Windows are the most expensive thing in the city.** Banding every wall of
+every building came to 130,538 Parts — more than the walls and roofs together.
+`CONFIG.winMaxEdges` and `winMinLen` band only a building's longest few faces
+and drop 42% of them, which costs nothing you can see: you cannot see the back
+of a building, or the two-metre jog where a terrace steps.
+
+**The city streams.** `StarterPlayerScripts/CityVisuals` loads chunks near the
+player nearest-first on a frame budget and drops them behind, at 1,500 studs to
+match `Workspace.StreamingTargetRadius` — so the buildings you can see and the
+collision boxes you can hit arrive at the same distance. Roblox's own streaming
+does **not** cover any of this: it streams what the *server* replicates, and the
+whole city is built by a LocalScript.
 
 Everything upstream of stage 5 is in **real metres, in the game's own world
 coordinates**. Studs happen once, at the very end. Changing `CONFIG.studsPerM`
@@ -63,9 +100,11 @@ it.
 Traffic and pedestrians need exactly that. `updateTraffic` walks a polyline
 looking for a point ten metres further along it; `pedWalkPoint` takes the same
 polyline and offsets it sideways to find the pavement. So stage 7 ships the
-centrelines themselves: 688 drivable ways, 2,830 points, and the junction table
-below — about 180 kB of Luau, twice the minimap raster that already ships and a
-fraction of the city itself. No case for streaming it.
+centrelines themselves: 2,271 drivable ways, 10,425 points, and the junction
+table below — about 600 kB of Luau against a city of 216,591 Parts. The traffic
+reads it wherever the traffic is, so it loads whole and stays loaded; the
+**trees** are chunked with the buildings, because 16,372 Parts is not something
+to build all at once.
 
 **It also ships the junctions, and that is the part the browser has not got.**
 `updateTraffic` has one answer for running out of road: turn round and drive
@@ -99,8 +138,8 @@ it and none of them out of reading:
 
 | | before | after |
 |---|---:|---:|
-| traffic inside a real footprint | 12.8% | 1.0% |
-| traffic lane-holding error, median | 0.76 m | 0.18 m |
+| traffic inside a real footprint | 12.8% | 0.3% |
+| traffic lane-holding error, median | 0.76 m | 0.12 m |
 | pedestrians that never move at all | 8 of 34 | 0 of 34 |
 
 The syntax of every `.luau` in `roblox/src` can also be checked without Studio,
@@ -124,8 +163,8 @@ centreline and carriageway width, so a street tree goes on the verge — just
 outside the kerb — rather than being scattered and hoped over. Both placements
 are rejected at bake time against the real building polygons and the real road
 widths, so nothing is checked at runtime and a tree cannot end up inside a wall.
-2,321 of them on this district, two Parts each: a cylinder and an ellipsoid, no
-mesh and no texture.
+8,186 of them on this district, two Parts each: a cylinder and an ellipsoid, no
+mesh and no texture, chunked so they stream with the buildings.
 
 ## What the game's own code does here
 
@@ -143,12 +182,20 @@ undefined `ROADW`.
 
 ## Two renderers
 
-`CONFIG.render` picks one. Both are baked on every run.
+`CONFIG.render` picks one. Only the one in use is baked — see the stage table.
+Measured on the 1.2 km district, which is what both were first stood up on:
 
 | | parts | client build |
 |---|---:|---:|
 | `voxel`, hex 2.5 m, windows | 252,817 | 4.96 s |
-| **`flat`, extruded footprints** | **3,038** | **1.56 s** |
+| `flat`, as MeshParts | 3,038 | 1.56 s |
+
+That 3,038 is a **stale number kept here as a warning**: it counts two MeshParts
+per building, and the MeshParts were replaced by boxes and wedges three commits
+later without anyone re-counting. A box-and-wedge building is one Part per wall
+edge, two wedges per roof triangle and one band per window course — about
+65,000 Parts at that district size, not 3,038. The table above the fold has the
+real figures.
 
 `flat` is what `js/render3d.js` draws: each building extruded from its own OSM
 polygon, roofs cut by the game's own `earClip()`, and the ground as one surface

@@ -1,6 +1,7 @@
 # Porting VICE MAPS to Roblox — plan document
 
-Status: M0–M2 built; M3 part-built — the city has traffic, pedestrians and trees in it.
+Status: M0–M2 built; M3 part-built — a 2.4 × 2.4 km streamed district with traffic,
+pedestrians and trees in it.
 The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
 the remaining four roles and the radio are still a plan.
 Source read at commit `af6e9a7`.
@@ -332,8 +333,26 @@ there is nothing physical to preserve.
 ### 3.3 Which district
 
 The bundled data is centred on **Palilula (44.810348, 20.476245)** and the building coverage
-extends ~1.25 km in each direction from there. A 1.2 × 1.2 km box on that centre is the only
-slice you can build **without a fresh Overpass capture**, and it is ~1,500–2,000 buildings.
+extends ~1.2 km in each direction from there.
+
+**Built, and now at the data's edge: 2.4 × 2.4 km on that centre.** The ceiling is the data,
+not Roblox. Building density holds flat out to a 1,200 m half-width and then collapses, because
+every one of the 6,461 buildings in `data/belgrade.js` is inside it:
+
+| half | district | buildings | per km² | studs across |
+|---:|---|---:|---:|---:|
+| 600 | 1.2 × 1.2 km | 1,614 | 1,121 | 3,600 |
+| 900 | 1.8 × 1.8 km | 3,700 | 1,142 | 5,400 |
+| **1200** | **2.4 × 2.4 km** | **6,440** | **1,118** | **7,200** |
+| 1600 | 3.2 × 3.2 km | 6,461 | 631 | 9,600 |
+
+Past 1,200 m the roads keep coming and the buildings do not, so a bigger slice buys arterials
+across open ground. 7,200 studs across is a corner radius of 5,091 — still inside the 10,000
+where float precision bites (§3.1), at 2× headroom rather than the 3.9× the small slice had.
+
+A useful side effect: at 1.2 km the district held **two depots, both car repair**, so four of
+M3's five roles had nowhere to sign on. At 2.4 km it holds ten, including **two police and a
+fire station**. That was the stated blocker on M3 and the data had the answer in it.
 
 Recognisability argument goes the other way: **Stari Grad** — Knez Mihailova, Republic Square,
 Kalemegdan, the Sava/Danube confluence — is what people picture when they picture Belgrade, and
@@ -341,9 +360,11 @@ the waterfront edge gives the voxel city a natural boundary rather than a hard c
 residential block. That needs a new capture, which is a half-day using the existing
 `⤓ LOG` → `tools/buildcity.py` path, not a new pipeline.
 
-**Recommendation: Stari Grad, with the river as one edge.** The boundary problem is real —
-a 1.2 km square cut out of a continuous city has four raw edges that look broken, and a river
-solves one and a half of them. Ask me to re-plan if the capture turns out to be awkward.
+**Recommendation, still open: Stari Grad, with the river as one edge.** The boundary problem
+is real — a square cut out of a continuous city has four raw edges that look broken, and a
+river solves one and a half of them. Less urgent than it was: the 2.4 km slice reaches far
+enough that the edges are a long drive away, and it has the depots M3 needs. Still the right
+move for recognisability.
 
 ### 3.4 Streaming and floating origin — honest read
 
@@ -693,7 +714,35 @@ Studio. These are measurements. 1.2 × 1.2 km centred on Palilula, 3 studs/m:
 | Voxel, 2 m cubes | 88,231 | — |
 | Voxel, hex R 2.5 m | 152,000 | — |
 | Voxel, hex + windows | 252,817 | 4.96 s |
-| **Extruded footprints (current)** | **3,038** | **1.56 s** |
+| Extruded footprints, as **MeshParts** | 3,038 | 1.56 s |
+
+**And that last row stopped being true and stayed in this document for three commits,
+which is worth writing down rather than quietly editing.** 3,038 is two MeshParts per
+building, and the MeshParts were removed — EditableMesh was untestable from here and failed
+twice on screen — in favour of boxes and wedges. A box-and-wedge building is one Part per wall
+edge, two wedges per roof triangle and one band per window course. Nobody re-counted, the
+bake's own log line still printed `buildings × 2`, and "about 8,000 parts" went out in a commit
+message. The real figure at that size was about 65,000.
+
+Counted properly, on the 2.4 × 2.4 km district now shipped:
+
+| | parts |
+|---|---:|
+| walls (one box an edge) | 38,484 |
+| roof (two wedges a triangle) | 52,936 |
+| **glass bands** (one per banded edge per course) | **87,981** |
+| streets | 16,510 |
+| parks | 4,308 |
+| trees | 16,372 |
+| **total** | **216,591** |
+
+Two things follow. **Windows are the most expensive thing in the city** — banding every edge
+came to 130,538 Parts, more than the walls and roofs together and more than the voxel shell
+this section abandoned as too dear. `CONFIG.winMaxEdges = 6` and `winMinLen = 6` band only a
+building's longest few faces, which drops 42% of them and costs nothing you can see, because
+you cannot see the back of a building or the two-metre jog where a terrace steps.
+
+**And the whole district can no longer be built at once**, which is what §7.4 is about.
 
 **The voxel premise turned out to be the expensive way to do this, and it was my
 recommendation.** §5 originally argued for a voxel city partly because "the OSM
@@ -703,23 +752,23 @@ footprints can be extruded procedurally instead of hand-modeled" — but extrudi
 and re-sampling a polygon into cells costs orders of magnitude more geometry than
 keeping the polygon.
 
-What the flat path ships: 1,519 buildings as 3,038 MeshParts (walls and roof each, so
-each keeps its own colour), 6,744 roof triangles from the game's own `earClip()`, and the
-ground as **one flat part with the streets painted on it** rather than 89,000 ground
-prisms.
+What the flat path ships: each building extruded from its own OSM polygon, roofs cut by
+the game's own `earClip()`, and the ground as **one flat part with the streets drawn on
+it** rather than 89,000 ground prisms.
 
-**Both paths are kept and both are baked** — `CONFIG.render` switches in a word — because
-the voxel look is a legitimate art direction, just an expensive one. The numbers above
-are what it costs.
+**Both paths are kept**, because the voxel look is a legitimate art direction — but only
+the one in use is *baked*. The chunk files are 7.3 MB at a 1.2 km district and four times
+that at 2.4, and committing that for a switched-off renderer stopped being defensible when
+the district grew. `CONFIG.render = 'voxel'` plus a re-bake, rather than a reconnect.
 
-**Consequence for R2 (part count / mobile).** At 3,038 parts this stops being the
-project's leading risk. It has not been measured on a phone yet, but the margin is now
-two orders of magnitude rather than a coin toss.
+**Consequence for R2 (part count / mobile).** Smaller, not solved — see the corrected
+count above. What actually bounds it is §7.4: the city streams, so what is live is a
+function of the load radius rather than of the district.
 
 **Two Roblox-specific findings, both of which cost a debugging round:**
 
-- **An `EditableMesh` is a live resource, not a description.** Creating 3,038 without
-  destroying them exhausts the budget after a handful — the city drew one building and
+- **An `EditableMesh` is a live resource, not a description.** Creating one per building
+  without destroying them exhausts the budget after a handful — the city drew one building and
   then silently stopped. Destroy each one as soon as its MeshPart exists.
 - **Roblox ships no image or mesh without an uploaded asset**, so everything generated
   — the hex prism, the ground texture, the minimap — is built at runtime through
@@ -802,8 +851,9 @@ it is why `Tarmac`/`VehicleModel` need nothing else.
 Anything steered by *nothing* asks the opposite question. `updateTraffic` walks a
 polyline for a point ten metres further along it; `pedWalkPoint` offsets the same
 polyline sideways to find the pavement. A mask cannot say which way a street runs, so
-stage 7 ships the centrelines: 688 drivable ways, 2,830 points, and 4,436 junction
-continuations — ~180 kB of Luau. No case for streaming something that size.
+stage 7 ships the centrelines: 2,271 drivable ways, 10,425 points, and 14,616 junction
+continuations — ~600 kB of Luau against a city of 216,591 Parts. The traffic reads it
+wherever the traffic is, so it loads whole and stays loaded.
 
 **It also ships junctions, which the browser has not got, and that turned out to be
 the difference between traffic that flows and traffic that pinballs.** `updateTraffic`
@@ -831,7 +881,8 @@ everybody the same way.
 hills): the browser draws no vegetation at all. Where they go is real, though — park
 polygons and road verges out of OSM, rejected at bake time against the actual building
 polygons and carriageway widths, so nothing is checked at runtime and a tree cannot end
-up inside a wall. 2,321 of them, two Parts each.
+up inside a wall. 8,186 of them, two Parts each, chunked so they stream with the
+buildings.
 
 ---
 
@@ -874,14 +925,14 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | R1 | **Float precision past 10k studs** | High if ignored | District sized to 3,600 studs (§3.2) — 4× headroom. No floating origin. Revisit only past ~8,000. |
-| R2 | ~~Part count / mobile memory~~ | **Largely closed** | Extruding the footprints directly instead of voxelising took this from 252,817 parts to **3,038** (§5.4). Still unmeasured on a phone, but the margin is now two orders of magnitude. The voxel path remains available and remains expensive. |
+| R2 | **Part count / mobile memory** | Open, but bounded | Extruding footprints instead of voxelising was the big win; the follow-up claim that it left 3,038 parts was wrong by a factor of twenty (§5.4 — the number was a stale MeshPart count). The real district is 216,591 parts, of which ~42,000 are live at once now that the city streams (§7.4). Bounded by the streaming radius rather than by the district, so it no longer grows. **Still unmeasured on a phone**, and the phone is the number that decides it. |
 | R3 | **Server-authoritative driving feels bad** | High | Do not do it. Client ownership + server validation (§4.1). This is a stated disagreement with the brief. |
 | R4 | **Incident claim races** | Medium | Synchronous no-yield critical section, idempotent claim tokens, per-player rate limit, one slot per player (§4.6). |
 | R5 | **DataStore throttling / duplicate profiles** | High | Session locking with heartbeat; 60 s dirty-write cadence + on-leave + `BindToClose`; single writer for money (§4.5). |
 | R6 | **Non-deterministic bakes** | Medium | Replace unseeded `rand()` in height derivation with a hash of the OSM way id, before the first bake (§1.5, §5.2). |
 | R7 | **Chunk build hitching on join** | Medium | Build voxel chunks over multiple frames with a budget per frame; nearest-first; hold the player at a spawn overlook until the first ring is up. |
 | R8 | **Belgrade's real hills** | Low | v1 flat. Terrain is optional (§2) and adding it later only touches the preprocessor and the ground layer. |
-| R18 | **`StreamingEnabled` does not cover the voxel shell** | Medium | Streaming applies only to instances the *server* replicates. The shell is built by a LocalScript, so Roblox never streams it — the whole city builds regardless of where the player stands. Chunk load/unload has to be our own code, and the baked data is already chunked for it (128 m chunks). Correcting an error in the original mitigation list. |
+| R18 | ~~**`StreamingEnabled` does not cover the client-built city**~~ | **Closed** | Streaming applies only to instances the *server* replicates; the city is built by a LocalScript, so Roblox never streams it. Chunk load/unload had to be our own code — and now is, at 1,500 studs to match `StreamingTargetRadius` so the buildings you see and the collision you hit arrive together. §7.4. |
 | R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Partly addressed: `tools/roblox/verify-life.mjs` transliterates the traffic and pedestrian sims into Node and measures them against the emitted data, which found three real bugs; and `luau-compile` gives a syntax gate over every `.luau`. Still planned: TestEZ for pure Luau (VehicleModel, IncidentService, RecordService). Rendering and feel stay eyeballed. |
 | R19 | **Traffic and pedestrians are client-side** | Medium, deliberate | Every player sees their own traffic, and nothing about them is authoritative. Accepted for now; §7.3 says what would flip it and what it would cost. |
 
@@ -927,6 +978,40 @@ around each of twenty players spread across a district is not.
 
 Until then it is decoration, and decoration is a reasonable thing to run where
 it costs nothing.
+
+### 7.4 The city streams itself
+
+`StarterPlayerScripts/CityVisuals` loads the chunks near the player, nearest first, on a
+6 ms-per-frame budget, and drops them once they are well behind. It exists because the whole
+district stopped fitting:
+
+| | parts |
+|---|---:|
+| whole district | 216,591 |
+| live at 1,500 studs, dense middle | ~42,000 |
+| live at 1,500 studs, district corner | ~30,000 |
+
+**Flat in the size of the district rather than growing with it**, which is the property that
+matters: a third district would cost load time and disk, not frame time. It is also *less* than
+the ~65,000 the 1.2 km slice was building unstreamed, so the bigger city is cheaper to stand in
+than the small one was.
+
+Three details that are load-bearing:
+
+- **1,500 studs matches `Workspace.StreamingTargetRadius`.** The collision boxes are
+  server-built, so Roblox does stream those; matching the radii means what you can see and what
+  you can hit appear at the same distance.
+- **Dropping happens further out than loading** (1,900 vs 1,500). Without the gap a chunk on
+  the boundary is built and destroyed and rebuilt every time the car drifts a stud.
+- **A chunk is parented last**, after all its parts are made under a detached folder, so it
+  appears complete rather than growing a wall at a time in front of you.
+
+The ground stays one 7,200-stud slab and is never streamed — one Part, and it saves the horizon
+from being a hole where the next chunk has not arrived.
+
+**Not done:** no LOD. A chunk is either fully built or absent, so the far edge of the load
+radius pops rather than fades. Distance fog or a coarse silhouette pass would hide it; neither
+is written.
 
 ---
 

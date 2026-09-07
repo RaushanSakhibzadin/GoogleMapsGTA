@@ -30,7 +30,23 @@ const HEX = L.kind === 'hex';
 const LV = CONFIG.voxel;                          // metres a level, both lattices
 const LVS = LV * S;                               // and in studs
 
-const CH = JSON.parse(readFileSync(`${CONFIG.out}/chunks.json`, 'utf8'));
+/* THE VOXEL SHELL IS ONLY BAKED WHEN IT IS THE RENDERER.
+ *
+ * It used to be baked either way, on the reasoning that switching renderer
+ * should be one line of config and a reconnect. That was affordable at a 1.2 km
+ * district and stopped being affordable at 2.4: the chunk files are 7.3 MB at
+ * the small size and four times that at the large one, and they are 7.3 MB of
+ * generated data for a renderer that has been off since §5.4 measured it at 83x
+ * the cost of the flat one.
+ *
+ * So switching to 'voxel' is now one line of config AND a re-bake, which is
+ * what the honest cost was all along. Everything else this stage emits -- the
+ * collision boxes, the road mask, the minimap, the depots -- is needed by both
+ * renderers and is baked either way. */
+const VOXEL = CONFIG.render === 'voxel';
+const CH = VOXEL
+  ? JSON.parse(readFileSync(`${CONFIG.out}/chunks.json`, 'utf8'))
+  : { palette: [], chunks: [] };
 const CO = JSON.parse(readFileSync(`${CONFIG.out}/collision.json`, 'utf8'));
 
 const ROOT = 'roblox/src';

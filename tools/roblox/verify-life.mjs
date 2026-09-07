@@ -108,6 +108,8 @@ const SCELL = Number(solSrc.match(/cellM = ([\d.]+)/)[1]);
 const SORIGIN = Number(solSrc.match(/originM = (-?[\d.]+)/)[1]);
 const SBITS = Buffer.from(solSrc.match(/bits = "([^"]*)"/)[1], 'base64');
 
+const HALF = -SORIGIN;
+console.log(`district half-width ${HALF} m, from SolidMask.originM`);
 console.log(`RoadNet: ${ways.length} ways, ${buckets.size} buckets, cell ${CELL}`);
 console.log(`SolidMask: ${SSPAN}^2 at ${SCELL} m, origin ${SORIGIN}, ${SBITS.length} bytes`);
 
@@ -400,7 +402,11 @@ for (let f = 0; f < SECS / DT; f++) {
         }
         latErr.push(Math.abs(best - laneOffset(r)));
       }
-      if (Math.abs(n.car.x) > 700 || Math.abs(n.car.y) > 700) escaped++;
+      // OUT OF THE DISTRICT, whatever the district currently is. This used to
+      // be a hardcoded 700 m, which was right for a 600 m half-width and became
+      // nonsense the moment the slice grew -- 1,742 perfectly well-behaved cars
+      // "escaped" on the first run at 1200. The solid mask knows the real edge.
+      if (Math.abs(n.car.x) > HALF + 40 || Math.abs(n.car.y) > HALF + 40) escaped++;
     }
   }
 }
@@ -408,7 +414,7 @@ console.log(`after ${SECS}s of ${CAP} cars at ${1 / DT} Hz:`);
 console.log(`  on the road mask   ${(100 * onRoad / samples).toFixed(1)}%  (${offRoad} of ${samples} samples off)`);
 console.log(`  inside the 3 m mask ${(100 * inBuilding / samples).toFixed(1)}%`);
 console.log(`  inside a real footprint ${(100 * inReal / samples).toFixed(1)}%`);
-console.log(`  outside +/-700 m   ${escaped}`);
+console.log(`  outside the district ${escaped}`);
 const cd = cars.map(n => n.dist || 0).sort((a, b) => a - b);
 console.log(`  distance driven m: min ${cd[0].toFixed(0)} median ${cd[cd.length >> 1].toFixed(0)} max ${cd[cd.length - 1].toFixed(0)}`);
 const speeds = cars.map(n => Math.hypot(n.car.vx, n.car.vy));
@@ -542,7 +548,7 @@ const checks = [
   ['traffic stays on the road mask', 100 * onRoad / samples, '>=', 97],
   ['traffic stays out of buildings', 100 * inReal / samples, '<=', 4],
   ['traffic holds its lane (median)', +q(0.5), '<=', 1.0],
-  ['no traffic left the district', escaped, '<=', 0],
+  ['no traffic left the district', escaped, '<=', 0],  // HALF is read from the bake
   // DISTANCE DRIVEN, not displacement: a car that goes round a block and comes
   // back is not stuck, and a car held at the back of a queue for a while is not
   // either. Under 30 m in ninety seconds is a car that never went anywhere.

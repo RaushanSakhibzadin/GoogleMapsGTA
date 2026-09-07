@@ -5,5 +5,13 @@
 
 return {
 	{ kind = "repair", x = 1187.94, z = 1147.41, name = "Auto servis Burgund" },
+	{ kind = "repair", x = 2355.03, z = -530.58, name = "Torex" },
 	{ kind = "repair", x = 1599.72, z = -150.9, name = "Аутоелектрика Искра" },
+	{ kind = "police", x = -2487.48, z = -1093.26, name = "ПС Стари Град" },
+	{ kind = "police", x = 668.58, z = -2472.75, name = "Полицијска управа за град Београд" },
+	{ kind = "fire", x = 2941.65, z = -373.44, name = "Ватрогасни савез Београд" },
+	{ kind = "repair", x = 1406.88, z = 2703.36, name = "Auto bravar Sibruj Promet" },
+	{ kind = "repair", x = 3463.62, z = 2757.75, name = "Autoelektričar Mića" },
+	{ kind = "repair", x = 478.59, z = 3417, name = "Ауто-сервис Добрић" },
+	{ kind = "repair", x = 1543.56, z = 2974.62, name = "Auto bravar Bobi" },
 }

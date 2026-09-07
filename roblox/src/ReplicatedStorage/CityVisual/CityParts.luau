@@ -176,8 +176,16 @@ function CityParts.building(b, meta, parent: Instance): number
 		-- courses start one storey up (the ground floor is a shopfront) and
 		-- stop short of the top (a plain cornice), which is what the browser's
 		-- shader does and what stops a roofline cutting a row in half.
+		--
+		-- ONLY THE FACES YOU CAN SEE. `wmin` is the length cutoff the bake
+		-- worked out for this building: its longest few edges, and none shorter
+		-- than a facade. Banding every edge came to 130,538 Parts on the 2.4 km
+		-- district -- more than its walls and roofs put together -- to put
+		-- windows on the backs of buildings and on the two-metre jogs where a
+		-- terrace steps. One comparison here and no sort, because the bake sends
+		-- a cutoff rather than a list.
 		local courses = b.st or 0
-		if courses > 0 and len >= 4 and bottom == 0 then
+		if courses > 0 and len >= (b.wmin or 4) and bottom == 0 then
 			local bandLen = math.max(1, len - PIER)
 			local dirX, dirZ = dx / len, dz / len
 			local mx, mz = (ax + bx) / 2, (az + bz) / 2

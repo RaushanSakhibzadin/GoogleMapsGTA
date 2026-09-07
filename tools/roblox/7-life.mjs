@@ -4,7 +4,8 @@
  * In:  build/district.json
  * Out: roblox/src/ReplicatedStorage/Shared/RoadNet.luau
  *      roblox/src/ReplicatedStorage/Shared/SolidMask.luau
- *      roblox/src/ReplicatedStorage/CityVisual/Trees.luau
+ *      roblox/src/ReplicatedStorage/CityVisual/TreeMeta.luau
+ *      roblox/src/ReplicatedStorage/CityVisual/FlatData/Tree_<cx>_<cz>.luau
  *
  * WHY THE ROAD GRAPH SHIPS AT ALL. Stage 4 already bakes a drivable MASK, and
  * the driving model is happy with it: "is there tarmac under this point" is the
@@ -14,10 +15,14 @@
  * what js/game.js:updateTraffic follows and what js/entities.js:pedWalkPoint
  * offsets from. A mask cannot answer "which way is this street going".
  *
- * IT IS SMALL ENOUGH TO SHIP WHOLE. 688 drivable ways, 2,830 points and 4,436
- * junction continuations come to about 180 kB of Luau -- twice the minimap
- * raster that already ships and a fraction of the city itself. There is no case
- * for streaming it.
+ * IT IS SMALL ENOUGH TO SHIP WHOLE, unlike the city it describes. On the 2.4 km
+ * district: 2,271 drivable ways, 10,425 points and 14,616 junction
+ * continuations, about 600 kB of Luau. The buildings alone are 179,401 Parts
+ * and have to be streamed; the graph is read by the traffic wherever the
+ * traffic is, so it is loaded whole and stays that way.
+ *
+ * THE TREES ARE CHUNKED, THOUGH, on the same 128 m grid as the buildings, and
+ * for the same reason: 16,372 Parts is not something to build all at once.
  *
  * IN METRES, NOT STUDS, and that is deliberate for the same reason the rest of
  * the pipeline is: the traffic runs on VehicleModel, VehicleModel is the
@@ -454,13 +459,38 @@ if (CONFIG.trees) {
   }
 }
 
+/* CHUNKED ON THE SAME 128 m GRID AS EVERYTHING ELSE, so the trees stream with
+   the buildings and the streets rather than all 8,186 of them arriving at once
+   whatever the client is doing. Same key, same file naming, same index shape --
+   there is one streamer on the client and it should not need to know that trees
+   are a different kind of thing. */
+const TCH = CONFIG.chunkM * S;
+const treeChunks = new Map();
+for (const t of trees) {
+  const k = Math.floor(t[0] / TCH) + ',' + Math.floor(t[1] / TCH);
+  let arr = treeChunks.get(k);
+  if (!arr) treeChunks.set(k, arr = []);
+  arr.push(t);
+}
+const treeIndex = [];
+for (const [k, list] of [...treeChunks.entries()].sort()) {
+  const [cx, cz] = k.split(',').map(Number);
+  treeIndex.push([cx, cz, list.length]);
+  writeFileSync(`${VISUAL}/FlatData/Tree_${cx}_${cz}.luau`,
+    HDR(`Trees for chunk (${cx}, ${cz}) -- ${list.length} of them.\n` +
+        '-- Six numbers each, in STUDS and world space:\n' +
+        '--   x, z, height, canopy spread, bare trunk below the canopy, form\n' +
+        '-- form: 0 and 1 are broadleaves in two greens, 2 is a conifer.') +
+    'return {\n' + list.map(t => `\t{ ${t.join(', ')} },`).join('\n') + '\n}\n');
+}
+
 const colOf = n => rgbOf(CONFIG.treeCol[n]);
-writeFileSync(`${VISUAL}/Trees.luau`,
-  HDR('Every tree in the district. Six numbers each, in STUDS and world space:\n' +
-      '--   x, z, height, canopy spread, bare trunk below the canopy, form\n' +
-      '-- form: 0 and 1 are broadleaves in two greens, 2 is a conifer.\n' +
-      '-- Placed against the real footprints and the real carriageway widths, so\n' +
-      '-- nothing needs checking at runtime -- see tools/roblox/7-life.mjs.') +
+writeFileSync(`${VISUAL}/TreeMeta.luau`,
+  HDR('Which chunks have trees in them, and what colour a tree is.\n' +
+      '-- The trees themselves are in FlatData/Tree_<cx>_<cz>.luau, chunked on the\n' +
+      '-- same grid as the buildings so one streamer handles all three.\n' +
+      '-- Placed against the real footprints and the real carriageway widths at\n' +
+      '-- bake time, so nothing needs checking at runtime.') +
   'return {\n' +
   '\tcolours = {\n' +
   ['trunk', 'leafA', 'leafB', 'conifer'].map(n => {
@@ -468,8 +498,8 @@ writeFileSync(`${VISUAL}/Trees.luau`,
     return `\t\t${n} = Color3.fromRGB(${v[0]}, ${v[1]}, ${v[2]}),`;
   }).join('\n') +
   '\n\t},\n' +
-  '\ttrees = {\n' +
-  trees.map(t => `\t\t{ ${t.join(', ')} },`).join('\n') +
+  '\tchunks = {\n' +
+  treeIndex.map(([cx, cz, n]) => `\t\t{ ${cx}, ${cz}, ${n} },`).join('\n') +
   '\n\t},\n}\n');
 
 /* ==================================================================== report */
@@ -485,6 +515,6 @@ console.log(`  junctions     ${linkCount} continuations across ${ways.length * 2
 console.log(`  solid mask    ${SSPAN} x ${SSPAN} at ${SC} m, ${solidCells} solid cells ` +
             `(${(100 * solidCells / solid.length).toFixed(1)}%), ${solidPacked.length} bytes`);
 console.log(`  trees         ${trees.length}  (${forms[0] + forms[1]} broadleaf, ${forms[2]} conifer) ` +
-            `-> ${trees.length * 2} parts`);
+            `-> ${trees.length * 2} parts in ${treeChunks.size} chunks`);
 console.log(`  rejected      ${rejBuilding} in a building, ${rejRoad} on tarmac, ` +
             `${rejGap} too close, ${rejEdge} outside the district`);

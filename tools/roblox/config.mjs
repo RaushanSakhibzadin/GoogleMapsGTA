@@ -22,10 +22,23 @@ export const CONFIG = {
      comes out as roads across an empty plain. See ROBLOX_PORT_PLAN.md §1.5. */
   centre: { lat: 44.810348, lon: 20.476245 },
 
-  /* Half-width in metres. 600 gives the 1.2 x 1.2 km slice the plan recommends
-     — 3,600 studs at the scale below, which is roughly a quarter of the way to
-     Roblox's precision trouble at 10,000 and needs no floating origin. */
-  half: 600,
+  /* Half-width in metres, and 1200 is not a round number picked by eye -- it is
+     exactly where the bundled data stops. Building density holds at about
+     1,120 per km2 out to this radius and then falls off a cliff, because every
+     one of the 6,461 buildings in data/belgrade.js is inside it:
+
+         half   district      buildings   per km2   studs across
+          600   1.2 x 1.2 km      1,614     1,121          3,600
+          900   1.8 x 1.8 km      3,700     1,142          5,400
+         1200   2.4 x 2.4 km      6,440     1,118          7,200   <- data ends
+         1600   3.2 x 3.2 km      6,461       631          9,600   <- empty plain
+
+     Past 1200 the roads keep coming and the buildings do not, so a bigger slice
+     buys arterials running across open ground. THAT is the ceiling, not Roblox:
+     7,200 studs across is a corner radius of 5,091, still comfortably inside
+     the 10,000 where float precision starts to bite (§3.1) -- about 2x headroom
+     rather than the 3.9x the small district had. */
+  half: 1200,
 
   /* ---------------- scale ---------------- */
 
@@ -164,6 +177,18 @@ export const CONFIG = {
    *   between         alternate courses, so there is wall between the rows */
   windows: true,
   winMinH: 5.5,            // matches WIN_MIN_H in render3d.js
+
+  /* HOW MANY WALLS OF A BUILDING GET THEM, and how short a wall is worth
+     banding. A glass band is one Part per edge per course, which makes windows
+     by a wide margin the most expensive thing in the city -- 130,538 parts on
+     the 2.4 km district if every edge is banded, more than the walls and roofs
+     together and more than the voxel shell that §5.4 abandoned as too dear.
+
+     You cannot see the back of a building, or the two-metre jog where a terrace
+     steps. Six faces and a six-metre minimum keeps every facade that reads as
+     one and drops 42% of the parts. */
+  winMaxEdges: 6,
+  winMinLen: 6,            // metres of wall before it is a facade rather than a jog
   /* Daylight values from THEMES.day in render3d.js, as 0-255. winLit is the
      fraction of windows with a light on -- 3% by day, because in daylight a lit
      room barely reads. It is 32% in the browser's dusk theme. */
@@ -195,6 +220,20 @@ export const CONFIG = {
      threshold, printed at the end of stage 4 so a pathological footprint is
      visible rather than silently expensive. */
   collisionBoxWarn: 6,
+
+  /* ---------------- the minimap ----------------
+
+   * Metres per pixel in the baked minimap raster, which sets its resolution
+   * rather than the resolution setting the scale. 2.3 is what the 1.2 km
+   * district happened to get at 512 pixels, and it is a good number: a
+   * residential street lands three pixels wide and an arterial seven, so a main
+   * road reads as a main road.
+   *
+   * The panel itself samples at about 2.15 m per output pixel (620 studs across
+   * 96), so going much coarser than this makes the source blockier than the
+   * thing drawing it. Stage 4 rounds the pixel count to a power of two and caps
+   * it at 2048. */
+  minimapMPerPx: 2.3,
 
   /* ---------------- the road mask ---------------- */
 

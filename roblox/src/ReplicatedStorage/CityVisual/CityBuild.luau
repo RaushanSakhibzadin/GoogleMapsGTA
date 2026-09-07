@@ -17,7 +17,19 @@ local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
 local Palette = require(CityVisual:WaitForChild("Palette")) :: { Color3 }
 local Meta = require(CityVisual:WaitForChild("CityMeta"))
 local HexPrism = require(CityVisual:WaitForChild("HexPrism"))
-local ChunkData = CityVisual:WaitForChild("ChunkData")
+-- TIMED, AND LOUD WHEN IT IS NOT THERE. The voxel chunks are only baked when
+-- CONFIG.render is 'voxel' -- they are 29 MB of generated data on the 2.4 km
+-- district for a renderer §5.4 measured at 83x the cost of the one in use -- so
+-- an untimed WaitForChild here would simply hang forever with no message, which
+-- is the worst way for a switched-off feature to present.
+local ChunkData = CityVisual:WaitForChild("ChunkData", 5)
+if not ChunkData then
+	error(
+		"[CityBuild] no ChunkData: the voxel city is not baked. "
+			.. "Set CONFIG.render = 'voxel' in tools/roblox/config.mjs and re-run "
+			.. "node tools/roblox/bake.mjs. The flat renderer (CityVisuals) needs none of this."
+	)
+end
 
 local CityBuild = {}
 

@@ -260,11 +260,20 @@ const sites = usable.filter((_, i) => i % stride === 0).slice(0, SITE_CAP);
    base64, against 786 kB for RGB -- and the four classes are all a minimap has
    ever needed.
 
-   At 1,200 m across 512 pixels this is 2.3 m a pixel, so a residential street
-   is three pixels wide and an arterial seven. Roads are stamped at their real
-   width for that reason rather than as hairlines: a minimap you can read is one
-   where a main road looks like a main road. */
-const MAP_PX = 512;
+   THE RESOLUTION FOLLOWS THE DISTRICT rather than being a fixed 512, which it
+   was until the district grew. 2.3 m a pixel is the number that matters: a
+   residential street is three pixels wide at it and an arterial seven, which is
+   why roads are stamped at their real width rather than as hairlines -- a
+   minimap you can read is one where a main road looks like a main road.
+
+   Fixing the pixel count instead of the scale meant a 2.4 km district came out
+   at 4.7 m a pixel, coarser than the 2.15 m the minimap panel actually samples
+   at -- so the map would have been visibly blockier than the thing drawing it,
+   with a back street two pixels across. Rounded to a power of two because
+   nothing here cares about the exact number and a tidy one is easier to reason
+   about. */
+const MAP_PX = Math.min(2048, Math.max(256,
+  2 ** Math.round(Math.log2(2 * H / CONFIG.minimapMPerPx))));
 const mapBits = new Uint8Array(MAP_PX * MAP_PX);
 const mapPx = m => Math.floor((m + H) / (2 * H) * MAP_PX);
 const mapM = p => (p + 0.5) / MAP_PX * (2 * H) - H;

@@ -100,6 +100,19 @@ const material = name => {
 
 const GATE_LEVELS_M = CONFIG.gateH;
 
+/* The edge length, in studs, at or above which an edge of this footprint gets
+   window courses. See `wmin` below for why this is a cutoff and not a list. */
+function winCutoff(pts) {
+  const lens = [];
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    lens.push(Math.hypot(pts[j].x - pts[i].x, pts[j].y - pts[i].y) * S);
+  }
+  lens.sort((a, b) => b - a);
+  const nth = lens[CONFIG.winMaxEdges - 1];
+  return Math.max(CONFIG.winMinLen * S, nth === undefined ? 0 : nth);
+}
+
 function build(b) {
   /* OSM ways are closed -- the last vertex repeats the first -- and a repeated
      vertex is a zero-length wall and a degenerate ear. Dropped here once rather
@@ -152,6 +165,24 @@ function build(b) {
     st: b.h >= CONFIG.winMinH
       ? Math.max(0, Math.floor(b.h / CONFIG.storeyH) - 1)
       : 0,
+    /* AND WHICH WALLS GET THEM, as one number rather than a list.
+     *
+     * A glass band is one Part per edge per course, and that is by a wide
+     * margin the most expensive thing in the city: banding every edge of every
+     * building came to 130,538 parts on this district -- more than the walls
+     * and roofs put together, and more than the voxel shell §5.4 was abandoned
+     * for.
+     *
+     * You cannot see the back of a building, or the two-metre jog where a
+     * terrace steps. So a building bands only its longest few faces, and only
+     * those long enough to read as a facade. Emitted as the LENGTH CUTOFF --
+     * the client already computes each edge's length for the wall itself, so it
+     * needs one comparison and no sort. Measured, at winMaxEdges = 6:
+     *
+     *     every edge >= 4 studs   130,538 parts
+     *     >= 6 m, longest 6        76,310 parts
+     */
+    wmin: R(winCutoff(pts)),
     /* The roof colour has been through a 1.22 brightening (buildingColours
        lifts it so the top-down view does not go to mush), so it no longer
        matches its own palette entry exactly -- divide it back out before
@@ -173,6 +204,12 @@ function build(b) {
 const CH = CONFIG.chunkM * S;
 const chunks = new Map();
 let made = 0, dropped = 0, tris = 0, verts = 0;
+/* Counted here rather than guessed, because the client builds one Part per wall
+   edge, TWO wedges per roof triangle and one band per (banded edge x course) --
+   and the old report line multiplied buildings by two, which was right when a
+   building was two MeshParts and wrong by a factor of twenty afterwards. */
+let wallParts = 0, roofParts = 0, glassParts = 0;
+const COURSE_STUDS = 1.4 * S;
 
 for (const b of D.buildings) {
   const g = build(b);
@@ -180,6 +217,23 @@ for (const b of D.buildings) {
   made++;
   tris += g.tris.length / 3;
   verts += g.verts.length / 2;
+  {
+    const n = g.verts.length / 2;
+    wallParts += n;
+    roofParts += (g.tris.length / 3) * 2;
+    if (g.st > 0) {
+      let banded = 0;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const L = Math.hypot(g.verts[j * 2] - g.verts[i * 2], g.verts[j * 2 + 1] - g.verts[i * 2 + 1]);
+        if (L >= g.wmin) banded++;
+      }
+      let courses = 0;
+      for (let k = 1; k <= g.st; k++)
+        if (k * CONFIG.storeyH * S + COURSE_STUDS * 0.5 <= g.h) courses++;
+      glassParts += banded * courses;
+    }
+  }
   const k = Math.floor(g.ox / CH) + ',' + Math.floor(g.oz / CH);
   let arr = chunks.get(k);
   if (!arr) chunks.set(k, arr = []);
@@ -194,7 +248,7 @@ for (const [k, list] of [...chunks.entries()].sort()) {
       ? `gate = { x = ${g.gate.x}, z = ${g.gate.z}, ux = ${g.gate.ux}, uz = ${g.gate.uz}, w = ${g.gate.w}, h = ${g.gate.h} }, `
       : '';
     return `\t{ ox = ${g.ox}, oz = ${g.oz}, h = ${g.h}, wall = ${g.wall}, roof = ${g.roof}, ` +
-           `wmat = ${g.wmat}, rmat = ${g.rmat}, wind = ${g.wind}, st = ${g.st}, ` +
+           `wmat = ${g.wmat}, rmat = ${g.rmat}, wind = ${g.wind}, st = ${g.st}, wmin = ${g.wmin}, ` +
            gate +
            `v = { ${g.verts.join(', ')} }, t = { ${g.tris.join(', ')} } },`;
   });
@@ -344,5 +398,10 @@ console.log(`flat: ${made} buildings in ${chunks.size} chunks (${dropped} droppe
 console.log(`  streets       ${segs} segments + ${parkTris} park triangles in ${ribIndex.length} chunks`);
 console.log(`  roof triangles  ${tris}`);
 console.log(`  wall quads      ${verts}`);
-console.log(`  PARTS           ${made * 2}  (walls + roof each)`);
+/* THE REAL CLIENT PART COUNT, because `made * 2` was a MeshPart-era number and
+   stayed in the log for three commits after the meshes were replaced by boxes
+   and wedges -- reporting 12,004 where the client was about to build 262,472.
+   A wrong number in a log is worse than no number: it gets quoted. */
+console.log(`  CLIENT PARTS    ${wallParts + roofParts + glassParts} ` +
+            `= ${wallParts} walls + ${roofParts} roof wedges + ${glassParts} glass bands`);
 console.log(`  palette         ${pal.length} colours`);
