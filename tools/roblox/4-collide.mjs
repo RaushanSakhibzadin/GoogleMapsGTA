@@ -70,7 +70,19 @@ function inPoly(pts, x, y) {
  * one stacked beside it, never a short box swallowing a tall neighbour.
  */
 const hCell = new Map();                          // "x,z" -> levels
+/* AND WHERE A CELL'S SOLID PART STARTS, which is not always the ground.
+   A building with a road through it has an archway carved out of it below gate
+   height (see stage 2), and the collision has to have the same hole or you can
+   see the passage and still hit a wall in it. */
+const baseCell = new Map();                       // "x,z" -> first solid level
 const cellKey = (x, z) => x + ',' + z;
+
+const GATE_LEVELS = Math.max(1, Math.round(CONFIG.gateH / CONFIG.voxel));
+function inGate(gate, cx, cy) {
+  if (!gate) return false;
+  const dx = cx - gate.x, dy = cy - gate.y;
+  return Math.abs(dx * -gate.uy + dy * gate.ux) <= gate.w;
+}
 for (const b of D.buildings) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of b.pts) {
@@ -78,6 +90,7 @@ for (const b of D.buildings) {
     z0 = Math.min(z0, ci(p[1])); z1 = Math.max(z1, ci(p[1]));
   }
   const levels = Math.max(1, Math.round(b.h / V));
+  const gate = D.gates && D.gates[b.id];
   let any = false;
   for (let j = z0; j <= z1; j++)
     for (let i = x0; i <= x1; i++)
@@ -85,6 +98,15 @@ for (const b of D.buildings) {
         any = true;
         const k = cellKey(i, j);
         if ((hCell.get(k) || 0) < levels) hCell.set(k, levels);
+        /* The archway. A cell under the passage is solid only ABOVE it -- and
+           the lowest base wins where two buildings overlap, because a cell you
+           can drive through in one of them is a cell you can drive through. */
+        if (inGate(gate, cc(i), cc(j))) {
+          const cur = baseCell.get(k);
+          if (cur === undefined || cur > GATE_LEVELS) baseCell.set(k, GATE_LEVELS);
+        } else if (baseCell.get(k) === undefined) {
+          baseCell.set(k, 0);
+        }
       }
   /* Same fallback as the voxeliser, for the same reason: a footprint thinner
      than the lattice must still be solid, or you drive through a building that
@@ -108,7 +130,9 @@ const consumed = new Map();                       // "x,z" -> levels already box
 const solidTo = (x, z, y) => {
   const k = cellKey(x, z);
   const h = hCell.get(k) || 0;
-  return h > y && (consumed.get(k) || 0) <= y;
+  if (h <= y) return false;
+  if (y < (baseCell.get(k) || 0)) return false;    // under an archway
+  return (consumed.get(k) || 0) <= y;
 };
 
 const xsAll = [...hCell.keys()].map(k => k.split(',').map(Number));
@@ -120,6 +144,8 @@ for (const h of hCell.values()) maxLev = Math.max(maxLev, h);
 for (let y = 0; y < maxLev; y++) {
   for (const [sx, sz] of xsAll) {
     if (!solidTo(sx, sz, y)) continue;
+    // never seed a box in the void under an archway
+    if (y < (baseCell.get(cellKey(sx, sz)) || 0)) continue;
 
     let ex = sx;
     while (solidTo(ex + 1, sz, y)) ex++;
@@ -201,5 +227,8 @@ const vol = boxes.reduce((a, b) => a + b[2] * b[3] * b[5], 0);
 console.log(`collide: ${boxes.length} collision boxes for ${D.buildings.length} buildings`);
 console.log(`  per building  ${(boxes.length / D.buildings.length).toFixed(2)} average over ${cells} solid cells`);
 console.log(`  merge         ${(vol / boxes.length).toFixed(1)} cells a box`);
+let arch = 0;
+for (const v of baseCell.values()) if (v > 0) arch++;
+console.log(`  archways      ${arch} cells left open under a passage`);
 console.log(`  road mask     ${MSPAN} x ${MSPAN} at ${MC} m, ${drivable} drivable cells (${(100 * drivable / mask.length).toFixed(1)}%), ${packed.length} bytes`);
 console.log(`  depots        ${D.pois.map(p => p.kind).join(', ') || '(none in district)'}`);

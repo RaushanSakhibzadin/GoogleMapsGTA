@@ -47,6 +47,24 @@ const LV = CONFIG.voxel;
 
 const inside = (x, y) => x >= -H && x <= H && y >= -H && y <= H;
 
+/* THE ARCHWAY. Cells whose centre is within the gate's half-width of the line
+   the road takes through the building are carved out below gate height, and the
+   cells bounding the hole are then emitted as wall so the passage has sides
+   rather than opening into the building's hollow interior.
+
+   Carved right through rather than stopping at the walls the road crosses: the
+   browser needs the exact wall positions because it cuts holes in specific
+   faces of a drawn polygon, but a lattice has no faces to cut -- removing the
+   corridor IS the archway, and it guarantees both ends are open. */
+const GATE_LEVELS = Math.max(1, Math.round(CONFIG.gateH / CONFIG.voxel));
+function gateCarves(gate, cx, cy) {
+  if (!gate) return false;
+  const dx = cx - gate.x, dy = cy - gate.y;
+  // perpendicular distance from the gate's centreline
+  const perp = Math.abs(dx * -gate.uy + dy * gate.ux);
+  return perp <= gate.w;
+}
+
 /* ---------------- point in polygon ----------------
    Even-odd ray cast. The footprints come from OSM ways, which are closed
    (first vertex repeated), and the half-open comparison on y is what stops a
@@ -91,7 +109,7 @@ const vox = new Map();                    // "a,level,b" -> {c, k}
 const key = (a, l, b) => a + ',' + l + ',' + b;
 const put = (a, l, b, c, k) => { vox.set(key(a, l, b), { c, k }); };
 
-let tallest = 0, thin = 0;
+let tallest = 0, thin = 0, arches = 0;
 for (const bld of D.buildings) {
   /* Which cells this footprint covers. Sampled over its bounding box at half a
      cell, then each candidate's CENTRE is tested against the polygon — testing
@@ -130,6 +148,18 @@ for (const bld of D.buildings) {
   const levels = Math.max(1, Math.round(bld.h / LV));
   tallest = Math.max(tallest, levels);
 
+  // which of this building's cells the archway removes, if it has one
+  const gate = D.gates && D.gates[bld.id];
+  const carved = new Set();
+  if (gate) {
+    for (const k of fill) {
+      const [a, b] = k.split(',').map(Number);
+      const [cx, cy] = L.centre(a, b);
+      if (gateCarves(gate, cx, cy)) carved.add(k);
+    }
+    if (carved.size) arches++;
+  }
+
   for (const k of fill) {
     const [a, b] = k.split(',').map(Number);
     const [cx, cy] = L.centre(a, b);
@@ -140,7 +170,21 @@ for (const bld of D.buildings) {
     for (const [na, nb] of L.neighbours(a, b))
       if (!fill.has(na + ',' + nb)) { edge = true; break; }
 
-    if (edge) for (let l = 0; l < levels; l++) put(a, l, b, bld.wall, 'wall');
+    /* AND THE PASSAGE HAS SIDES. A cell next to a carved one is emitted as wall
+       even when it is deep inside the footprint -- without this you drive into
+       the archway and out through the middle of the building, because interior
+       cells were never built. */
+    let lines = false;
+    if (carved.size && !carved.has(k)) {
+      for (const [na, nb] of L.neighbours(a, b))
+        if (carved.has(na + ',' + nb)) { lines = true; break; }
+    }
+
+    const open = carved.has(k);
+    for (let l = 0; l < levels; l++) {
+      if (open && l < GATE_LEVELS) continue;        // the hole itself
+      if (edge || (lines && l < GATE_LEVELS)) put(a, l, b, bld.wall, 'wall');
+    }
     put(a, levels, b, bld.roof, 'roof');  // the roof slab, over everything
   }
 }
@@ -240,5 +284,6 @@ console.log(`  cells in district  ${CELLS.size}`);
 console.log(`  building cells     ${as.length}   (${pal.length} distinct colours)`);
 console.log(`  tallest            ${tallest} levels (${tallest * LV} m)`);
 if (thin) console.log(`  thin footprints    ${thin} rasterised to a single cell`);
+console.log(`  archways cut       ${arches} (${GATE_LEVELS} levels, ${GATE_LEVELS * LV} m clear)`);
 console.log(`  ground             ${counts[3]} road, ${counts[2]} kerb, ${counts[1]} park, ${counts[0]} plain`);
 console.log(`  UNMERGED TOTAL     ${as.length + ga.length}`);

@@ -188,9 +188,75 @@ for (const b of parsed.buildings) {
     wall: col.mWall.map(v => Math.round(v)),
     roof: col.mRoof.map(v => Math.round(v)),
     name: b.sign || '',
-    pts: b.pts.map(pt)
+    pts: b.pts.map(pt),
+    bb: [R(b.bb.x0), R(b.bb.y0), R(b.bb.x1), R(b.bb.y1)]
   });
 }
+
+/* ---------------- archways ----------------
+ *
+ * A DRIVABLE ROAD THAT RUNS THROUGH A BUILDING IS A PASSAGE, not a mistake in
+ * the data. Belgrade is full of them: courtyard gateways, blocks built over a
+ * street, covered passages between two wings. OpenStreetMap records the road
+ * and the footprint and leaves them overlapping, because in the real world one
+ * goes under the other.
+ *
+ * Without this the city is full of streets that dead-end into a wall you can
+ * see the far side of, which is what was reported: "make an archway here, I
+ * cannot pass".
+ *
+ * Ported from markPassable() in js/world.js. The centreline is sampled every
+ * six metres, every sample inside a footprint is averaged, and the DIRECTION
+ * comes from the road rather than from the geometry -- which is the part that
+ * is not obvious. The centre of the crossing sits in the middle of the
+ * building, as far from both walls as the passage is deep, so asking "which
+ * wall is nearest" finds none. What locates a gateway is the LINE the road
+ * takes through it.
+ */
+const GATE_PAD = 1.0;          // metres of clearance either side of the road
+function findGates(roads, buildings) {
+  const gates = new Map();     // building id -> gate
+  for (const r of roads) {
+    if (!r.drive) continue;
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const [ax, ay] = r.pts[i], [bx, by] = r.pts[i + 1];
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      const ux = (bx - ax) / len, uy = (by - ay) / len;
+      const steps = Math.max(1, Math.ceil(len / 6));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+        for (const bl of buildings) {
+          if (x < bl.bb[0] || x > bl.bb[2] || y < bl.bb[1] || y > bl.bb[3]) continue;
+          if (!inPoly(bl.pts, x, y)) continue;
+          let g = gates.get(bl.id);
+          if (!g) gates.set(bl.id, g = { sx: 0, sy: 0, n: 0, w: 0, ux, uy });
+          g.sx += x; g.sy += y; g.n++;
+          g.w = Math.max(g.w, r.w / 2 + GATE_PAD);
+        }
+      }
+    }
+  }
+  const out = {};
+  for (const [id, g] of gates)
+    out[id] = { x: R(g.sx / g.n), y: R(g.sy / g.n),
+                ux: R(g.ux), uy: R(g.uy), w: R(g.w) };
+  return out;
+}
+
+function inPoly(pts, x, y) {
+  let hit = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const yi = pts[i][1], yj = pts[j][1];
+    if ((yi > y) !== (yj > y)) {
+      const t = (y - yi) / (yj - yi);
+      if (x < pts[i][0] + t * (pts[j][0] - pts[i][0])) hit = !hit;
+    }
+  }
+  return hit;
+}
+
+const gates = findGates(roads, buildings);
 
 /* ---------------- parks and points of interest ---------------- */
 const parks = parsed.parks
@@ -215,7 +281,7 @@ const district = {
     generated: 'tools/roblox/1-extract.mjs',
     note: 'metres, +x east, +y south, origin at the district centre'
   },
-  roads, buildings, parks, pois
+  roads, buildings, parks, pois, gates
 };
 
 mkdirSync(CONFIG.out, { recursive: true });
@@ -234,3 +300,4 @@ console.log(`  roads      ${roads.length} pieces, ${km.toFixed(1)} km of centrel
 console.log(`  buildings  ${buildings.length}  (${dropped} dropped under ${CONFIG.minArea} m2)`);
 console.log(`  heights    median ${hs[hs.length >> 1]} m, p90 ${hs[Math.floor(hs.length * .9)]} m, max ${hs[hs.length - 1]} m`);
 console.log(`  parks      ${parks.length}   depots ${pois.length}`);
+console.log(`  archways   ${Object.keys(gates).length} buildings with a road through them`);

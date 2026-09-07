@@ -97,6 +97,14 @@ export const CONFIG = {
      Matches world.js:401 exactly — do not drift from it. */
   storeyH: 3.2,
 
+  /* ---------------- archways ----------------
+
+   * How tall a passage through a building is, in metres. 4.2 matches GATE_H in
+   * js/render3d.js, which is the height the browser cuts its archways at --
+   * high enough for anything that drives and low enough that the building above
+   * still reads as a building rather than as stilts. */
+  gateH: 4.2,
+
   /* ---------------- roads ---------------- */
 
   /* Road classes that get a driving surface. Mirrors DRIVABLE() in geo.js:29
