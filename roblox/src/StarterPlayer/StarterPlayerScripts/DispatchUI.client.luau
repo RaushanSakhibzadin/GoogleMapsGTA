@@ -50,7 +50,7 @@ end
 
 local card = Instance.new("Frame")
 card.Size = UDim2.new(0, 340, 0, 128)
-card.Position = UDim2.new(0, 18, 1, -146)
+card.Position = UDim2.new(0, 18, 1, -152)
 card.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
 card.BackgroundTransparency = 0.15
 card.BorderSizePixel = 0
@@ -77,7 +77,13 @@ fill.BackgroundColor3 = Color3.fromRGB(255, 176, 64)
 fill.BorderSizePixel = 0
 fill.Parent = bar
 
-local wallet = label(gui, UDim2.new(0, 200, 0, 22), UDim2.new(0, 18, 0, 14), "$0", 20, Color3.fromRGB(238, 240, 244))
+-- UNDER THE CARD, NOT AT THE TOP OF THE SCREEN. The first attempt put this at
+-- (18, 14), which is exactly where Roblox's own topbar buttons sit -- with
+-- IgnoreGuiInset on, the game's UI and the platform's share that corner and the
+-- platform wins. Sitting it above the dispatch card keeps everything the player
+-- reads in one place anyway.
+local wallet = label(card, UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, -28), "$0", 20, Color3.fromRGB(238, 240, 244))
+wallet.TextXAlignment = Enum.TextXAlignment.Right
 
 -- ---------------------------------------------------------------- the marker
 
