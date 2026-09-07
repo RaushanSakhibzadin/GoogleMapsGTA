@@ -64,6 +64,22 @@ template.BottomSurface = Enum.SurfaceType.Smooth
 -- which is indistinguishable from broken shadows and was reported as such.
 --
 -- So this is idempotent: whatever is there, it is ours to replace.
+-- AND THE BASEPLATE GOES TOO.
+--
+-- Roblox's default Baseplate is 512 x 512 studs at (0, -10, 0), so its TOP FACE
+-- SITS AT y = 0 -- exactly coplanar with this city's ground layer, which also
+-- has its top face at y = 0 so that buildings stand on it rather than in it.
+-- Two visible surfaces at identical depth is z-fighting: which one wins flips
+-- with sub-pixel camera movement, so the ground around the origin churns
+-- between grey and asphalt every frame while the buildings stay rock solid.
+--
+-- It cost three rounds of chasing this as a shadow bug. It is not a shadow bug;
+-- nothing in this city casts a shadow at all.
+local plate = workspace:FindFirstChild("Baseplate")
+if plate and plate:IsA("BasePart") then
+	plate:Destroy()
+end
+
 local stale = workspace:FindFirstChild("City")
 if stale then
 	stale:Destroy()

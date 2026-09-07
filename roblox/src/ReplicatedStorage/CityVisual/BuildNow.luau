@@ -55,6 +55,13 @@ function M.clear()
 			existing:Destroy()
 		end
 	end
+	-- Roblox's default Baseplate has its top face at y = 0, exactly coplanar
+	-- with this city's ground layer, and z-fights with it across the whole
+	-- 512-stud square around the origin. See the note in CityVisuals.
+	local plate = workspace:FindFirstChild("Baseplate")
+	if plate and plate:IsA("BasePart") then
+		plate:Destroy()
+	end
 	print("[city] cleared")
 end
 
