@@ -4,8 +4,10 @@
 -- Rebuild with: node tools/roblox/bake.mjs
 
 return {
+	Color3.fromRGB(77, 94, 120),
 	Color3.fromRGB(134, 76, 58),
 	Color3.fromRGB(173, 167, 156),
+	Color3.fromRGB(255, 237, 189),
 	Color3.fromRGB(214, 198, 170),
 	Color3.fromRGB(193, 185, 173),
 	Color3.fromRGB(150, 88, 68),

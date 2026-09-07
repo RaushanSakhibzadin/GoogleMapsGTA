@@ -112,6 +112,28 @@ something else.
    the project file only stops it being written; the bad value stays in the
    place. State the correct value explicitly instead.
 
+## Windows, textures, and what they cost
+
+`CONFIG.windows` colours wall cells as glass on alternate courses, with a
+shopfront at street level, a plain cornice on top, and a few lit at random. It
+is the browser's window shader (`js/render3d.js`) reduced to the only thing a
+voxel city can vary — which colour a cell is. `CONFIG.shades` is the equivalent
+of `proctex.js`: a small quantised brightness step per cell.
+
+**Both cost merge length, and on a hex lattice that is the whole budget.** A
+column of one colour is one prism; a column that alternates wall/window is one
+prism per level. Measured on this district:
+
+| | hexR 2.5 | hexR 3.2 | hexR 3.6 |
+|---|---:|---:|---:|
+| windows off | **137,067** | — | — |
+| windows, every 2nd course | **252,817** | 166,226 | 136,979 |
+| windows, every 3rd course | 212,575 | — | — |
+
+So windows are free if the hex grows from 2.5 m to 3.6 m, and cost 84% at 2.5.
+Shipped at 2.5 with windows on, because that is the lattice that was chosen by
+eye — the table is here so the trade can be re-made in one line.
+
 ## Toolchain
 
 Built and synced against **Rojo 7.7.0** (`brew install rojo`). The project file

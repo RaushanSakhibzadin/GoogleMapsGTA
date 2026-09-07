@@ -127,6 +127,35 @@ export const CONFIG = {
    * makes a voxel street read as a street. */
   kerbs: true,
 
+  /* ---------------- windows ----------------
+
+   * WHAT THE BROWSER DOES IN A SHADER, done in colour instead.
+   *
+   * js/render3d.js draws windows in the wall fragment shader: a grid anchored
+   * to world coordinates so the rows line up along a whole terrace and round
+   * its corners, per-window hashing for which lights are on, shopfronts at
+   * street level and a plain cornice at the top. Roblox runs no custom shaders,
+   * so in a voxel city the equivalent is which colour a wall cell gets.
+   *
+   * IT COSTS MERGE LENGTH, and that is the trade. A column of one colour
+   * becomes one prism; a column that alternates wall/window/wall/window becomes
+   * one prism per level. Stage 3 prints the real number -- see the README.
+   *
+   * The rules are the browser's, in metres:
+   *   under winMinH   a shed or a lock-up, and gets none
+   *   level 0         the shopfront, which is glass whatever is above it
+   *   the top level   a plain cornice, so the roofline does not cut a row of
+   *                   windows in half
+   *   between         alternate courses, so there is wall between the rows */
+  windows: true,
+  winMinH: 5.5,            // matches WIN_MIN_H in render3d.js
+  /* Daylight values from THEMES.day in render3d.js, as 0-255. winLit is the
+     fraction of windows with a light on -- 3% by day, because in daylight a lit
+     room barely reads. It is 32% in the browser's dusk theme. */
+  winGlass: [77, 94, 120],
+  winLit: [255, 237, 189],
+  winLitFrac: 0.03,
+
   /* ---------------- per-voxel shading ----------------
 
    * How many brightness steps each material is split into. 1 is off.

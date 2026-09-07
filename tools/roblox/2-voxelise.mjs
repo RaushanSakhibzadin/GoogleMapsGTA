@@ -34,6 +34,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { CONFIG } from './config.mjs';
 import { makeLattice } from './lattice.mjs';
+import { hash01 } from './gamesrc.mjs';
 
 const L = makeLattice(CONFIG);
 const D = JSON.parse(readFileSync(`${CONFIG.out}/district.json`, 'utf8'));
@@ -63,6 +64,43 @@ function gateCarves(gate, cx, cy) {
   // perpendicular distance from the gate's centreline
   const perp = Math.abs(dx * -gate.uy + dy * gate.ux);
   return perp <= gate.w;
+}
+
+/* ---------------- what colour a wall cell is ----------------
+
+   The browser's window shader, reduced to the only thing a voxel city can vary:
+   the colour of the cell. See CONFIG.windows for the rules and what they cost.
+
+   HASHED ON THE CELL'S WORLD POSITION, not on an index, so which windows are
+   lit is stable across a re-bake and two neighbouring buildings do not share a
+   pattern just because they were parsed one after the other. Same reasoning as
+   the height hash in stage 1. */
+function wallColour(bld, level, levels, a, b) {
+  let col = bld.wall;
+
+  if (CONFIG.windows && bld.h >= CONFIG.winMinH && levels >= 3) {
+    const top = level === levels - 1;          // the cornice
+    const ground = level === 0;                // the shopfront
+    // alternate courses between them, so there is wall between the rows
+    const band = !top && (ground || level % 2 === 1);
+    if (band) {
+      col = CONFIG.winGlass;
+      if (hash01(a * 7349 + b * 9151, level * 31 + 3) < CONFIG.winLitFrac)
+        col = CONFIG.winLit;
+    }
+  }
+
+  /* AND THE TEXTURE, such as it is. proctex.js grows every surface in the
+     browser from fractal noise; a voxel city has no surface to put noise on, so
+     the equivalent is a small brightness step per cell. Quantised, because
+     greedy meshing merges IDENTICAL cells and a unique shade per cell would
+     defeat it entirely -- which is what CONFIG.shades is about. */
+  if (CONFIG.shades > 1) {
+    const step = Math.floor(hash01(a * 2657 + b * 3413, level) * CONFIG.shades);
+    const k = 1 + (step / (CONFIG.shades - 1) * 2 - 1) * CONFIG.shadeSpread;
+    col = col.map(v => Math.max(0, Math.min(255, Math.round(v * k))));
+  }
+  return col;
 }
 
 /* ---------------- point in polygon ----------------
@@ -183,7 +221,8 @@ for (const bld of D.buildings) {
     const open = carved.has(k);
     for (let l = 0; l < levels; l++) {
       if (open && l < GATE_LEVELS) continue;        // the hole itself
-      if (edge || (lines && l < GATE_LEVELS)) put(a, l, b, bld.wall, 'wall');
+      if (edge || (lines && l < GATE_LEVELS))
+        put(a, l, b, wallColour(bld, l, levels, a, b), 'wall');
     }
     put(a, levels, b, bld.roof, 'roof');  // the roof slab, over everything
   }
