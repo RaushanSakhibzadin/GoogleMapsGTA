@@ -1,14 +1,18 @@
-/* STAGE 2 — the district, rasterised onto a voxel lattice.
+/* STAGE 2 — the district, rasterised onto a lattice.
  *
  * In:  build/district.json
  * Out: build/voxels.json
  *
- * Still in metres. The lattice is WORLD-ALIGNED — cell (i, j) always covers
- * [i*V, (i+1)*V) whatever is standing on it — which matters for two reasons:
- * neighbouring buildings share a lattice so their walls meet instead of
- * z-fighting on a half-cell offset, and a rebuilt district comes back
- * identical. The source game plants its park trees off a world-aligned lattice
- * for the same reason and says so.
+ * Still in metres. LATTICE-AGNOSTIC: cells are addressed by two integers and a
+ * level, and the shape behind those integers — square or hexagonal — lives in
+ * lattice.mjs. Everything here asks the lattice where a cell's centre is, which
+ * cell holds a point, and who a cell's neighbours are.
+ *
+ * The lattice is WORLD-ALIGNED whichever shape it is: cell (a, b) always covers
+ * the same ground however the district is sliced, so neighbouring buildings
+ * share a lattice and their walls meet instead of z-fighting on a half-cell
+ * offset, and a rebuilt district comes back identical. The source game plants
+ * its park trees off a world-aligned lattice for the same reason.
  *
  * WHAT GETS BUILT, and what deliberately does not:
  *
@@ -18,33 +22,30 @@
  *
  * Interiors are never emitted. Nobody sees the inside of a building in a game
  * with no on-foot play, and a solid 5-storey block of flats is about forty
- * voxels of which six are visible.
+ * cells of which six are visible.
  *
  * THE ROOF IS ITS OWN LAYER rather than a recolour of the top wall course. If
  * the top course were painted as roof, every building would lose its top metre
- * of wall when seen from the street; if it were painted as wall, every flat
- * roof in the city would be the wall colour seen from above. A separate slab
- * costs one footprint's worth of voxels, which greedy meshing then collapses
- * to almost nothing because a flat roof is the single most mergeable thing in
- * the bake.
+ * of wall from the street; if it were painted as wall, every flat roof would be
+ * the wall colour seen from above.
  *
  * Usage: node tools/roblox/2-voxelise.mjs
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { CONFIG } from './config.mjs';
+import { makeLattice } from './lattice.mjs';
 
-const V = CONFIG.voxel;
+const L = makeLattice(CONFIG);
 const D = JSON.parse(readFileSync(`${CONFIG.out}/district.json`, 'utf8'));
-
-/* Lattice index of a metre coordinate, and the centre of a cell. Floor rather
-   than round, so cell boundaries land on multiples of V and a cell's extent is
-   unambiguous. */
-const ci = m => Math.floor(m / V);
-const cc = i => (i + 0.5) * V;
-
 const H = CONFIG.half;
-const I0 = ci(-H), I1 = ci(H);              // district cell range, inclusive
-const SPAN = I1 - I0 + 1;
+
+/* THE LEVEL HEIGHT IS NOT THE CELL WIDTH once the lattice can be hexagonal: a
+   hex has a circumradius, not a side. Levels stay at CONFIG.voxel metres for
+   both, so building heights quantise the same way whichever shape is standing
+   there and the storey count of a block does not change when the lattice does. */
+const LV = CONFIG.voxel;
+
+const inside = (x, y) => x >= -H && x <= H && y >= -H && y <= H;
 
 /* ---------------- point in polygon ----------------
    Even-odd ray cast. The footprints come from OSM ways, which are closed
@@ -62,136 +63,141 @@ function inPoly(pts, x, y) {
   return hit;
 }
 
+/* Every cell in the district, once. Built by walking a fine grid of sample
+   points and asking the lattice which cell each lands in — which works for any
+   lattice shape without this file knowing how to enumerate one. The sample
+   step is half the smallest cell dimension, so nothing is missed. */
+function districtCells() {
+  const seen = new Map();                 // "a,b" -> [a, b, cx, cy]
+  const step = Math.min(L.size, LV) / 2;
+  for (let y = -H; y <= H; y += step) {
+    for (let x = -H; x <= H; x += step) {
+      const [a, b] = L.cellOf(x, y);
+      const k = a + ',' + b;
+      if (seen.has(k)) continue;
+      const [cx, cy] = L.centre(a, b);
+      if (!inside(cx, cy)) continue;
+      seen.set(k, [a, b, cx, cy]);
+    }
+  }
+  return seen;
+}
+
+const CELLS = districtCells();
+
 /* ---------------- buildings ---------------- */
 
-/* Every voxel is one entry: key "x,y,z" -> {c: [r,g,b], k: kind}. A Map rather
-   than a dense 3D array because the city is overwhelmingly empty — a dense
-   array at 4 m over 1.2 km by 90 m tall is 300*300*23 cells, most of them air,
-   and the sparse form is both smaller and what stage 3 wants to iterate. */
-const vox = new Map();
-const key = (x, y, z) => x + ',' + y + ',' + z;
-const put = (x, y, z, c, k) => { vox.set(key(x, y, z), { c, k }); };
+const vox = new Map();                    // "a,level,b" -> {c, k}
+const key = (a, l, b) => a + ',' + l + ',' + b;
+const put = (a, l, b, c, k) => { vox.set(key(a, l, b), { c, k }); };
 
-let tallest = 0, skipped = 0;
-for (const b of D.buildings) {
-  // footprint cell bounds
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const p of b.pts) {
-    x0 = Math.min(x0, ci(p[0])); x1 = Math.max(x1, ci(p[0]));
-    z0 = Math.min(z0, ci(p[1])); z1 = Math.max(z1, ci(p[1]));
+let tallest = 0, thin = 0;
+for (const bld of D.buildings) {
+  /* Which cells this footprint covers. Sampled over its bounding box at half a
+     cell, then each candidate's CENTRE is tested against the polygon — testing
+     the sample points themselves would fill cells whose centres are outside. */
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of bld.pts) {
+    x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]);
+    y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
   }
-
-  /* Rasterise the footprint into a local mask. Padded by one cell on every
-     side so the perimeter test below can read a neighbour without a bounds
-     check and correctly see "outside" there. */
-  const w = x1 - x0 + 3, d = z1 - z0 + 3;
-  const fill = new Uint8Array(w * d);
-  let cells = 0;
-  for (let j = 0; j < d; j++) {
-    for (let i = 0; i < w; i++) {
-      const gx = x0 - 1 + i, gz = z0 - 1 + j;
-      if (inPoly(b.pts, cc(gx), cc(gz))) { fill[j * w + i] = 1; cells++; }
+  const step = L.size / 2;
+  const cand = new Map();
+  for (let y = y0 - L.reach; y <= y1 + L.reach; y += step)
+    for (let x = x0 - L.reach; x <= x1 + L.reach; x += step) {
+      const [a, b] = L.cellOf(x, y);
+      const k = a + ',' + b;
+      if (!cand.has(k)) cand.set(k, [a, b]);
     }
+
+  const fill = new Set();
+  for (const [k, [a, b]] of cand) {
+    const [cx, cy] = L.centre(a, b);
+    if (inPoly(bld.pts, cx, cy)) fill.add(k);
   }
 
   /* A FOOTPRINT CAN RASTERISE TO NOTHING. A long thin building — a terrace
-     wing, a covered walkway — can be narrower than a voxel and pass between
-     every sample point, and CONFIG.minArea does not catch it because area is
-     not width. Rather than lose the building, its bounding-box centre cell is
-     filled, so a real structure becomes one voxel instead of none. */
-  if (!cells) {
-    const mx = ci((x0 + x1) / 2 * V + V / 2) - x0 + 1;
-    const mz = ci((z0 + z1) / 2 * V + V / 2) - z0 + 1;
-    fill[Math.max(0, Math.min(d - 1, mz)) * w + Math.max(0, Math.min(w - 1, mx))] = 1;
-    cells = 1;
-    skipped++;
+     wing, a covered walkway — can be narrower than a cell and pass between
+     every centre, and CONFIG.minArea does not catch it because area is not
+     width. Rather than lose the building, the cell holding its centroid is
+     filled, so a real structure becomes one cell instead of none. */
+  if (!fill.size) {
+    const [a, b] = L.cellOf((x0 + x1) / 2, (y0 + y1) / 2);
+    fill.add(a + ',' + b);
+    thin++;
   }
 
-  const levels = Math.max(1, Math.round(b.h / V));
+  const levels = Math.max(1, Math.round(bld.h / LV));
   tallest = Math.max(tallest, levels);
 
-  for (let j = 1; j < d - 1; j++) {
-    for (let i = 1; i < w - 1; i++) {
-      if (!fill[j * w + i]) continue;
-      const gx = x0 - 1 + i, gz = z0 - 1 + j;
-      // outside the district? a building kept for its centroid can overhang
-      if (gx < I0 || gx > I1 || gz < I0 || gz > I1) continue;
+  for (const k of fill) {
+    const [a, b] = k.split(',').map(Number);
+    const [cx, cy] = L.centre(a, b);
+    if (!inside(cx, cy)) continue;        // a building kept for its centroid can overhang
 
-      /* PERIMETER = any 4-neighbour empty. Diagonals deliberately not counted:
-         a cell touching outside only at a corner has no exposed face, and
-         including it fattens every diagonal wall to two voxels thick. */
-      const edge = !fill[j * w + i - 1] || !fill[j * w + i + 1] ||
-                   !fill[(j - 1) * w + i] || !fill[(j + 1) * w + i];
+    // PERIMETER = any neighbour not filled. That is what makes the shell.
+    let edge = false;
+    for (const [na, nb] of L.neighbours(a, b))
+      if (!fill.has(na + ',' + nb)) { edge = true; break; }
 
-      if (edge) for (let y = 0; y < levels; y++) put(gx, y, gz, b.wall, 'wall');
-      put(gx, levels, gz, b.roof, 'roof');       // the roof slab, over everything
-    }
+    if (edge) for (let l = 0; l < levels; l++) put(a, l, b, bld.wall, 'wall');
+    put(a, levels, b, bld.roof, 'roof');  // the roof slab, over everything
   }
 }
 
 /* ---------------- the ground ----------------
 
-   One layer at y = -1, so its top face is exactly y = 0 and buildings stand on
-   it rather than in it. Painted in four passes, later ones winning: plain,
-   then parks, then the kerb ring, then the road surface itself. The kerb is
-   laid BEFORE the road and then overwritten wherever road actually falls,
-   which is what makes it a ring around the tarmac rather than a stripe through
-   it — see CONFIG.kerbs for why a kerb is a colour here and not geometry. */
-const ground = new Uint8Array(SPAN * SPAN);      // 0 plain, 1 park, 2 kerb, 3 road
-const gset = (i, j, v) => {
-  if (i < I0 || i > I1 || j < I0 || j > I1) return;
-  ground[(j - I0) * SPAN + (i - I0)] = v;
-};
-const gget = (i, j) =>
-  (i < I0 || i > I1 || j < I0 || j > I1) ? 0 : ground[(j - I0) * SPAN + (i - I0)];
+   One layer at level -1, so its top face is exactly y = 0 and buildings stand
+   on it rather than in it. Painted in four passes, later ones winning: plain,
+   then parks, then the kerb ring, then the road itself. The kerb is laid BEFORE
+   the road and overwritten wherever tarmac actually falls, which is what makes
+   it a ring around the road rather than a stripe through it. */
+const ground = new Map();                 // "a,b" -> 0 plain, 1 park, 2 kerb, 3 road
+for (const [k] of CELLS) ground.set(k, 0);
 
-// parks
-for (const p of D.parks) {
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const q of p.pts) {
-    x0 = Math.min(x0, ci(q[0])); x1 = Math.max(x1, ci(q[0]));
-    z0 = Math.min(z0, ci(q[1])); z1 = Math.max(z1, ci(q[1]));
-  }
-  for (let j = z0; j <= z1; j++)
-    for (let i = x0; i <= x1; i++)
-      if (inPoly(p.pts, cc(i), cc(j))) gset(i, j, 1);
+function stampPoly(pts, value) {
+  for (const [k, [, , cx, cy]] of CELLS)
+    if (inPoly(pts, cx, cy)) ground.set(k, value);
 }
+for (const p of D.parks) stampPoly(p.pts, 1);
 
-/* Stamp a polyline of a given width onto the ground layer. Walks each segment
-   at half a cell so nothing is missed on a diagonal, and paints every cell
-   within half the road width of the centreline — which is the same thing
-   markRoads() does to the drivable mask in world.js, at the same 8 m scale, so
-   the tarmac you can see and the tarmac you can drive on agree. */
+/* Stamp a polyline of a given width. Walks each segment at half a cell so
+   nothing is missed on a diagonal, and paints every cell whose CENTRE is within
+   half the road width — the same thing markRoads() does to the drivable mask in
+   world.js, so the tarmac you see and the tarmac you drive on agree. */
 function stampLine(pts, width, value) {
-  const r = width / 2;
-  const reach = Math.ceil(r / V) + 1;
+  const rad = width / 2;
+  const step = L.size / 2;
   for (let s = 1; s < pts.length; s++) {
-    const ax = pts[s - 1][0], ay = pts[s - 1][1];
-    const bx = pts[s][0], by = pts[s][1];
+    const [ax, ay] = pts[s - 1], [bx, by] = pts[s];
     const len = Math.hypot(bx - ax, by - ay);
-    const steps = Math.max(1, Math.ceil(len / (V / 2)));
-    for (let k = 0; k <= steps; k++) {
-      const t = k / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
-      const gi = ci(px), gj = ci(py);
-      for (let j = gj - reach; j <= gj + reach; j++)
-        for (let i = gi - reach; i <= gi + reach; i++)
-          if (Math.hypot(cc(i) - px, cc(j) - py) <= r) gset(i, j, value);
+    const steps = Math.max(1, Math.ceil(len / step));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+      /* Every cell within `rad` of this point. Sampling a disc of candidates
+         and testing their centres is lattice-independent; a per-shape ring walk
+         would be faster and would have to know what shape it was walking. */
+      for (let dy = -rad - L.reach; dy <= rad + L.reach; dy += step)
+        for (let dx = -rad - L.reach; dx <= rad + L.reach; dx += step) {
+          const [a, b] = L.cellOf(px + dx, py + dy);
+          const k = a + ',' + b;
+          if (!ground.has(k)) continue;
+          const [cx, cy] = L.centre(a, b);
+          if (Math.hypot(cx - px, cy - py) <= rad) ground.set(k, value);
+        }
     }
   }
 }
 
-// kerb ring first, then tarmac over it
-if (CONFIG.kerbs) for (const r of D.roads) stampLine(r.pts, r.w + 2 * V, 2);
+if (CONFIG.kerbs) for (const r of D.roads) stampLine(r.pts, r.w + 4 * LV, 2);
 for (const r of D.roads) stampLine(r.pts, r.w, 3);
 
-/* ---------------- out ---------------- */
+/* ---------------- out ----------------
 
-/* The voxel map goes out as four flat arrays rather than a list of objects.
-   At tens of thousands of entries, {x,y,z,r,g,b} per voxel is several times the
-   size in JSON and several times the parse time, and stage 3 wants the columns
-   anyway. Colours are deduplicated into a palette here, which is also what
-   makes the "identical voxel" test in the greedy mesher a single integer
-   compare instead of three. */
+   Flat arrays and a deduplicated palette rather than a list of objects: at
+   hundreds of thousands of cells the object form is several times the JSON and
+   several times the parse, stage 3 wants the columns anyway, and a palette
+   index makes the "identical cell" test in the mesher one integer compare. */
 const pal = [];
 const palIx = new Map();
 const palette = c => {
@@ -201,33 +207,38 @@ const palette = c => {
   return i;
 };
 
-const xs = [], ys = [], zs = [], cs = [];
-/* SORTED, so the output is stable. A Map iterates in insertion order, which
-   depends on the order buildings were parsed in — stable today, but this is
-   the file every later stage is diffed against and it costs one sort. */
-const keys = [...vox.keys()].sort((a, b) => {
-  const A = a.split(','), B = b.split(',');
-  return (+A[0] - +B[0]) || (+A[1] - +B[1]) || (+A[2] - +B[2]);
+// SORTED, so the output is stable and a re-bake diffs cleanly.
+const keys = [...vox.keys()].sort((p, q) => {
+  const A = p.split(',').map(Number), B = q.split(',').map(Number);
+  return (A[0] - B[0]) || (A[1] - B[1]) || (A[2] - B[2]);
 });
+const as = [], ls = [], bs = [], cs = [];
 for (const k of keys) {
-  const [x, y, z] = k.split(',').map(Number);
-  xs.push(x); ys.push(y); zs.push(z); cs.push(palette(vox.get(k).c));
+  const [a, l, b] = k.split(',').map(Number);
+  as.push(a); ls.push(l); bs.push(b); cs.push(palette(vox.get(k).c));
 }
 
-const out = {
-  meta: { voxel: V, cellRange: [I0, I1], span: SPAN, ground: -1,
-          note: 'lattice indices, world-aligned; y is levels above ground top' },
+const gk = [...ground.keys()].sort();
+const ga = [], gb = [], gv = [];
+for (const k of gk) {
+  const [a, b] = k.split(',').map(Number);
+  ga.push(a); gb.push(b); gv.push(ground.get(k));
+}
+
+writeFileSync(`${CONFIG.out}/voxels.json`, JSON.stringify({
+  meta: { lattice: L.kind, size: L.size, levelM: LV, halfM: H,
+          note: 'cells are [a, level, b]; a/b are lattice coords, level 0 = ground floor' },
   palette: pal,
-  building: { x: xs, y: ys, z: zs, c: cs },
-  ground: Array.from(ground)
-};
-writeFileSync(`${CONFIG.out}/voxels.json`, JSON.stringify(out));
+  building: { a: as, l: ls, b: bs, c: cs },
+  ground: { a: ga, b: gb, v: gv }
+}));
 
 const counts = [0, 0, 0, 0];
-for (const g of ground) counts[g]++;
-console.log(`voxelise: ${V} m lattice, ${SPAN} x ${SPAN} cells`);
-console.log(`  building voxels  ${xs.length}   (${pal.length} distinct colours)`);
-console.log(`  tallest          ${tallest} levels (${tallest * V} m)`);
-if (skipped) console.log(`  thin footprints  ${skipped} rasterised to a single cell`);
-console.log(`  ground cells     ${counts[3]} road, ${counts[2]} kerb, ${counts[1]} park, ${counts[0]} plain`);
-console.log(`  UNMESHED TOTAL   ${xs.length + SPAN * SPAN} parts if built one cube at a time`);
+for (const v of gv) counts[v]++;
+console.log(`voxelise: ${L.kind} lattice, size ${L.size} m, ${LV} m levels`);
+console.log(`  cells in district  ${CELLS.size}`);
+console.log(`  building cells     ${as.length}   (${pal.length} distinct colours)`);
+console.log(`  tallest            ${tallest} levels (${tallest * LV} m)`);
+if (thin) console.log(`  thin footprints    ${thin} rasterised to a single cell`);
+console.log(`  ground             ${counts[3]} road, ${counts[2]} kerb, ${counts[1]} park, ${counts[0]} plain`);
+console.log(`  UNMERGED TOTAL     ${as.length + ga.length}`);

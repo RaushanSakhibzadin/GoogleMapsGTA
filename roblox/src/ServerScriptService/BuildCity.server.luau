@@ -9,6 +9,7 @@
 -- These are the ONLY parts in the game with CanCollide true.
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Collision = require(ServerScriptService:WaitForChild("Data"):WaitForChild("Collision")) :: { number }
@@ -31,30 +32,11 @@ template.Transparency = 1
 -- moved. Reported from Studio as "shadows still glitch/blink".
 template.CastShadow = false
 
--- THE BASEPLATE GOES FIRST.
---
--- Roblox's default Baseplate is 512 x 512 studs at (0, -10, 0), so its TOP FACE
--- SITS AT y = 0 -- exactly coplanar with this city's ground layer, which also
--- has its top face at y = 0 so that buildings stand on it rather than in it.
--- Two visible surfaces at identical depth is z-fighting: which one wins flips
--- with sub-pixel camera movement, so the ground around the origin churns
--- between grey and asphalt every frame while the buildings stay rock solid.
---
--- It cost three rounds of chasing this as a shadow bug. It is not a shadow bug;
--- nothing in this city casts a shadow at all.
-local plate = workspace:FindFirstChild("Baseplate")
-if plate and plate:IsA("BasePart") then
-	plate:Destroy()
-end
-
--- Idempotent, for the same reason the client builder is: a Collision folder
--- left in the place by BuildNow would otherwise be doubled here.
-for _, name in { "Collision", "Ground" } do
-	local stale = workspace:FindFirstChild(name)
-	if stale then
-		stale:Destroy()
-	end
-end
+-- Clearing, and the Baseplate with it: its top face is at y = 0, exactly
+-- coplanar with the city's ground layer, and the two z-fight. Shared with the
+-- client builder so the fix lives in one place.
+local CityBuild = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityBuild"))
+CityBuild.clearWorkspace({ "Collision", "Ground" })
 
 local root = Instance.new("Folder")
 root.Name = "Collision"
@@ -81,7 +63,7 @@ end
 -- THE GROUND. The voxel ground layer is scenery like everything else in the
 -- shell, so without this a car falls through the city on the first frame. One
 -- part, sized from the baked district bounds.
-local Meta = require(game:GetService("ReplicatedStorage"):WaitForChild("CityVisual"):WaitForChild("CityMeta"))
+local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 local ground = Instance.new("Part")
 ground.Name = "Ground"
 ground.Anchored = true

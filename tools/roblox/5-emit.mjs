@@ -20,12 +20,15 @@
  * Usage: node tools/roblox/5-emit.mjs
  */
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { CONFIG, CHUNK_VOX } from './config.mjs';
+import { CONFIG } from './config.mjs';
+import { makeLattice } from './lattice.mjs';
 import { readFileSync } from 'node:fs';
 
-const V = CONFIG.voxel;
 const S = CONFIG.studsPerM;
-const M = V * S;                                  // studs per voxel
+const L = makeLattice(CONFIG);
+const HEX = L.kind === 'hex';
+const LV = CONFIG.voxel;                          // metres a level, both lattices
+const LVS = LV * S;                               // and in studs
 
 const CH = JSON.parse(readFileSync(`${CONFIG.out}/chunks.json`, 'utf8'));
 const CO = JSON.parse(readFileSync(`${CONFIG.out}/collision.json`, 'utf8'));
@@ -68,26 +71,41 @@ let emitted = 0;
 const index = [];
 for (const c of CH.chunks) {
   const nums = [];
-  for (const [x, y, z, sx, sy, sz, col] of c.boxes) {
-    nums.push(
-      R((x + sx / 2) * M), R((y + sy / 2) * M), R((z + sz / 2) * M),
-      R(sx * M), R(sy * M), R(sz * M),
-      col + 1                                     // Luau is 1-based
-    );
+  for (const [a, l, b, sa, levels, sb, col] of c.boxes) {
+    if (HEX) {
+      /* A PRISM IS FIVE NUMBERS, not seven. Its footprint is always one hex of
+         the same radius, so width and depth are global rather than per-part —
+         which also means a hex chunk file is a third smaller than a box one at
+         the same part count. */
+      const [wx, wy] = L.centre(a, b);
+      nums.push(R(wx * S), R((l + levels / 2) * LVS), R(wy * S), R(levels * LVS), col + 1);
+    } else {
+      const [x0, y0] = L.centre(a, b);
+      const [x1, y1] = L.centre(a + sa - 1, b + sb - 1);
+      nums.push(
+        R((x0 + x1) / 2 * S), R((l + levels / 2) * LVS), R((y0 + y1) / 2 * S),
+        R(sa * L.size * S), R(levels * LVS), R(sb * L.size * S),
+        col + 1
+      );
+    }
   }
   emitted += c.boxes.length;
   const name = `Chunk_${c.cx}_${c.cz}`;
   index.push([c.cx, c.cz, c.boxes.length]);
 
-  /* Wrapped at seven numbers a line — one box a line — so a diff of a re-bake
-     shows which boxes moved rather than one 20,000-character line changing. */
+  const stride = HEX ? 5 : 7;
   const rows = [];
-  for (let i = 0; i < nums.length; i += 7) rows.push('\t' + nums.slice(i, i + 7).join(', ') + ',');
+  for (let i = 0; i < nums.length; i += stride)
+    rows.push('\t' + nums.slice(i, i + stride).join(', ') + ',');
 
   writeFileSync(`${ROOT}/ReplicatedStorage/CityVisual/ChunkData/${name}.luau`,
-    HDR(`Chunk (${c.cx}, ${c.cz}) -- ${c.boxes.length} boxes.\n` +
-        '-- Seven numbers a box: centreX, centreY, centreZ, sizeX, sizeY, sizeZ, paletteIndex.\n' +
-        '-- Studs, world space, district centre at the origin.') +
+    HDR(`Chunk (${c.cx}, ${c.cz}) -- ${c.boxes.length} parts.\n` +
+        (HEX
+          ? '-- Five numbers a prism: centreX, centreY, centreZ, height, paletteIndex.\n' +
+            '-- The footprint is one hexagon of CityMeta.hexRadiusStuds, flat-to-flat\n' +
+            '-- along X. Studs, world space, district centre at the origin.'
+          : '-- Seven numbers a box: centreX, centreY, centreZ, sizeX, sizeY, sizeZ, paletteIndex.\n' +
+            '-- Studs, world space, district centre at the origin.')) +
     'return {\n' + rows.join('\n') + '\n}\n');
 }
 
@@ -97,8 +115,10 @@ writeFileSync(`${ROOT}/ReplicatedStorage/CityVisual/CityMeta.luau`,
   HDR('What the client needs before it loads a single chunk.') +
   'return {\n' +
   `\tstudsPerMetre = ${S},\n` +
-  `\tvoxelStuds = ${R(M)},\n` +
-  `\tchunkStuds = ${R(CHUNK_VOX * M)},\n` +
+  `\tlattice = "${L.kind}",\n` +
+  `\tlevelStuds = ${R(LVS)},\n` +
+  (HEX ? `\thexRadiusStuds = ${R(L.size * S)},\n` : `\tvoxelStuds = ${R(L.size * S)},\n`) +
+  `\tchunkStuds = ${R(CONFIG.chunkM * S)},\n` +
   `\thalfStuds = ${R(half)},\n` +
   `\tchunks = {\n` +
   index.map(([cx, cz, n]) => `\t\t{ ${cx}, ${cz}, ${n} },`).join('\n') +
@@ -109,10 +129,17 @@ writeFileSync(`${ROOT}/ReplicatedStorage/CityVisual/CityMeta.luau`,
    Server-side, and the only geometry the physics engine ever sees. Six numbers
    a box; no colour, because nothing renders these. */
 const cnums = [];
+/* COLLISION STAYS SQUARE whatever the visual lattice is, and stage 4 rasterises
+   it on its own CONFIG.voxel grid for that reason. These boxes are invisible:
+   nobody can see that what stopped the car was a box rather than a hexagon, and
+   boxes are several times cheaper because they merge in all three directions.
+   The two agree to within half a cell, which is well inside the tolerance the
+   driving model already has for the road mask. */
+const CV = CONFIG.voxel * S;
 for (const [x, z, sx, sz, y, sy] of CO.boxes) {
   cnums.push(
-    R((x + sx / 2) * M), R((y + sy / 2) * M), R((z + sz / 2) * M),
-    R(sx * M), R(sy * M), R(sz * M)
+    R((x + sx / 2) * CV), R((y + sy / 2) * CV), R((z + sz / 2) * CV),
+    R(sx * CV), R(sy * CV), R(sz * CV)
   );
 }
 const crows = [];
@@ -157,7 +184,7 @@ writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Depots.luau`,
   ).join('\n') +
   '\n}\n');
 
-console.log(`emit: ${CONFIG.studsPerM} studs/m, ${R(M)} studs a voxel`);
+console.log(`emit: ${CONFIG.studsPerM} studs/m, ${L.kind}, ${R(L.size * S)} studs a cell, ${R(LVS)} studs a level`);
 console.log(`  ${index.length} chunk files, ${emitted} visual boxes`);
 console.log(`  ${CO.boxes.length} collision boxes`);
 console.log(`  district ${R(2 * half)} x ${R(2 * half)} studs, max radius ${R(Math.hypot(half, half))}`);

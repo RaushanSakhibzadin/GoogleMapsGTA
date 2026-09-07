@@ -36,7 +36,30 @@ export const CONFIG = {
      Gravity is deliberately NOT adjusted to match. See §3.2. */
   studsPerM: 3,
 
-  /* ---------------- the lattice ---------------- */
+  /* ---------------- the lattice ----------------
+
+   * 'square' or 'hex'. See tools/roblox/lattice.mjs for the shapes; what
+   * matters here is the cost, which is not symmetrical.
+   *
+   * Greedy meshing merges runs of identical cells in all three directions on a
+   * square lattice, and that is where its 10.4x reduction comes from. Hexagons
+   * tile neither into larger hexagons nor into boxes, so the only merge left is
+   * VERTICAL -- a column of one colour becomes one taller prism. Measured on
+   * this district at the same cell size:
+   *
+   *       cubes     73,354 parts   (10.4x on buildings, 11.4x on the ground)
+   *       hexes    513,615 parts   (2.8x on buildings, 1.0x on the ground)
+   *
+   * So a hex lattice has to be coarser to cost the same. hexR below is the
+   * circumradius; flat-to-flat width is sqrt(3) x that. */
+  lattice: 'hex',
+
+  /* Hex circumradius in METRES. By area alone a hex of R matches a square cell
+     of side R*sqrt(1.5*sqrt(3)) = 1.61R, so R = 2.5 is about a 4 m square cell
+     -- but the merge difference means the honest comparison is the part count
+     printed by stage 3, not this arithmetic. */
+  hexR: 2.5,
+
 
   /* Voxel edge in METRES. Four is the cheap, chunky bake; two keeps building
      outlines legible at four times the voxel count. The whole pipeline reads
