@@ -680,25 +680,42 @@ walls merge either way) but not entirely.
 **Recommendation: 4 m for the first bake, and make it a single constant.** Bake both, look at
 them in Studio, decide with your eyes. The pipeline should not care.
 
-### 5.4 Part budget
+### 5.4 Part budget — **measured**
 
-Rough estimate for a 1.2 × 1.2 km slice, ~1,800 buildings:
+The preprocessor is built (`tools/roblox/`), and these are no longer estimates. A 1.2 × 1.2 km
+slice centred on Palilula, 4 m voxels, 3 studs/m:
 
-| Layer | Before meshing | After greedy meshing |
-|---|---:|---:|
-| Building shells | ~130,000 | ~18,000 |
-| Road + kerb surface | ~90,000 | ~4,000 |
-| Parks, ground | ~40,000 | ~2,000 |
-| **Visual total** | ~260,000 | **~24,000** |
-| Collision volumes | — | ~2,200 |
+| Layer | Before meshing | After greedy meshing | Estimated |
+|---|---:|---:|---:|
+| Building shells | 99,647 | 18,415 | ~18,000 ✅ |
+| Ground (road, kerb, park, plain) | 90,601 | 15,284 | ~6,000 ❌ |
+| **Visual total** | **190,248** | **33,699** | ~24,000 |
+| Collision volumes | — | **6,938** | ~2,200 ❌ |
+| | | **40,637 parts** | |
 
-24,000 non-colliding anchored client Parts is **workable** but not free — expect a real cost in
-memory and chunk-build time on low-end mobile. Mitigations, in order of value: greedy meshing
-(already counted), `StreamingEnabled`, chunk-level LOD (drop kerbs and per-voxel colour variation
-beyond ~800 studs), and a quality setting that raises the voxel size to 8 m on weak devices.
+Two of the three estimates were wrong, and the reasons are worth keeping:
 
-**Measure this in M0 with a real bake before committing to anything downstream.** The estimate
-above is arithmetic, not a measurement, and it is the number most likely to be wrong.
+- **The ground layer is the surprise, not the buildings.** Building shells came in almost exactly
+  as predicted. The flat ground cost 15,284 parts — because the kerb ring snakes around every
+  road and shatters the plain/road runs into strips. **Kerbs alone cost 5,749 parts**, 17% of the
+  whole budget, for something purely cosmetic. `CONFIG.kerbs = false` is a one-line change and
+  the single biggest lever available.
+- **Collision is 3× the estimate because Belgrade is not aligned to the lattice.** A footprint at
+  30° to the grid rasterises into a staircase, and a staircase decomposes into thin strips.
+  Meshing the union of all buildings rather than one at a time (so terraces share walls) only
+  recovered 7% — 7,472 → 6,938. This is inherent to an axis-aligned voxel lattice over a city
+  that was not built on one.
+- **Per-voxel colour variation is not free.** The plan originally said it "costs nothing". It
+  costs nearly everything: greedy meshing merges *identical* voxels, so a unique shade per voxel
+  defeats the whole optimisation. `CONFIG.shades` quantises it to a few steps as a compromise;
+  default is 1 (off) so the baseline number above is honest.
+
+**40,637 parts is workable but is the project's main technical constraint.** Levers, in order of
+value: turn off kerbs (−5,749), `StreamingEnabled` (already in the Rojo project), chunk LOD
+beyond ~800 studs, and an 8 m voxel quality setting for weak devices.
+
+**Still to measure, and only a device can answer it:** memory and chunk-build time on the actual
+mobile floor. That is what M0 exists for.
 
 ---
 
@@ -741,7 +758,7 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | R1 | **Float precision past 10k studs** | High if ignored | District sized to 3,600 studs (§3.2) — 4× headroom. No floating origin. Revisit only past ~8,000. |
-| R2 | **Part count / mobile memory** | **Highest** | Collision/visual split (§4.4), greedy meshing (§5.2), `StreamingEnabled`, voxel-size quality setting. **Measure with a real bake in M0** — this estimate is the likeliest thing in this document to be wrong. |
+| R2 | **Part count / mobile memory** | **Highest** | Measured at **40,637 parts**, not the 26,200 first estimated (§5.4). Collision/visual split (§4.4), greedy meshing, `StreamingEnabled`, kerbs off (−5,749), voxel-size quality setting. Memory and chunk-build time on a real phone are still unmeasured and are what M0 is for. |
 | R3 | **Server-authoritative driving feels bad** | High | Do not do it. Client ownership + server validation (§4.1). This is a stated disagreement with the brief. |
 | R4 | **Incident claim races** | Medium | Synchronous no-yield critical section, idempotent claim tokens, per-player rate limit, one slot per player (§4.6). |
 | R5 | **DataStore throttling / duplicate profiles** | High | Session locking with heartbeat; 60 s dirty-write cadence + on-leave + `BindToClose`; single writer for money (§4.5). |
