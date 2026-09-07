@@ -36,38 +36,53 @@ local function buildMesh(): MeshPart?
 	local ok, result = pcall(function()
 		local em = AssetService:CreateEditableMesh()
 
-		local top: { number } = {}
-		local bot: { number } = {}
-		for k = 0, 5 do
-			local cx, cz = corner(k)
-			top[k + 1] = em:AddVertex(Vector3.new(cx, 0.5, cz))
-			bot[k + 1] = em:AddVertex(Vector3.new(cx, -0.5, cz))
+		-- EVERY FACE GETS ITS OWN VERTICES. Nothing is shared, and that is the
+		-- entire reason this reads as a prism rather than as a pebble.
+		--
+		-- A hexagon's corner belongs to the top cap and to two side faces. Share
+		-- one vertex between them and Roblox averages those three face normals
+		-- into a single diagonal one, then interpolates it across each face --
+		-- so a flat hexagonal top shades like a dome, with the specular
+		-- highlight sitting in the middle of it. Reported as "strange glare and
+		-- look round because of that", which is exactly what smooth shading does
+		-- to a shape that has no curves in it.
+		--
+		-- Twenty faces of three unshared vertices is sixty vertices instead of
+		-- twelve. For one mesh cloned across the whole city that is nothing, and
+		-- it makes every face flat-shaded without touching a normals API.
+		local function face(a: Vector3, b: Vector3, c: Vector3)
+			em:AddTriangle(em:AddVertex(a), em:AddVertex(b), em:AddVertex(c))
 		end
 
-		-- WINDING ORDER IS THE WHOLE THING HERE, and getting it wrong does not
-		-- look like a normals bug -- it looks like the prism is transparent.
+		local top: { Vector3 } = {}
+		local bot: { Vector3 } = {}
+		for k = 0, 5 do
+			local cx, cz = corner(k)
+			top[k + 1] = Vector3.new(cx, 0.5, cz)
+			bot[k + 1] = Vector3.new(cx, -0.5, cz)
+		end
+
+		-- WINDING ORDER, and getting it wrong does not look like a normals bug
+		-- -- it looks like the prism is transparent. A face is drawn only when
+		-- its vertices run anticlockwise as seen from outside; wound the other
+		-- way it is back-face culled, so you see through the top of every prism
+		-- at the INSIDE of its far walls. That was the previous bug.
 		--
-		-- A face is drawn only when its vertices run anticlockwise as seen from
-		-- outside; wound the other way it is back-face culled, so you see
-		-- straight through the top of every prism at the INSIDE of its far
-		-- walls. The ground came out as a field of dark hexagonal wells and was
-		-- reported, exactly, as "the road hexes look transparent".
-		--
-		-- Corners run anticlockwise in the XZ plane as the angle increases, and
-		-- +Y is up, so a top cap that follows that order has its normal pointing
+		-- Corners run anticlockwise in the XZ plane as the angle increases and
+		-- +Y is up, so a top cap following corner order has its normal pointing
 		-- DOWN. Hence the reversal on the top and not on the bottom, which is
 		-- the opposite of what looks right when reading it.
 		for k = 2, 5 do
-			em:AddTriangle(top[1], top[k + 1], top[k]) -- faces +Y
-			em:AddTriangle(bot[1], bot[k], bot[k + 1]) -- faces -Y
+			face(top[1], top[k + 1], top[k]) -- faces +Y
+			face(bot[1], bot[k], bot[k + 1]) -- faces -Y
 		end
 
 		-- six side quads, two triangles apiece, each facing out along its own
 		-- edge's outward normal
 		for k = 1, 6 do
 			local n = if k == 6 then 1 else k + 1
-			em:AddTriangle(top[k], bot[n], bot[k])
-			em:AddTriangle(top[k], top[n], bot[n])
+			face(top[k], bot[n], bot[k])
+			face(top[k], top[n], bot[n])
 		end
 
 		return AssetService:CreateMeshPartAsync(Content.fromObject(em), {
