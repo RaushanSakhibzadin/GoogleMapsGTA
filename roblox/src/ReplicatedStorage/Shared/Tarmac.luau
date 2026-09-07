@@ -12,47 +12,14 @@
 -- tarmac.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RoadMask = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RoadMask"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RoadMask = require(Shared:WaitForChild("RoadMask"))
+-- The decoder is shared with the minimap, which arrives the same way.
+local Base64 = require(Shared:WaitForChild("Base64"))
 
 local Tarmac = {}
 
--- ---------------------------------------------------------------- base64
-
--- Luau has no base64 decoder and the mask ships as base64 because 22,500 cells
--- is 2.8 kB packed against 45 kB as a table of ones and zeros -- and a table
--- that size is parse time on every client, every join.
-local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-local LOOKUP: { [number]: number } = {}
-for i = 1, #B64 do
-	LOOKUP[string.byte(B64, i)] = i - 1
-end
-
-local function decodeBase64(s: string): buffer
-	-- strip padding; the length is recomputed from the real character count
-	local clean = string.gsub(s, "=", "")
-	local n = #clean
-	local out = buffer.create((n * 6) // 8)
-	local acc, bits, at = 0, 0, 0
-
-	for i = 1, n do
-		local v = LOOKUP[string.byte(clean, i)]
-		if v == nil then
-			continue -- newline or stray whitespace
-		end
-		acc = acc * 64 + v
-		bits += 6
-		if bits >= 8 then
-			bits -= 8
-			local byte = (acc // (2 ^ bits)) % 256
-			buffer.writeu8(out, at, byte)
-			at += 1
-			acc %= 2 ^ bits
-		end
-	end
-	return out
-end
-
-local BITS = decodeBase64(RoadMask.bits)
+local BITS = Base64.decode(RoadMask.bits)
 local SPAN = RoadMask.span
 local CELL = RoadMask.cellM
 local ORIGIN = RoadMask.originM

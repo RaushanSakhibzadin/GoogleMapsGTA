@@ -75,14 +75,41 @@ function CarBuild.new(colour: Color3): Model
 		w.Parent = model
 	end
 
+	-- WHICH END IS THE FRONT.
+	--
+	-- Reported as "it is hard to understand which side of the car is which",
+	-- and on a plain coloured box it genuinely is -- particularly once the
+	-- camera swings round the front when you reverse, at which point there is
+	-- nothing on screen that says which way the car is pointing.
+	--
+	-- So the car gets the two things that tell you at a glance in any real
+	-- traffic: pale lamps at the front and red ones at the back. Neon, because
+	-- they have to read at a distance and in shadow, and small, because the
+	-- point is orientation rather than decoration. The cabin is also set back
+	-- rather than centred, which gives the silhouette a bonnet.
+	local function lamp(name: string, colour: Color3, x: number, z: number)
+		local p = box(name, W * 0.2, H * 0.16, L * 0.05, colour)
+		p.Material = Enum.Material.Neon
+		p.CFrame = CFrame.new(x, -H * 0.02, z)
+		p.Parent = model
+	end
+	local nose = -L * 0.5
+	local tail = L * 0.5
+	lamp("HeadL", Color3.fromRGB(255, 246, 214), -W * 0.3, nose)
+	lamp("HeadR", Color3.fromRGB(255, 246, 214), W * 0.3, nose)
+	lamp("TailL", Color3.fromRGB(226, 46, 42), -W * 0.3, tail)
+	lamp("TailR", Color3.fromRGB(226, 46, 42), W * 0.3, tail)
+
 	-- POSITIONED ONCE, HERE, relative to the body sitting at the origin. PivotTo
 	-- moves a model's parts together and preserves what they are relative to
 	-- each other, so laying the car out once at build time is all it needs -- an
 	-- earlier version carried a table of per-part offsets and reapplied them
 	-- every frame, which is work PivotTo was already doing.
 	body.CFrame = CFrame.new()
-	cabin.CFrame = CFrame.new(0, H * 0.55, -L * 0.04)
-	glass.CFrame = CFrame.new(0, H * 0.56, -L * 0.045)
+	-- Set BACK from centre, so the bonnet is longer than the boot and the shape
+	-- itself says which way it faces even with the lamps off screen.
+	cabin.CFrame = CFrame.new(0, H * 0.55, L * 0.1)
+	glass.CFrame = CFrame.new(0, H * 0.56, L * 0.06)
 
 	return model
 end

@@ -175,6 +175,20 @@ writeFileSync(`${ROOT}/ReplicatedStorage/Shared/RoadMask.luau`,
   `\tbits = "${CO.mask.bits}",\n` +
   '}\n');
 
+/* ---------------- the minimap ---------------- */
+writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Minimap.luau`,
+  HDR('A picture of the district, two bits a pixel, painted on the client.\n' +
+      '-- Class per pixel: 0 plain, 1 park, 2 pavement, 3 road. Row-major from\n' +
+      '-- the NORTH-WEST corner, which is world (-half, -half) -- +z is south.\n' +
+      '-- Roblox cannot ship an image without uploading it as an asset, so the\n' +
+      '-- map travels as pixels and becomes an EditableImage at runtime.') +
+  'return {\n' +
+  `\tpx = ${CO.minimap.px},\n` +
+  `\thalfStuds = ${R(half)},\n` +
+  `\tstudsPerPixel = ${R(2 * half / CO.minimap.px)},\n` +
+  `\tbits = "${CO.minimap.bits}",\n` +
+  '}\n');
+
 /* ---------------- incident sites ---------------- */
 writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Sites.luau`,
   HDR('Buildings an incident can happen at -- reachable by road, evenly spread.\n' +

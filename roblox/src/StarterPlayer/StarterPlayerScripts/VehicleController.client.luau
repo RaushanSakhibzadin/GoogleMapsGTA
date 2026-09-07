@@ -209,6 +209,25 @@ RunService.RenderStepped:Connect(function(dt)
 
 	local inp = readInput()
 
+	-- STEERING FOLLOWS THE SCREEN, NOT THE CAR.
+	--
+	-- Reported as "it reverts when the camera looks back". When the car reverses
+	-- hard the camera swings round the front so you can see where you are going
+	-- -- and from there the car's own left is on the right of the screen. Steer
+	-- right and the car visibly went left.
+	--
+	-- The browser has REV_REAL for the related question of whether reversing
+	-- should steer like a real car, and the answer there was no: a thumb on a
+	-- stick is not a pair of hands on a wheel. This is the same principle taken
+	-- one step further, because the camera moved too -- the input should mean
+	-- what it looks like it means, and what it looks like depends on where the
+	-- camera is. So the flip is tied to the CAMERA's state, not to the velocity:
+	-- the two thresholds and the dead band that stop the camera chattering
+	-- (VehicleModel.backView) stop the steering chattering with it, for free.
+	if backView then
+		inp.steer = -inp.steer
+	end
+
 	-- ONE QUERY A FRAME, not one a step. The car moves at most a metre or two
 	-- between frames and the query reaches well past that, so the candidate set
 	-- is still correct for every sub-step -- and the broadphase lookup is the

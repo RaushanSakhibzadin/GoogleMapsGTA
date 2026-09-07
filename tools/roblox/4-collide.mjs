@@ -247,6 +247,67 @@ for (const b of D.buildings) {
 const stride = Math.max(1, Math.floor(usable.length / SITE_CAP));
 const sites = usable.filter((_, i) => i % stride === 0).slice(0, SITE_CAP);
 
+/* ---------------- the minimap ----------------
+
+   A PICTURE OF THE DISTRICT, rasterised here and painted into an EditableImage
+   on the client. Roblox cannot ship an image without uploading it as an asset,
+   and an asset needs the Open Cloud pipeline and a moderation pass -- so the
+   map travels as pixels instead, which is the same trick the hex prism uses for
+   its mesh and the same thing proctex.js does in the browser.
+
+   TWO BITS A PIXEL, not a colour: plain / park / road / kerb, with the palette
+   applied on the client. 512 squared at four pixels a byte is 64 kB before
+   base64, against 786 kB for RGB -- and the four classes are all a minimap has
+   ever needed.
+
+   At 1,200 m across 512 pixels this is 2.3 m a pixel, so a residential street
+   is three pixels wide and an arterial seven. Roads are stamped at their real
+   width for that reason rather than as hairlines: a minimap you can read is one
+   where a main road looks like a main road. */
+const MAP_PX = 512;
+const mapBits = new Uint8Array(MAP_PX * MAP_PX);
+const mapPx = m => Math.floor((m + H) / (2 * H) * MAP_PX);
+const mapM = p => (p + 0.5) / MAP_PX * (2 * H) - H;
+
+function mapStampPoly(pts, v) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const q of pts) {
+    x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]);
+    y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]);
+  }
+  for (let j = Math.max(0, mapPx(y0)); j <= Math.min(MAP_PX - 1, mapPx(y1)); j++)
+    for (let i = Math.max(0, mapPx(x0)); i <= Math.min(MAP_PX - 1, mapPx(x1)); i++)
+      if (inPoly(pts, mapM(i), mapM(j))) mapBits[j * MAP_PX + i] = v;
+}
+
+function mapStampLine(pts, width, v) {
+  const rad = width / 2;
+  const ppm = MAP_PX / (2 * H);
+  const reach = Math.ceil(rad * ppm) + 1;
+  for (let s2 = 1; s2 < pts.length; s2++) {
+    const [ax, ay] = pts[s2 - 1], [bx, by] = pts[s2];
+    const len = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(1, Math.ceil(len * ppm));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+      const gi = mapPx(px), gj = mapPx(py);
+      for (let j = gj - reach; j <= gj + reach; j++)
+        for (let i = gi - reach; i <= gi + reach; i++) {
+          if (i < 0 || i >= MAP_PX || j < 0 || j >= MAP_PX) continue;
+          if (Math.hypot(mapM(i) - px, mapM(j) - py) <= rad) mapBits[j * MAP_PX + i] = v;
+        }
+    }
+  }
+}
+
+for (const p of D.parks) mapStampPoly(p.pts, 1);
+if (CONFIG.kerbs) for (const r of D.roads) mapStampLine(r.pts, r.w + 3 * V, 2);
+for (const r of D.roads) mapStampLine(r.pts, r.w, 3);
+
+const mapPacked = Buffer.alloc(mapBits.length / 4);
+for (let i = 0; i < mapBits.length; i++)
+  mapPacked[i >> 2] |= (mapBits[i] & 3) << ((i & 3) * 2);
+
 /* ---------------- out ---------------- */
 writeFileSync(`${CONFIG.out}/collision.json`, JSON.stringify({
   meta: { voxel: V, halfM: H, maskCell: MC, maskSpan: MSPAN,
@@ -254,7 +315,8 @@ writeFileSync(`${CONFIG.out}/collision.json`, JSON.stringify({
   boxes,
   mask: { span: MSPAN, cell: MC, bits: packed.toString('base64') },
   depots: D.pois,
-  sites
+  sites,
+  minimap: { px: MAP_PX, bits: mapPacked.toString('base64') }
 }));
 
 let drivable = 0;
@@ -270,3 +332,6 @@ console.log(`  archways      ${arch} cells left open under a passage`);
 console.log(`  road mask     ${MSPAN} x ${MSPAN} at ${MC} m, ${drivable} drivable cells (${(100 * drivable / mask.length).toFixed(1)}%), ${packed.length} bytes`);
 console.log(`  depots        ${D.pois.map(p => p.kind).join(', ') || '(none in district)'}`);
 console.log(`  incident sites ${sites.length} of ${usable.length} buildings reachable by road`);
+let mapRoad = 0;
+for (const b of mapBits) if (b === 3) mapRoad++;
+console.log(`  minimap       ${MAP_PX}x${MAP_PX} at ${(2 * H / MAP_PX).toFixed(1)} m a pixel, ${(100 * mapRoad / mapBits.length).toFixed(1)}% road, ${(mapPacked.length / 1024).toFixed(0)} kB`);
