@@ -36,7 +36,11 @@
       "$properties": {
         "Technology": "ShadowMap",
         "ClockTime": 15,
-        "GeographicLatitude": 44.81
+        "GeographicLatitude": 44.81,
+
+        "Brightness": 2,
+        "OutdoorAmbient": [0.431, 0.439, 0.463],
+        "Ambient": [0, 0, 0]
       }
     }
   }
