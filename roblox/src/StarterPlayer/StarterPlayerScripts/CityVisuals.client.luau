@@ -51,12 +51,19 @@ if RENDER == "flat" then
 	root.Name = "City"
 	root.Parent = workspace
 
-	CityFlat.ground(FlatMeta.halfStuds, StreetMeta.colours.park, root)
+	-- WAITED FOR, NOT INDEXED. `CityVisual.FlatData` throws "not a valid member"
+	-- if the folder has not replicated yet, and an error here kills the whole
+	-- script -- which renders as an entirely empty world while the minimap,
+	-- being its own script, carries on working. That is exactly how this
+	-- presented, and it is worth a WaitForChild to never see it again.
+	local FlatData = CityVisual:WaitForChild("FlatData")
+
+	CityFlat.ground(FlatMeta.halfStuds, StreetMeta.colours.plain, root)
 
 	-- streets first: they are what tells you where you can drive
 	local streets = 0
 	for _, entry in StreetMeta.chunks do
-		local module = CityVisual.FlatData:FindFirstChild(("Street_%d_%d"):format(entry[1], entry[2]))
+		local module = FlatData:FindFirstChild(("Street_%d_%d"):format(entry[1], entry[2]))
 		if module then
 			streets += CityFlat.streets(require(module), StreetMeta.colours, root)
 		end
@@ -64,7 +71,6 @@ if RENDER == "flat" then
 
 	local made, buildings = 0, 0
 	local t0 = os.clock()
-	local FlatData = CityVisual:WaitForChild("FlatData")
 	for _, entry in FlatMeta.chunks do
 		local module = FlatData:FindFirstChild(("Flat_%d_%d"):format(entry[1], entry[2]))
 		if not module then

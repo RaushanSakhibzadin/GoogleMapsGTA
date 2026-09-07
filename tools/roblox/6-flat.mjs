@@ -315,7 +315,7 @@ writeFileSync(`${ROOT}/StreetMeta.luau`,
   HDR('Which chunks have street ribbons, and what colour each layer is.') +
   'return {\n' +
   '\tcolours = {\n' +
-  ['park', 'kerb', 'road'].map(n => {
+  ['plain', 'park', 'kerb', 'road'].map(n => {
     const v = rgbOf(CONFIG.groundCol[n]);
     return `\t\t${n} = Color3.fromRGB(${v[0]}, ${v[1]}, ${v[2]}),`;
   }).join('\n') +

@@ -5,6 +5,7 @@
 
 return {
 	colours = {
+		plain = Color3.fromRGB(143, 144, 137),
 		park = Color3.fromRGB(127, 168, 100),
 		kerb = Color3.fromRGB(160, 157, 150),
 		road = Color3.fromRGB(74, 74, 77),
