@@ -145,6 +145,13 @@ function build(b) {
     wall: colour(b.wall),
     roof: colour(b.roof),
     wmat: material(familyOf(b.wall, G.MAT, MATERIAL, 'Concrete')),
+    /* HOW MANY COURSES OF WINDOWS, by the browser's rules (render3d.js):
+       nothing under WIN_MIN_H -- a shed or a lock-up gets none -- the ground
+       floor is a shopfront rather than a window course, and the top storey is
+       left plain as a cornice so the roofline does not cut a row in half. */
+    st: b.h >= CONFIG.winMinH
+      ? Math.max(0, Math.floor(b.h / CONFIG.storeyH) - 1)
+      : 0,
     /* The roof colour has been through a 1.22 brightening (buildingColours
        lifts it so the top-down view does not go to mush), so it no longer
        matches its own palette entry exactly -- divide it back out before
@@ -187,7 +194,7 @@ for (const [k, list] of [...chunks.entries()].sort()) {
       ? `gate = { x = ${g.gate.x}, z = ${g.gate.z}, ux = ${g.gate.ux}, uz = ${g.gate.uz}, w = ${g.gate.w}, h = ${g.gate.h} }, `
       : '';
     return `\t{ ox = ${g.ox}, oz = ${g.oz}, h = ${g.h}, wall = ${g.wall}, roof = ${g.roof}, ` +
-           `wmat = ${g.wmat}, rmat = ${g.rmat}, wind = ${g.wind}, ` +
+           `wmat = ${g.wmat}, rmat = ${g.rmat}, wind = ${g.wind}, st = ${g.st}, ` +
            gate +
            `v = { ${g.verts.join(', ')} }, t = { ${g.tris.join(', ')} } },`;
   });
@@ -214,6 +221,12 @@ writeFileSync(`${ROOT}/FlatMeta.luau`,
   /* The materials buildingColours already chose, recovered from its own
      palettes -- see MATERIAL above. This is Roblox's only way to put a texture
      on a surface without an uploaded asset. */
+  /* The window colours, straight from THEMES.day in render3d.js: dark glass by
+     day with a few percent of rooms lit. */
+  `\tglass = Color3.fromRGB(${CONFIG.winGlass.join(', ')}),\n` +
+  `\tlit = Color3.fromRGB(${CONFIG.winLit.join(', ')}),\n` +
+  `\tlitFrac = ${CONFIG.winLitFrac},\n` +
+  `\tstoreyStuds = ${R(CONFIG.storeyH * S)},\n` +
   `\tmaterials = {\n` +
   matNames.map(m => `\t\tEnum.Material.${m},`).join('\n') +
   `\n\t},\n` +

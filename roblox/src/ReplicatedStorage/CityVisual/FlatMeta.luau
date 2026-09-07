@@ -47,6 +47,10 @@ return {
 		Color3.fromRGB(128, 130, 136),
 		Color3.fromRGB(154, 174, 188),
 	},
+	glass = Color3.fromRGB(77, 94, 120),
+	lit = Color3.fromRGB(255, 237, 189),
+	litFrac = 0.03,
+	storeyStuds = 9.6,
 	materials = {
 		Enum.Material.Brick,
 		Enum.Material.Pebble,

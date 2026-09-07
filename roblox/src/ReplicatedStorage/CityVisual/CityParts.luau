@@ -50,6 +50,23 @@ WEDGE.CastShadow = false
 local SHEET = 0.25
 local WALL_T = 0.6
 
+-- A GLASS BAND IS THICKER THAN THE WALL IT SITS IN, and that is the trick that
+-- makes windows cheap: proud on both faces, so it shows from the street without
+-- anyone having to work out which way the wall faces outward. Getting that
+-- direction right per edge is exactly the winding problem that has bitten this
+-- project twice; not needing to know it is worth 0.3 of a stud.
+local GLASS_T = 1.0
+local COURSE = 1.4 * 3 -- a window course is about 1.4 m tall
+local PIER = 1.2 -- studs of solid wall left at each corner
+
+-- Deterministic 0..1, the same sin-based mix the bake uses for heights and the
+-- browser uses for its own per-building choices -- so which windows are lit is
+-- stable across a rejoin instead of flickering on every build.
+local function hash01(a: number, b: number): number
+	local x = math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+	return x - math.floor(x)
+end
+
 -- ---------------------------------------------------------------- a triangle
 
 -- ARBITRARY TRIANGLES ARE TWO RIGHT TRIANGLES, and a WedgePart is a right
@@ -95,12 +112,13 @@ end
 
 -- ---------------------------------------------------------------- a building
 
-function CityParts.building(
-	b,
-	palette: { Color3 },
-	materials: { Enum.Material },
-	parent: Instance
-): number
+function CityParts.building(b, meta, parent: Instance): number
+	local palette: { Color3 } = meta.palette
+	local materials: { Enum.Material } = meta.materials
+	local glassColour: Color3 = meta.glass
+	local litColour: Color3 = meta.lit
+	local litFrac: number = meta.litFrac
+	local storeyStuds: number = meta.storeyStuds
 	local v = b.v
 	local n = #v // 2
 	if n < 3 then
@@ -150,6 +168,34 @@ function CityParts.building(
 		p.Material = wallMat
 		p.Parent = parent
 		made += 1
+
+		-- ---- windows: a glass band a storey ----
+		--
+		-- Set into the wall run rather than replacing it, so the wall behind
+		-- stays solid and a window is a band of glass across the facade. The
+		-- courses start one storey up (the ground floor is a shopfront) and
+		-- stop short of the top (a plain cornice), which is what the browser's
+		-- shader does and what stops a roofline cutting a row in half.
+		local courses = b.st or 0
+		if courses > 0 and len >= 4 and bottom == 0 then
+			local bandLen = math.max(1, len - PIER)
+			local dirX, dirZ = dx / len, dz / len
+			local mx, mz = (ax + bx) / 2, (az + bz) / 2
+			for k = 1, courses do
+				local y = k * storeyStuds
+				if y + COURSE * 0.5 > h then
+					break
+				end
+				local lit = hash01(math.floor(ax * 7 + az * 13) + i * 31, k) < litFrac
+				local g = BOX:Clone()
+				g.Size = Vector3.new(GLASS_T, COURSE, bandLen)
+				g.CFrame = CFrame.lookAt(Vector3.new(mx, y, mz), Vector3.new(mx + dirX, y, mz + dirZ))
+				g.Color = if lit then litColour else glassColour
+				g.Material = if lit then Enum.Material.Neon else Enum.Material.Glass
+				g.Parent = parent
+				made += 1
+			end
+		end
 	end
 
 	-- ---- roof: two wedges a triangle ----

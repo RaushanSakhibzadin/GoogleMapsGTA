@@ -79,7 +79,7 @@ for _, entry in FlatMeta.chunks do
 	local folder = Instance.new("Folder")
 	folder.Name = module.Name
 	for _, b in require(module) :: { any } do
-		made += CityParts.building(b, FlatMeta.palette, FlatMeta.materials, folder)
+		made += CityParts.building(b, FlatMeta, folder)
 		buildings += 1
 		breathe()
 	end
