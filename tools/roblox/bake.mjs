@@ -18,7 +18,8 @@ const STAGES = [
   ['2-voxelise.mjs', 'district to a voxel lattice'],
   ['3-mesh.mjs', 'greedy meshing into boxes'],
   ['4-collide.mjs', 'collision volumes, road mask, depots'],
-  ['5-emit.mjs', 'Luau for Rojo']
+  ['5-emit.mjs', 'Luau for Rojo'],
+  ['6-flat.mjs', 'extruded footprints and the painted ground']
 ];
 
 const t0 = Date.now();

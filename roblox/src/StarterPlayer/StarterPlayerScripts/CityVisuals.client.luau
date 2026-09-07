@@ -14,7 +14,17 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local CityBuild = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityBuild"))
+local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
+local CityBuild = require(CityVisual:WaitForChild("CityBuild"))
+local CityFlat = require(CityVisual:WaitForChild("CityFlat"))
+local FlatMeta = require(CityVisual:WaitForChild("FlatMeta"))
+local GroundTex = require(CityVisual:WaitForChild("GroundTex"))
+local Base64 = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Base64"))
+
+-- 'flat' draws each building from its own footprint, the way the browser does;
+-- 'voxel' rasterises onto the lattice. Both are baked, so this is a one-word
+-- change and a reconnect. See CONFIG.render in tools/roblox/config.mjs.
+local RENDER = "flat"
 
 local MS_PER_FRAME = 6 / 1000
 
@@ -36,14 +46,48 @@ local CAST_SHADOWS = false
 CityBuild.clearWorkspace({ "City" })
 
 local started = os.clock()
-local made, realHex = CityBuild.shell(CAST_SHADOWS, MS_PER_FRAME, function()
-	RunService.Heartbeat:Wait()
-end)
 
-print(
-	("[city] %d parts in %.2fs (%s)"):format(
-		made,
-		os.clock() - started,
-		if CityBuild.isHex then (if realHex then "hex prisms" else "hex lattice, BLOCK fallback") else "boxes"
+if RENDER == "flat" then
+	local root = Instance.new("Folder")
+	root.Name = "City"
+	root.Parent = workspace
+
+	CityFlat.ground(GroundTex, Base64.decode, root)
+
+	local made, buildings = 0, 0
+	local t0 = os.clock()
+	local FlatData = CityVisual:WaitForChild("FlatData")
+	for _, entry in FlatMeta.chunks do
+		local module = FlatData:FindFirstChild(("Flat_%d_%d"):format(entry[1], entry[2]))
+		if not module then
+			continue
+		end
+		local folder = Instance.new("Folder")
+		folder.Name = module.Name
+		for _, b in require(module) :: { any } do
+			made += CityFlat.building(b, FlatMeta.palette, folder)
+			buildings += 1
+			-- CreateMeshPartAsync yields on its own, so the budget here is about
+			-- not stacking a hundred of them into one frame's worth of work
+			-- rather than about a loop that never lets go.
+			if buildings % 24 == 0 and os.clock() - t0 > MS_PER_FRAME then
+				RunService.Heartbeat:Wait()
+				t0 = os.clock()
+			end
+		end
+		folder.Parent = root
+	end
+	print(("[city] %d buildings, %d meshes in %.2fs (extruded footprints)")
+		:format(buildings, made, os.clock() - started))
+else
+	local made, realHex = CityBuild.shell(CAST_SHADOWS, MS_PER_FRAME, function()
+		RunService.Heartbeat:Wait()
+	end)
+	print(
+		("[city] %d parts in %.2fs (%s)"):format(
+			made,
+			os.clock() - started,
+			if CityBuild.isHex then (if realHex then "hex prisms" else "hex lattice, BLOCK fallback") else "boxes"
+		)
 	)
-)
+end

@@ -25,7 +25,7 @@ import { createContext, runInContext } from 'node:vm';
 /* The load order from index.html, for the three files the bake needs. It
    matters here for the same reason it matters in the browser: geo.js reads
    PAL and world.js reads both. */
-const FILES = ['js/util.js', 'js/geo.js', 'js/world.js'];
+const FILES = ['js/util.js', 'js/geo.js', 'js/world.js', 'js/gl.js'];
 
 /* Everything the pipeline is allowed to reach for. Naming them explicitly is
    what turns "world.js changed and the bake broke" into a ReferenceError at
@@ -35,7 +35,9 @@ const WANTED = [
   'ROADW', 'DRIVABLE', 'GEO', 'setOrigin', 'projX', 'projY',
   'parseOSM', 'buildingColours', 'standingBuilding', 'osmName',
   'polyArea', 'centroid', 'bbox', 'POI_KIND', 'MONU_KIND',
-  'clamp', 'parseColour', 'PAL', 'MAT', 'ROOFMAT'
+  'clamp', 'parseColour', 'PAL', 'MAT', 'ROOFMAT',
+  // the roof triangulation, so the bake and the browser cut the same roofs
+  'earClip', 'windingOf'
 ];
 
 let CACHE = null;

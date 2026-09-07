@@ -36,6 +36,21 @@ export const CONFIG = {
      Gravity is deliberately NOT adjusted to match. See §3.2. */
   studsPerM: 3,
 
+  /* ---------------- how the city is drawn ----------------
+
+   * 'flat'  -- each building extruded from its own OSM polygon and the ground
+   *            as one painted surface, which is what js/render3d.js draws.
+   * 'voxel' -- rasterised onto the lattice below, as cubes or hex prisms.
+   *
+   * Measured on this district, and the gap is not marginal:
+   *
+   *       voxel, hex 2.5 m, windows    252,817 parts
+   *       flat, extruded footprints      3,039 parts
+   *
+   * Both paths are kept and both are baked, so switching is one line here and a
+   * reconnect. The lattice settings below only matter to 'voxel'. */
+  render: 'flat',
+
   /* ---------------- the lattice ----------------
 
    * 'square' or 'hex'. See tools/roblox/lattice.mjs for the shapes; what
