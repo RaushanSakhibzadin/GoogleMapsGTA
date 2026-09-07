@@ -79,3 +79,11 @@ The plan estimated 24,000 visual and 2,200 collision. Both were optimistic —
 see the note on `CONFIG.kerbs` and `CONFIG.shades` for the two knobs that move
 the first number, and be aware that Belgrade's streets do not run along the
 lattice, which is most of why the second one is three times the estimate.
+
+## Toolchain
+
+Built and synced against **Rojo 7.7.0** (`brew install rojo`). The project file
+uses the Rojo 7 format; a Rojo 6 CLI or Studio plugin will not talk to it, and
+the CLI and the Studio plugin must be the same version — which is what
+`rojo plugin install` guarantees and picking one out of the Creator Store does
+not.
