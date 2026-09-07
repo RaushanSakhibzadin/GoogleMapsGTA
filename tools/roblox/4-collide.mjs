@@ -211,13 +211,50 @@ for (const r of D.roads) {
 const packed = Buffer.alloc(Math.ceil(mask.length / 8));
 for (let i = 0; i < mask.length; i++) if (mask[i]) packed[i >> 3] |= 1 << (i & 7);
 
+/* ---------------- incident sites ----------------
+
+   Somewhere for a fire to be. A building is only usable if you can DRIVE to it,
+   so each candidate is kept only when the drivable mask has tarmac within
+   reach -- otherwise dispatch sends people to a courtyard in the middle of a
+   block with no way in, which is the same bug the browser hit with its depots
+   and fixed with depotGate().
+
+   Capped and evenly spread rather than taking the first N: a list built in
+   parse order is a list of whatever happens to be in the north-west corner. */
+const SITE_REACH = 40;             // metres from the building to the nearest road
+const SITE_CAP = 400;
+function nearRoadCell(x, y, reach) {
+  const c = Math.ceil(reach / MC);
+  const gi = Math.floor((x + H) / MC), gj = Math.floor((y + H) / MC);
+  for (let j = gj - c; j <= gj + c; j++)
+    for (let i = gi - c; i <= gi + c; i++)
+      if (i >= 0 && i < MSPAN && j >= 0 && j < MSPAN && mask[j * MSPAN + i]) {
+        const dx = (i + 0.5) * MC - H - x, dy = (j + 0.5) * MC - H - y;
+        if (Math.hypot(dx, dy) <= reach) return true;
+      }
+  return false;
+}
+
+const usable = [];
+for (const b of D.buildings) {
+  let cx = 0, cy = 0;
+  for (const p of b.pts) { cx += p[0]; cy += p[1]; }
+  cx /= b.pts.length; cy /= b.pts.length;
+  if (!nearRoadCell(cx, cy, SITE_REACH)) continue;
+  usable.push({ x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10,
+                name: b.name || '', h: b.h });
+}
+const stride = Math.max(1, Math.floor(usable.length / SITE_CAP));
+const sites = usable.filter((_, i) => i % stride === 0).slice(0, SITE_CAP);
+
 /* ---------------- out ---------------- */
 writeFileSync(`${CONFIG.out}/collision.json`, JSON.stringify({
   meta: { voxel: V, halfM: H, maskCell: MC, maskSpan: MSPAN,
           note: 'boxes are [x, z, sx, sz, levels] in lattice cells; y from 0 to levels' },
   boxes,
   mask: { span: MSPAN, cell: MC, bits: packed.toString('base64') },
-  depots: D.pois
+  depots: D.pois,
+  sites
 }));
 
 let drivable = 0;
@@ -232,3 +269,4 @@ for (const v of baseCell.values()) if (v > 0) arch++;
 console.log(`  archways      ${arch} cells left open under a passage`);
 console.log(`  road mask     ${MSPAN} x ${MSPAN} at ${MC} m, ${drivable} drivable cells (${(100 * drivable / mask.length).toFixed(1)}%), ${packed.length} bytes`);
 console.log(`  depots        ${D.pois.map(p => p.kind).join(', ') || '(none in district)'}`);
+console.log(`  incident sites ${sites.length} of ${usable.length} buildings reachable by road`);

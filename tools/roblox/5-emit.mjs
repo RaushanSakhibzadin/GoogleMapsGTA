@@ -175,6 +175,16 @@ writeFileSync(`${ROOT}/ReplicatedStorage/Shared/RoadMask.luau`,
   `\tbits = "${CO.mask.bits}",\n` +
   '}\n');
 
+/* ---------------- incident sites ---------------- */
+writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Sites.luau`,
+  HDR('Buildings an incident can happen at -- reachable by road, evenly spread.\n' +
+      '-- Studs. name is the OSM name where there is one, for the dispatch card.') +
+  'return {\n' +
+  CO.sites.map(s2 =>
+    `\t{ x = ${R(s2.x * S)}, z = ${R(s2.y * S)}, h = ${R(s2.h * S)}, name = ${JSON.stringify(s2.name)} },`
+  ).join('\n') +
+  '\n}\n');
+
 /* ---------------- depots ---------------- */
 writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Depots.luau`,
   HDR('Where a shift can be signed on, from OSM amenity tags.') +
