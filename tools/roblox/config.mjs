@@ -144,7 +144,12 @@ export const CONFIG = {
   groundCol: {
     plain: '#8f9089',      // undeveloped ground / yards, a neutral grey-green
     park:  '#7fa864',      // grass, a shade deeper than the map's #9dbf86
-    kerb:  '#b9b5ad',      // pavement, the lightest thing at street level
+    /* Pavement. It IS the lightest thing at street level, but not by much: the
+       first attempt at this used #b9b5ad, and under an outdoor ambient a pale
+       warm grey next to dark asphalt blew out into white bands that read as
+       glare or as snow rather than as concrete — the same failure mode as the
+       navy it replaced, in the other direction. Concrete is a mid grey. */
+    kerb:  '#a09d96',
     road:  '#4a4a4d'       // asphalt, and darker than everything around it
   },
 
