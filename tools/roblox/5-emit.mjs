@@ -20,7 +20,7 @@
  * Usage: node tools/roblox/5-emit.mjs
  */
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { CONFIG } from './config.mjs';
+import { CONFIG, CHUNK_VOX } from './config.mjs';
 import { readFileSync } from 'node:fs';
 
 const V = CONFIG.voxel;
@@ -98,7 +98,7 @@ writeFileSync(`${ROOT}/ReplicatedStorage/CityVisual/CityMeta.luau`,
   'return {\n' +
   `\tstudsPerMetre = ${S},\n` +
   `\tvoxelStuds = ${R(M)},\n` +
-  `\tchunkStuds = ${R(CONFIG.chunkVox * M)},\n` +
+  `\tchunkStuds = ${R(CHUNK_VOX * M)},\n` +
   `\thalfStuds = ${R(half)},\n` +
   `\tchunks = {\n` +
   index.map(([cx, cz, n]) => `\t\t{ ${cx}, ${cz}, ${n} },`).join('\n') +

@@ -31,6 +31,21 @@ local ChunkData = CityVisual:WaitForChild("ChunkData")
 
 local MS_PER_SLICE = 12 / 1000
 
+-- WHETHER THE CITY CASTS SHADOWS AT ALL.
+--
+-- Off, and that is a real choice rather than a saving. Every shadow in the
+-- first Studio builds was thrown by the INVISIBLE collision boxes -- transparency
+-- hides a part but does not stop it casting -- so they were fitted to the
+-- lattice rather than to the faces you can see, lined up with nothing, and
+-- blinked as the camera moved. Reported as hard to look at, which it was.
+--
+-- With those silenced the honest options are no shadows, or shadows cast by the
+-- shell itself. The shell is correct and aligned but it is tens of thousands of
+-- casters, so it is worth measuring before it is assumed. Flip this to true to
+-- try it; the sun angle still shades faces by their normal either way, so the
+-- city is not flat with it off.
+local CAST_SHADOWS = false
+
 local M = {}
 
 function M.clear()
@@ -49,7 +64,7 @@ local function shell(): number
 	template.CanCollide = false
 	template.CanQuery = false
 	template.CanTouch = false
-	template.CastShadow = false
+	template.CastShadow = CAST_SHADOWS
 	template.Material = Enum.Material.SmoothPlastic
 	template.TopSurface = Enum.SurfaceType.Smooth
 	template.BottomSurface = Enum.SurfaceType.Smooth
@@ -103,10 +118,11 @@ local function collision(): number
 	local template = Instance.new("Part")
 	template.Anchored = true
 	template.CanCollide = true
-	template.CastShadow = false
 	-- Invisible: the voxel shell already occupies this space, and two visible
-	-- surfaces in the same place is z-fighting.
+	-- surfaces in the same place is z-fighting. CastShadow off as well as
+	-- transparent -- transparency hides a part, it does not stop it casting.
 	template.Transparency = 1
+	template.CastShadow = false
 
 	local root = Instance.new("Folder")
 	root.Name = "Collision"
@@ -153,6 +169,7 @@ return setmetatable(M, {
 		ground.Name = "Ground"
 		ground.Anchored = true
 		ground.Transparency = 1
+		ground.CastShadow = false
 		ground.Size = Vector3.new(Meta.halfStuds * 2, 4, Meta.halfStuds * 2)
 		ground.Position = Vector3.new(0, -2, 0)
 		ground.Parent = workspace

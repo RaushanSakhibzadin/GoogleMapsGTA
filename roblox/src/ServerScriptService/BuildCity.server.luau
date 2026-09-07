@@ -18,12 +18,18 @@ local MS_PER_FRAME = 8 / 1000
 local template = Instance.new("Part")
 template.Anchored = true
 template.CanCollide = true
-template.CastShadow = false
 template.Material = Enum.Material.SmoothPlastic
 -- INVISIBLE, because the voxel shell is standing in exactly this space. Two
 -- visible surfaces in the same place is z-fighting, and the shell is the one
 -- with the colours on it.
 template.Transparency = 1
+-- AND INVISIBLE IS NOT ENOUGH. Transparency hides a part; it does not stop it
+-- casting. CastShadow defaults to true, so these boxes were throwing every
+-- shadow in the city while the shell that you can actually see threw none --
+-- and because they are fitted to the lattice rather than to the shell's own
+-- faces, the shadows did not line up with anything and blinked as the camera
+-- moved. Reported from Studio as "shadows still glitch/blink".
+template.CastShadow = false
 
 local root = Instance.new("Folder")
 root.Name = "Collision"
@@ -56,6 +62,7 @@ ground.Name = "Ground"
 ground.Anchored = true
 ground.CanCollide = true
 ground.Transparency = 1
+ground.CastShadow = false
 ground.Size = Vector3.new(Meta.halfStuds * 2, 4, Meta.halfStuds * 2)
 -- Top face at y = 0, which is where the voxel ground layer's top face is too.
 ground.Position = Vector3.new(0, -2, 0)
@@ -66,6 +73,7 @@ spawnPad.Name = "Start"
 spawnPad.Anchored = true
 spawnPad.CanCollide = true
 spawnPad.Transparency = 1
+spawnPad.CastShadow = false
 spawnPad.Size = Vector3.new(12, 1, 12)
 spawnPad.Position = Vector3.new(0, 40, 0)
 spawnPad.Parent = workspace

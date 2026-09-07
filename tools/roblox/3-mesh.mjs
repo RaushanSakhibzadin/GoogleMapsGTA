@@ -27,12 +27,12 @@
  * Usage: node tools/roblox/3-mesh.mjs
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { CONFIG } from './config.mjs';
+import { CONFIG, CHUNK_VOX } from './config.mjs';
 import { gameSrc } from './gamesrc.mjs';
 
 const G = gameSrc();
 const V = CONFIG.voxel;
-const CH = CONFIG.chunkVox;
+const CH = CHUNK_VOX;
 const src = JSON.parse(readFileSync(`${CONFIG.out}/voxels.json`, 'utf8'));
 const [I0, I1] = src.meta.cellRange;
 const SPAN = src.meta.span;

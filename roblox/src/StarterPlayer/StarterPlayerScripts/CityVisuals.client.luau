@@ -27,6 +27,21 @@ local ChunkData = CityVisual:WaitForChild("ChunkData")
 
 local MS_PER_FRAME = 6 / 1000 -- how much of each frame this may spend building
 
+-- WHETHER THE CITY CASTS SHADOWS AT ALL.
+--
+-- Off, and that is a real choice rather than a saving. Every shadow in the
+-- first Studio builds was thrown by the INVISIBLE collision boxes -- transparency
+-- hides a part but does not stop it casting -- so they were fitted to the
+-- lattice rather than to the faces you can see, lined up with nothing, and
+-- blinked as the camera moved. Reported as hard to look at, which it was.
+--
+-- With those silenced the honest options are no shadows, or shadows cast by the
+-- shell itself. The shell is correct and aligned but it is tens of thousands of
+-- casters, so it is worth measuring before it is assumed. Flip this to true to
+-- try it; the sun angle still shades faces by their normal either way, so the
+-- city is not flat with it off.
+local CAST_SHADOWS = false
+
 -- The template every voxel box is cloned from. CanCollide, CanQuery and
 -- CanTouch are all off: this is scenery, and leaving any of them on would put
 -- thirty thousand parts into the broadphase and raycast set for nothing.
@@ -35,7 +50,7 @@ template.Anchored = true
 template.CanCollide = false
 template.CanQuery = false
 template.CanTouch = false
-template.CastShadow = false
+template.CastShadow = CAST_SHADOWS
 template.Material = Enum.Material.SmoothPlastic
 template.TopSurface = Enum.SurfaceType.Smooth
 template.BottomSurface = Enum.SurfaceType.Smooth

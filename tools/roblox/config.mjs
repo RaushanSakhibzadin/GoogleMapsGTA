@@ -42,13 +42,19 @@ export const CONFIG = {
      outlines legible at four times the voxel count. The whole pipeline reads
      this one number — bake both and choose with your eyes, which is what M0 in
      the plan is for. */
-  voxel: 4,
+  voxel: 2,
 
-  /* Chunk edge in VOXELS. 32 voxels at 4 m is a 128 m chunk, which at 3 studs/m
-     is 384 studs — comfortably inside a StreamingEnabled radius, and about a
-     hundred chunks across the district. The client builds and unloads by chunk,
-     so this is the granularity of every hitch and every unload. */
-  chunkVox: 32,
+  /* Chunk edge in METRES, not in voxels — which is the fix for a bug the 2 m
+     bake exposed. It used to be 32 voxels, and 32 voxels at 4 m is a 128 m
+     chunk; at 2 m the same 32 became a 64 m chunk, so halving the voxel size
+     silently quadrupled the number of chunk files to 361 and made every chunk
+     an eighth of the volume it was tuned to be. Stating the size the client
+     actually cares about keeps it fixed while the lattice under it changes.
+
+     128 m is 384 studs at 3 studs/m — comfortably inside a streaming radius,
+     and about a hundred chunks across the district. The client builds and
+     unloads by chunk, so this is the granularity of every hitch. */
+  chunkM: 128,
 
   /* ---------------- what gets built ---------------- */
 
@@ -171,3 +177,6 @@ export const CONFIG = {
  * through 5-emit.mjs, because getting one of them wrong mirrors the city and
  * the mistake is invisible until somebody who knows Belgrade looks at it. */
 export const toStuds = (m) => m * CONFIG.studsPerM;
+
+/* The chunk edge in lattice cells, which is what the mesher indexes by. */
+export const CHUNK_VOX = Math.max(1, Math.round(CONFIG.chunkM / CONFIG.voxel));
