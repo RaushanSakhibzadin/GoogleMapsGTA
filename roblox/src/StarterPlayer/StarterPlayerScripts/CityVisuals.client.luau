@@ -1,114 +1,92 @@
 --!strict
--- Build the city on the client, from the baked chunk data.
+-- Build the city on the client, from the baked data.
 --
 -- ON THE CLIENT, AND ON PURPOSE. Every part this makes is decoration: the
 -- collision the car actually hits is a separate, much smaller set built by the
 -- server. So none of it replicates, none of it costs the server anything, and
--- none of it enters a physics broadphase -- which is what makes a hundred
--- thousand parts affordable at all.
+-- none of it enters a physics broadphase.
 --
--- The building itself lives in CityVisual/CityBuild, shared with the edit-mode
--- builder. This file is the part that is specific to being in a live game: the
--- frame budget, and clearing whatever was there before.
+-- ORDINARY PARTS, NOTHING GENERATED. Buildings are boxes and wedges, streets
+-- are boxes, and the only textures are Roblox's own materials. An earlier build
+-- made a MeshPart per building through EditableMesh -- the right shape for the
+-- job, and untestable from where this was written; it failed twice for reasons
+-- that were invisible until somebody looked at a screen. See CityParts.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
-local CityBuild = require(CityVisual:WaitForChild("CityBuild"))
-local CityFlat = require(CityVisual:WaitForChild("CityFlat"))
+local CityParts = require(CityVisual:WaitForChild("CityParts"))
 local FlatMeta = require(CityVisual:WaitForChild("FlatMeta"))
 local StreetMeta = require(CityVisual:WaitForChild("StreetMeta"))
 
--- 'flat' draws each building from its own footprint, the way the browser does;
--- 'voxel' rasterises onto the lattice. Both are baked, so this is a one-word
--- change and a reconnect. See CONFIG.render in tools/roblox/config.mjs.
-local RENDER = "flat"
+-- WAITED FOR, NOT INDEXED. `CityVisual.FlatData` throws "not a valid member" if
+-- the folder has not replicated yet, and an error here kills the whole script
+-- -- which renders as an entirely empty world while the minimap, being its own
+-- script, carries on working. That is exactly how it presented once already.
+local FlatData = CityVisual:WaitForChild("FlatData")
 
 local MS_PER_FRAME = 6 / 1000
 
--- WHETHER THE CITY CASTS SHADOWS AT ALL.
---
--- Off. Every shadow in the first Studio builds was thrown by the INVISIBLE
--- collision boxes -- transparency hides a part but does not stop it casting --
--- so they were fitted to the collision lattice rather than to the faces you can
--- see, lined up with nothing, and blinked as the camera moved. With those
--- silenced the honest options are no shadows, or shadows cast by the shell
--- itself, which is tens of thousands of casters and worth measuring before
--- assuming. The sun still shades faces by their normal either way.
-local CAST_SHADOWS = false
+-- ROBLOX'S DEFAULT BASEPLATE IS 512 x 512 AT (0, -10, 0), so its top face sits
+-- at y = 0 -- coplanar with this city's ground, and the two z-fight. It cost
+-- three rounds of being chased as a shadow bug.
+for _, name in { "City", "Baseplate" } do
+	local stale = workspace:FindFirstChild(name)
+	if stale then
+		stale:Destroy()
+	end
+end
 
--- ANYTHING ALREADY THERE GOES FIRST. BuildNow leaves its parts in Workspace
--- permanently -- it runs in the edit session, so its output is saved into the
--- place like any other instance -- and pressing Play then built a SECOND city
--- exactly on top of the first. Coincident surfaces fight over every pixel.
-CityBuild.clearWorkspace({ "City" })
+local root = Instance.new("Folder")
+root.Name = "City"
+root.Parent = workspace
 
 local started = os.clock()
+local t0 = os.clock()
+local n = 0
 
-if RENDER == "flat" then
-	local root = Instance.new("Folder")
-	root.Name = "City"
-	root.Parent = workspace
-
-	-- WAITED FOR, NOT INDEXED. `CityVisual.FlatData` throws "not a valid member"
-	-- if the folder has not replicated yet, and an error here kills the whole
-	-- script -- which renders as an entirely empty world while the minimap,
-	-- being its own script, carries on working. That is exactly how this
-	-- presented, and it is worth a WaitForChild to never see it again.
-	local FlatData = CityVisual:WaitForChild("FlatData")
-
-	CityFlat.ground(FlatMeta.halfStuds, StreetMeta.colours.plain, root)
-
-	-- streets first: they are what tells you where you can drive
-	local streets = 0
-	for _, entry in StreetMeta.chunks do
-		local module = FlatData:FindFirstChild(("Street_%d_%d"):format(entry[1], entry[2]))
-		if module then
-			streets += CityFlat.streets(require(module), StreetMeta.colours, root)
-		end
+local function breathe()
+	n += 1
+	if n % 200 == 0 and os.clock() - t0 > MS_PER_FRAME then
+		RunService.Heartbeat:Wait()
+		t0 = os.clock()
 	end
+end
 
-	local made, buildings = 0, 0
-	local t0 = os.clock()
-	for _, entry in FlatMeta.chunks do
-		local module = FlatData:FindFirstChild(("Flat_%d_%d"):format(entry[1], entry[2]))
-		if not module then
-			continue
-		end
+CityParts.ground(FlatMeta.halfStuds, StreetMeta.colours.plain, root)
+
+-- Streets first: they are what tells you where you can drive, and they come
+-- from the same centrelines the drivable mask was stamped from.
+local streets = 0
+for _, entry in StreetMeta.chunks do
+	local module = FlatData:FindFirstChild(("Street_%d_%d"):format(entry[1], entry[2]))
+	if module then
 		local folder = Instance.new("Folder")
 		folder.Name = module.Name
-		for _, b in require(module) :: { any } do
-			made += CityFlat.building(b, FlatMeta.palette, FlatMeta.materials, folder)
-			buildings += 1
-			-- CreateMeshPartAsync yields on its own, so the budget here is about
-			-- not stacking a hundred of them into one frame's worth of work
-			-- rather than about a loop that never lets go.
-			if buildings % 24 == 0 and os.clock() - t0 > MS_PER_FRAME then
-				RunService.Heartbeat:Wait()
-				t0 = os.clock()
-			end
-		end
+		streets += CityParts.streets(require(module), StreetMeta, folder)
 		folder.Parent = root
+		breathe()
 	end
-	-- SAY WHAT FAILED, rather than quietly drawing fewer buildings. The first
-	-- version of this reported only what it made, so 1,519 buildings coming out
-	-- as one looked like a geometry bug rather than an exhausted resource.
-	print(("[city] %d buildings, %d meshes, %d street layers in %.2fs (extruded footprints)")
-		:format(buildings, made, streets, os.clock() - started))
-	if CityFlat.failed > 0 then
-		warn(("[city] %d meshes FAILED -- first error: %s")
-			:format(CityFlat.failed, tostring(CityFlat.firstError)))
-	end
-else
-	local made, realHex = CityBuild.shell(CAST_SHADOWS, MS_PER_FRAME, function()
-		RunService.Heartbeat:Wait()
-	end)
-	print(
-		("[city] %d parts in %.2fs (%s)"):format(
-			made,
-			os.clock() - started,
-			if CityBuild.isHex then (if realHex then "hex prisms" else "hex lattice, BLOCK fallback") else "boxes"
-		)
-	)
 end
+
+local made, buildings = 0, 0
+for _, entry in FlatMeta.chunks do
+	local module = FlatData:FindFirstChild(("Flat_%d_%d"):format(entry[1], entry[2]))
+	if not module then
+		continue
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = module.Name
+	for _, b in require(module) :: { any } do
+		made += CityParts.building(b, FlatMeta.palette, FlatMeta.materials, folder)
+		buildings += 1
+		breathe()
+	end
+	folder.Parent = root
+end
+
+print(
+	("[city] %d buildings, %d parts, %d street parts in %.2fs")
+		:format(buildings, made, streets, os.clock() - started)
+)

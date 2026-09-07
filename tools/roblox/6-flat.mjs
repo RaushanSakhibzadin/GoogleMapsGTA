@@ -240,41 +240,41 @@ writeFileSync(`${ROOT}/FlatMeta.luau`,
    z-fight: parks lowest, then the pavement ribbon, then the tarmac on top. */
 const LIFT_PARK = 0.03 * S, LIFT_KERB = 0.06 * S, LIFT_ROAD = 0.09 * S;
 
-const ribbons = new Map();               // "cx,cz" -> { park, kerb, road }
-function layerFor(x, z) {
+/* ROADS TRAVEL AS SEGMENTS, NOT TRIANGLES.
+ *
+ * A straight run of road is a box: width across, length along, a few
+ * centimetres thick. That is one ordinary Part, with a real Roblox material on
+ * it, and no mesh has to be generated at runtime to make it. Parks are polygons
+ * and cannot be boxes, so those still travel as triangles -- there are few of
+ * them and a triangle is two wedges.
+ *
+ * Five numbers a segment: the two endpoints and the width. The client works out
+ * the rest, which is cheaper to ship and much cheaper to read. */
+const strips = new Map();                // "cx,cz" -> { kerb: [], road: [], park: [] }
+function stripFor(x, z) {
   const k = Math.floor(x / CH) + ',' + Math.floor(z / CH);
-  let e = ribbons.get(k);
-  if (!e) ribbons.set(k, e = { park: [], kerb: [], road: [] });
+  let e = strips.get(k);
+  if (!e) strips.set(k, e = { kerb: [], road: [], park: [] });
   return e;
 }
 
-/* One segment of a road, as a quad. The corners are the centreline offset by
-   half the width along the segment's normal; consecutive segments simply
-   overlap at a bend, which at these widths reads as a join and costs nothing. */
-function pushQuad(out, ax, az, bx, bz, half, y) {
-  const dx = bx - ax, dz = bz - az;
-  const len = Math.hypot(dx, dz) || 1;
-  const nx = -dz / len * half, nz = dx / len * half;
-  const p1 = [ax + nx, y, az + nz], p2 = [bx + nx, y, bz + nz];
-  const p3 = [bx - nx, y, bz - nz], p4 = [ax - nx, y, az - nz];
-  /* Wound so the normal is +Y. Same trap as the roofs: the order that reads
-     naturally faces the ground. */
-  out.push(p1, p3, p2, p1, p4, p3);
-}
-
-function stampRibbon(pts, widthM, y, pick) {
-  const half = widthM / 2 * S;
+function stampSegments(pts, widthM, pick) {
+  const w = widthM * S;
   for (let i = 1; i < pts.length; i++) {
     const ax = pts[i - 1][0] * S, az = pts[i - 1][1] * S;
     const bx = pts[i][0] * S, bz = pts[i][1] * S;
-    pushQuad(pick(layerFor((ax + bx) / 2, (az + bz) / 2)), ax, az, bx, bz, half, y);
+    if (Math.hypot(bx - ax, bz - az) < 0.05) continue;   // a repeated vertex
+    pick(stripFor((ax + bx) / 2, (az + bz) / 2))
+      .push(R(ax), R(az), R(bx), R(bz), R(w));
   }
 }
 
-if (CONFIG.kerbs) for (const r of D.roads) stampRibbon(r.pts, r.w + 6, LIFT_KERB, e => e.kerb);
-for (const r of D.roads) stampRibbon(r.pts, r.w, LIFT_ROAD, e => e.road);
+if (CONFIG.kerbs) for (const r of D.roads) stampSegments(r.pts, r.w + 6, e => e.kerb);
+for (const r of D.roads) stampSegments(r.pts, r.w, e => e.road);
 
-/* Parks are polygons, so they get the same ear clipper the roofs do. */
+/* Parks are polygons, so they get the same ear clipper the roofs do, and the
+   client draws each triangle as a pair of wedges. */
+let parkTris = 0;
 for (const pk of D.parks) {
   const pts = pk.pts.map(q => ({ x: q[0], y: q[1] }));
   if (pts.length < 3) continue;
@@ -283,37 +283,40 @@ for (const pk of D.parks) {
   let cx = 0, cz = 0;
   for (const q of pts) { cx += q.x; cz += q.y; }
   cx = cx / pts.length * S; cz = cz / pts.length * S;
-  const out = layerFor(cx, cz).park;
+  const out = stripFor(cx, cz).park;
   for (let i = 0; i < tri.length; i += 3) {
-    // reversed for +Y, as with the roofs
-    for (const k of [tri[i + 2], tri[i + 1], tri[i]])
-      out.push([pts[k].x * S, LIFT_PARK, pts[k].y * S]);
+    parkTris++;
+    for (const k of [tri[i], tri[i + 1], tri[i + 2]])
+      out.push(R(pts[k].x * S), R(pts[k].y * S));
   }
 }
 
-let ribTris = 0;
+let segs = 0;
 const ribIndex = [];
-for (const [k, e] of [...ribbons.entries()].sort()) {
+for (const [k, e] of [...strips.entries()].sort()) {
   const [cx, cz] = k.split(',').map(Number);
   const parts = [];
-  for (const name of ['park', 'kerb', 'road']) {
+  for (const name of ['kerb', 'road']) {
     if (!e[name].length) continue;
-    ribTris += e[name].length / 3;
-    parts.push(`\t\t${name} = { ` +
-      e[name].map(v => `${R(v[0])}, ${R(v[1])}, ${R(v[2])}`).join(', ') + ' },');
+    segs += e[name].length / 5;
+    parts.push(`\t${name} = { ${e[name].join(', ')} },`);
   }
+  if (e.park.length) parts.push(`\tpark = { ${e.park.join(', ')} },`);
   if (!parts.length) continue;
   ribIndex.push([cx, cz]);
   writeFileSync(`${ROOT}/FlatData/Street_${cx}_${cz}.luau`,
-    HDR(`Street ribbons for chunk (${cx}, ${cz}).\n` +
-        '-- Flat triangle soup, three numbers a vertex, three vertices a triangle,\n' +
-        '-- already wound for a +Y normal. Studs, world space.') +
+    HDR(`Streets for chunk (${cx}, ${cz}).\n` +
+        '-- kerb and road: five numbers a segment -- ax, az, bx, bz, width. Each is\n' +
+        '-- one flat box, so no mesh has to be generated to draw a street.\n' +
+        '-- park: six numbers a triangle -- three x,z pairs, drawn as two wedges.\n' +
+        '-- Studs, world space.') +
     'return {\n' + parts.join('\n') + '\n}\n');
 }
 
 writeFileSync(`${ROOT}/StreetMeta.luau`,
-  HDR('Which chunks have street ribbons, and what colour each layer is.') +
+  HDR('Which chunks have streets, how high each layer sits, and its colour.') +
   'return {\n' +
+  '\tlift = { park = ' + R(LIFT_PARK) + ', kerb = ' + R(LIFT_KERB) + ', road = ' + R(LIFT_ROAD) + ' },\n' +
   '\tcolours = {\n' +
   ['plain', 'park', 'kerb', 'road'].map(n => {
     const v = rgbOf(CONFIG.groundCol[n]);
@@ -324,97 +327,9 @@ writeFileSync(`${ROOT}/StreetMeta.luau`,
   ribIndex.map(([cx, cz]) => `\t\t{ ${cx}, ${cz} },`).join('\n') +
   '\n\t},\n}\n');
 
-/* ---------------- the ground, as one painted surface ----------------
-
-   THE OTHER HALF OF "NO CUBES". The voxel path lays the streets as a layer of
-   prisms -- 89,000 cells of them. Drawn the way the browser draws it, the
-   ground is a SURFACE: one flat part with a picture of the roads on it.
-
-   The picture is rasterised here and painted into an EditableImage on the
-   client, the same as the minimap and for the same reason -- Roblox cannot ship
-   an image without uploading it as an asset. 1024 across 1,200 m is 1.17 m a
-   pixel, so a residential street is seven pixels wide and an arterial fifteen.
-
-   Two bits a pixel: plain / park / pavement / road. 256 kB, against 3 MB as
-   RGB, and four classes are all a ground plane has. */
-const GPX = 1024;
-const g = new Uint8Array(GPX * GPX);
-const H = CONFIG.half;
-const gPx = m => Math.floor((m + H) / (2 * H) * GPX);
-const gM = p => (p + 0.5) / GPX * (2 * H) - H;
-
-function gPoly(pts, v) {
-  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
-  for (const q of pts) {
-    a0 = Math.min(a0, q[0]); a1 = Math.max(a1, q[0]);
-    b0 = Math.min(b0, q[1]); b1 = Math.max(b1, q[1]);
-  }
-  for (let j = Math.max(0, gPx(b0)); j <= Math.min(GPX - 1, gPx(b1)); j++)
-    for (let i = Math.max(0, gPx(a0)); i <= Math.min(GPX - 1, gPx(a1)); i++) {
-      // even-odd, inline: this runs over a million cells
-      let hit = false;
-      const x = gM(i), y = gM(j);
-      for (let m = 0, k = pts.length - 1; m < pts.length; k = m++) {
-        const yi = pts[m][1], yj = pts[k][1];
-        if ((yi > y) !== (yj > y)) {
-          const t = (y - yi) / (yj - yi);
-          if (x < pts[m][0] + t * (pts[k][0] - pts[m][0])) hit = !hit;
-        }
-      }
-      if (hit) g[j * GPX + i] = v;
-    }
-}
-
-function gLine(pts, width, v) {
-  const rad = width / 2;
-  const ppm = GPX / (2 * H);
-  const reach = Math.ceil(rad * ppm) + 1;
-  for (let s2 = 1; s2 < pts.length; s2++) {
-    const [ax, ay] = pts[s2 - 1], [bx, by] = pts[s2];
-    const len = Math.hypot(bx - ax, by - ay);
-    const steps = Math.max(1, Math.ceil(len * ppm));
-    for (let k = 0; k <= steps; k++) {
-      const t = k / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
-      const gi = gPx(px), gj = gPx(py);
-      for (let j = gj - reach; j <= gj + reach; j++)
-        for (let i = gi - reach; i <= gi + reach; i++) {
-          if (i < 0 || i >= GPX || j < 0 || j >= GPX) continue;
-          if (Math.hypot(gM(i) - px, gM(j) - py) <= rad) g[j * GPX + i] = v;
-        }
-    }
-  }
-}
-
-for (const p of D.parks) gPoly(p.pts, 1);
-if (CONFIG.kerbs) for (const r of D.roads) gLine(r.pts, r.w + 6, 2);
-for (const r of D.roads) gLine(r.pts, r.w, 3);
-
-const gPacked = Buffer.alloc(g.length / 4);
-for (let i = 0; i < g.length; i++) gPacked[i >> 2] |= (g[i] & 3) << ((i & 3) * 2);
-
-const GC = CONFIG.groundCol;
-const rgb = rgbOf;
-writeFileSync(`${ROOT}/GroundTex.luau`,
-  HDR('The ground as a picture: two bits a pixel, painted on the client.\n' +
-      '-- 0 plain, 1 park, 2 pavement, 3 road. Row-major from world (-half, -half).') +
-  'return {\n' +
-  `\tpx = ${GPX},\n` +
-  `\thalfStuds = ${R(CONFIG.half * S)},\n` +
-  '\tpalette = {\n' +
-  [GC.plain, GC.park, GC.kerb, GC.road]
-    .map(c => { const v = rgb(c); return `\t\tColor3.fromRGB(${v[0]}, ${v[1]}, ${v[2]}),`; })
-    .join('\n') +
-  '\n\t},\n' +
-  `\tbits = "${gPacked.toString('base64')}",\n` +
-  '}\n');
-
-let groundRoad = 0;
-for (const v of g) if (v === 3) groundRoad++;
-
 console.log(`flat: ${made} buildings in ${chunks.size} chunks (${dropped} dropped)`);
-console.log(`  street ribbons ${ribTris} triangles in ${ribIndex.length} chunks`);
-console.log(`  ground        ${GPX}x${GPX} at ${(2 * H / GPX).toFixed(2)} m a pixel, ${(100 * groundRoad / g.length).toFixed(1)}% road, ${(gPacked.length / 1024).toFixed(0)} kB`);
+console.log(`  streets       ${segs} segments + ${parkTris} park triangles in ${ribIndex.length} chunks`);
 console.log(`  roof triangles  ${tris}`);
 console.log(`  wall quads      ${verts}`);
-console.log(`  MESHPARTS       ${made * 2}  (walls + roof each)`);
+console.log(`  PARTS           ${made * 2}  (walls + roof each)`);
 console.log(`  palette         ${pal.length} colours`);
