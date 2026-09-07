@@ -34,9 +34,11 @@
     "Lighting": {
       "$className": "Lighting",
       "$properties": {
-        "Technology": "Future",
+        "Technology": "ShadowMap",
         "ClockTime": 15,
-        "GeographicLatitude": 44.81
+        "GeographicLatitude": 44.81,
+        "Brightness": 2,
+        "OutdoorAmbient": [110, 112, 118]
       }
     }
   }

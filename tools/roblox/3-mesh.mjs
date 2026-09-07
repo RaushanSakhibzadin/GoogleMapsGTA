@@ -39,11 +39,10 @@ const SPAN = src.meta.span;
 
 /* ---------------- the palette ----------------
 
-   Stage 2 built one from the building colours. The four ground classes are
-   appended here, taken from the game's own day theme rather than picked: PAL
-   .road, .kerb, .park and .ground are the colours the 2D renderer paints the
-   same surfaces, so the voxel city and the minimap agree without anybody
-   maintaining two sets of greys. */
+   Stage 2 built one from the building colours, which DO come from the game
+   (buildingColours, unchanged). The four ground classes are the exception and
+   come from CONFIG.groundCol instead — see the note there for why the 2D
+   renderer's ground palette is exactly wrong at eye level. */
 const palette = src.palette.slice();
 const addCol = (hex) => {
   const c = G.parseColour(hex) || [128, 128, 128];
@@ -54,10 +53,10 @@ const addCol = (hex) => {
   return palette.length - 1;
 };
 const GROUND_COL = [
-  addCol(G.PAL.ground),   // 0 plain
-  addCol(G.PAL.park),     // 1 park
-  addCol(G.PAL.kerb),     // 2 kerb
-  addCol(G.PAL.road)      // 3 road
+  addCol(CONFIG.groundCol.plain),   // 0
+  addCol(CONFIG.groundCol.park),    // 1
+  addCol(CONFIG.groundCol.kerb),    // 2
+  addCol(CONFIG.groundCol.road)     // 3
 ];
 
 /* ---------------- the voxel field ----------------

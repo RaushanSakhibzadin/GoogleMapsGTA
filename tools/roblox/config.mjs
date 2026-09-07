@@ -123,6 +123,31 @@ export const CONFIG = {
      what they meant. */
   maskCell: 8,
 
+  /* ---------------- ground colours ----------------
+
+   * NOT taken from the browser game's palette, and this is the one place the
+   * bake deliberately parts company with it.
+   *
+   * PAL.ground there is #333f4c and PAL.road is #a6a29b — a dark navy backdrop
+   * with pale roads drawn on top. That is correct for a MAP, which is what the
+   * 2D renderer is: the backdrop is meant to recede and the road network is
+   * meant to be the thing you read.
+   *
+   * Stood on at eye level it is exactly backwards. Reported from the first
+   * build in Studio as "shadows always change": every patch of ordinary ground
+   * was a dark navy that reads as permanent shade, with stepped lattice edges
+   * that look like a shadow map tearing, and the tarmac was lighter than the
+   * pavement beside it. Real asphalt is darker than a paving slab.
+   *
+   * So the ground gets its own four colours, and they are the way round they
+   * are outdoors. */
+  groundCol: {
+    plain: '#8f9089',      // undeveloped ground / yards, a neutral grey-green
+    park:  '#7fa864',      // grass, a shade deeper than the map's #9dbf86
+    kerb:  '#b9b5ad',      // pavement, the lightest thing at street level
+    road:  '#4a4a4d'       // asphalt, and darker than everything around it
+  },
+
   /* ---------------- paths ---------------- */
   src: 'data/belgrade.js',
   out: 'tools/roblox/build'
