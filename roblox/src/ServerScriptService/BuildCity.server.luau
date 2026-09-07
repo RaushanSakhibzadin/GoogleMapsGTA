@@ -31,6 +31,15 @@ template.Transparency = 1
 -- moved. Reported from Studio as "shadows still glitch/blink".
 template.CastShadow = false
 
+-- Idempotent, for the same reason the client builder is: a Collision folder
+-- left in the place by BuildNow would otherwise be doubled here.
+for _, name in { "Collision", "Ground" } do
+	local stale = workspace:FindFirstChild(name)
+	if stale then
+		stale:Destroy()
+	end
+end
+
 local root = Instance.new("Folder")
 root.Name = "Collision"
 root.Parent = workspace

@@ -55,6 +55,20 @@ template.Material = Enum.Material.SmoothPlastic
 template.TopSurface = Enum.SurfaceType.Smooth
 template.BottomSurface = Enum.SurfaceType.Smooth
 
+-- ANYTHING ALREADY THERE GOES FIRST.
+--
+-- BuildNow leaves its parts in Workspace permanently -- it runs in the edit
+-- session, so its output is saved in the place like any other instance -- and
+-- pressing Play then built a SECOND city exactly on top of the first. Two
+-- coincident surfaces fight over every pixel and flicker as the camera moves,
+-- which is indistinguishable from broken shadows and was reported as such.
+--
+-- So this is idempotent: whatever is there, it is ours to replace.
+local stale = workspace:FindFirstChild("City")
+if stale then
+	stale:Destroy()
+end
+
 local root = Instance.new("Folder")
 root.Name = "City"
 root.Parent = workspace
