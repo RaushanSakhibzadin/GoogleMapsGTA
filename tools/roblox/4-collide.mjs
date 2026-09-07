@@ -1,0 +1,205 @@
+/* STAGE 4 — the geometry the physics engine sees, and the gameplay masks.
+ *
+ * In:  build/district.json
+ * Out: build/collision.json
+ *
+ * The plan's most important structural decision (§4.4) is that COLLISION
+ * GEOMETRY IS NOT VISUAL GEOMETRY. The voxel shell is thousands of Parts that
+ * exist to be looked at: CanCollide false, CanQuery false, built by the client,
+ * never in a physics broadphase, droppable on a weak device. What a car
+ * actually hits is this file — a couple of thousand anchored boxes, built by
+ * the server.
+ *
+ * THE BOXES ARE FITTED TO THE VOXEL RASTER, NOT TO THE OSM POLYGON, and that
+ * is the whole subtlety of this stage. It would be more faithful to collide
+ * against the real footprint — the source game does exactly that, testing eight
+ * points on the car body against the polygon. But the player does not see the
+ * polygon. They see a stack of 4 m cubes. Colliding against the polygon under a
+ * voxel wall gives you a car that clips through a visible corner in one place
+ * and stops against thin air in another, and there is no amount of tuning that
+ * fixes it. Matching the raster means what you can see is exactly what you can
+ * hit.
+ *
+ * Also baked here, because they are gameplay data rather than scenery:
+ *   · the drivable road mask, at the same 8 m cell the source game uses
+ *   · the depots, so M3 has somewhere to sign on
+ *
+ * Usage: node tools/roblox/4-collide.mjs
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { CONFIG } from './config.mjs';
+
+const V = CONFIG.voxel;
+const D = JSON.parse(readFileSync(`${CONFIG.out}/district.json`, 'utf8'));
+
+const ci = m => Math.floor(m / V);
+const cc = i => (i + 0.5) * V;
+const H = CONFIG.half;
+
+function inPoly(pts, x, y) {
+  let hit = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const yi = pts[i][1], yj = pts[j][1];
+    if ((yi > y) !== (yj > y)) {
+      const t = (y - yi) / (yj - yi);
+      if (x < pts[i][0] + t * (pts[j][0] - pts[i][0])) hit = !hit;
+    }
+  }
+  return hit;
+}
+
+/* ---------------- the solid, as one field ----------------
+
+ * FITTED TO THE UNION OF ALL BUILDINGS, not to one building at a time, and
+ * this is worth explaining because the obvious version is much worse.
+ *
+ * Per-building boxes came out at 7,472 for 1,519 buildings — nearly five each.
+ * The cause is that Belgrade's streets do not run along the lattice: a footprint
+ * at 30 degrees to the grid rasterises into a staircase, and a staircase greedy-
+ * rects into a pile of one-cell strips. Half the district is at an angle to
+ * everything else, so almost every building paid it.
+ *
+ * Meshing the union fixes it twice over. Terraced perimeter blocks — which is
+ * most of central Belgrade — share walls, so a whole street frontage of
+ * separate OSM ways becomes one run of cells with no seam in it. And a
+ * staircase edge between two buildings of similar height disappears entirely,
+ * because there is no longer a boundary there to break the run.
+ *
+ * The height of a cell is the tallest building covering it. That is the correct
+ * merge: two neighbours of different heights produce a tall slab and a short
+ * one stacked beside it, never a short box swallowing a tall neighbour.
+ */
+const hCell = new Map();                          // "x,z" -> levels
+const cellKey = (x, z) => x + ',' + z;
+for (const b of D.buildings) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of b.pts) {
+    x0 = Math.min(x0, ci(p[0])); x1 = Math.max(x1, ci(p[0]));
+    z0 = Math.min(z0, ci(p[1])); z1 = Math.max(z1, ci(p[1]));
+  }
+  const levels = Math.max(1, Math.round(b.h / V));
+  let any = false;
+  for (let j = z0; j <= z1; j++)
+    for (let i = x0; i <= x1; i++)
+      if (inPoly(b.pts, cc(i), cc(j))) {
+        any = true;
+        const k = cellKey(i, j);
+        if ((hCell.get(k) || 0) < levels) hCell.set(k, levels);
+      }
+  /* Same fallback as the voxeliser, for the same reason: a footprint thinner
+     than the lattice must still be solid, or you drive through a building that
+     is visibly standing there. */
+  if (!any) {
+    const k = cellKey(ci((b.pts[0][0] + b.pts[2 % b.pts.length][0]) / 2),
+                      ci((b.pts[0][1] + b.pts[2 % b.pts.length][1]) / 2));
+    if ((hCell.get(k) || 0) < levels) hCell.set(k, levels);
+  }
+}
+
+/* ---------------- greedy boxes over the solid ----------------
+
+   The 3D mesher's growth, over occupancy rather than colour: run in X, extend
+   in Z while whole rows are occupied to at least this height, then extend up
+   in Y while the whole rectangle still reaches. Cells are consumed by LEVEL,
+   not wholesale, so a tall tower beside a low terrace contributes its lower
+   levels to the terrace's wide slab and its upper levels to a narrow one. */
+const boxes = [];
+const consumed = new Map();                       // "x,z" -> levels already boxed
+const solidTo = (x, z, y) => {
+  const k = cellKey(x, z);
+  const h = hCell.get(k) || 0;
+  return h > y && (consumed.get(k) || 0) <= y;
+};
+
+const xsAll = [...hCell.keys()].map(k => k.split(',').map(Number));
+xsAll.sort((a, b) => (a[1] - b[1]) || (a[0] - b[0]));
+
+let maxLev = 0;
+for (const h of hCell.values()) maxLev = Math.max(maxLev, h);
+
+for (let y = 0; y < maxLev; y++) {
+  for (const [sx, sz] of xsAll) {
+    if (!solidTo(sx, sz, y)) continue;
+
+    let ex = sx;
+    while (solidTo(ex + 1, sz, y)) ex++;
+
+    let ez = sz;
+    outerZ: while (true) {
+      for (let x = sx; x <= ex; x++) if (!solidTo(x, ez + 1, y)) break outerZ;
+      ez++;
+    }
+
+    let ey = y;
+    outerY: while (true) {
+      for (let z = sz; z <= ez; z++)
+        for (let x = sx; x <= ex; x++) if (!solidTo(x, z, ey + 1)) break outerY;
+      ey++;
+    }
+
+    for (let z = sz; z <= ez; z++)
+      for (let x = sx; x <= ex; x++) consumed.set(cellKey(x, z), ey + 1);
+
+    // [x, z, sx, sz, y0, levels]
+    boxes.push([sx, sz, ex - sx + 1, ez - sz + 1, y, ey - y + 1]);
+  }
+}
+
+/* ---------------- the drivable mask ----------------
+
+   8 m cells, matching W.cell in world.js exactly. That is not tidiness: the
+   off-road behaviour in drive() is tuned against this cell size — STRAY_TOL is
+   10 m, a bit over one cell, precisely so that a metre of disagreement between
+   the mask and the drawn road is free. Bake it at 4 m or 16 and those constants
+   stop meaning what they were tuned to mean.
+
+   Only ways DRIVABLE() accepts are stamped, so footways and tracks are visible
+   in the voxel ground but do not count as road — same as the browser. */
+const MC = CONFIG.maskCell;
+const MSPAN = Math.ceil((2 * H) / MC);
+const mask = new Uint8Array(MSPAN * MSPAN);
+const mset = (i, j) => { if (i >= 0 && i < MSPAN && j >= 0 && j < MSPAN) mask[j * MSPAN + i] = 1; };
+
+for (const r of D.roads) {
+  if (!r.drive) continue;
+  const rad = r.w / 2, reach = Math.ceil(rad / MC) + 1;
+  for (let s = 1; s < r.pts.length; s++) {
+    const [ax, ay] = r.pts[s - 1], [bx, by] = r.pts[s];
+    const len = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(1, Math.ceil(len / (MC / 2)));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+      const gi = Math.floor((px + H) / MC), gj = Math.floor((py + H) / MC);
+      for (let j = gj - reach; j <= gj + reach; j++)
+        for (let i = gi - reach; i <= gi + reach; i++) {
+          const cxm = (i + 0.5) * MC - H, cym = (j + 0.5) * MC - H;
+          if (Math.hypot(cxm - px, cym - py) <= rad) mset(i, j);
+        }
+    }
+  }
+}
+
+/* Packed one bit per cell and base64'd. 150 x 150 cells is 22,500 bits — 2.8 kB
+   packed against 45 kB as a JSON array of 0s and 1s, and Luau decodes it with
+   buffer.fromstring in one call rather than parsing twenty thousand numbers. */
+const packed = Buffer.alloc(Math.ceil(mask.length / 8));
+for (let i = 0; i < mask.length; i++) if (mask[i]) packed[i >> 3] |= 1 << (i & 7);
+
+/* ---------------- out ---------------- */
+writeFileSync(`${CONFIG.out}/collision.json`, JSON.stringify({
+  meta: { voxel: V, halfM: H, maskCell: MC, maskSpan: MSPAN,
+          note: 'boxes are [x, z, sx, sz, levels] in lattice cells; y from 0 to levels' },
+  boxes,
+  mask: { span: MSPAN, cell: MC, bits: packed.toString('base64') },
+  depots: D.pois
+}));
+
+let drivable = 0;
+for (const m of mask) if (m) drivable++;
+const cells = hCell.size;
+const vol = boxes.reduce((a, b) => a + b[2] * b[3] * b[5], 0);
+console.log(`collide: ${boxes.length} collision boxes for ${D.buildings.length} buildings`);
+console.log(`  per building  ${(boxes.length / D.buildings.length).toFixed(2)} average over ${cells} solid cells`);
+console.log(`  merge         ${(vol / boxes.length).toFixed(1)} cells a box`);
+console.log(`  road mask     ${MSPAN} x ${MSPAN} at ${MC} m, ${drivable} drivable cells (${(100 * drivable / mask.length).toFixed(1)}%), ${packed.length} bytes`);
+console.log(`  depots        ${D.pois.map(p => p.kind).join(', ') || '(none in district)'}`);
