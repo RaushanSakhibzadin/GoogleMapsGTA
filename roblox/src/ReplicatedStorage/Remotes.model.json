@@ -1,0 +1,7 @@
+{
+  "className": "Folder",
+  "children": [
+    { "name": "CarState", "className": "RemoteEvent" },
+    { "name": "CarCorrection", "className": "RemoteEvent" }
+  ]
+}

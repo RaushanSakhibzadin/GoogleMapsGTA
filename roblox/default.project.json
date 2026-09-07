@@ -1,20 +1,18 @@
 {
   "name": "vice-maps-roblox",
-  "globIgnorePaths": ["**/.DS_Store"],
+  "globIgnorePaths": [
+    "**/.DS_Store"
+  ],
   "tree": {
     "$className": "DataModel",
-
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "CityVisual": { "$path": "src/ReplicatedStorage/CityVisual" },
-      "Shared": { "$path": "src/ReplicatedStorage/Shared" }
+      "$path": "src/ReplicatedStorage"
     },
-
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$path": "src/ServerScriptService"
     },
-
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
@@ -22,7 +20,6 @@
         "$path": "src/StarterPlayer/StarterPlayerScripts"
       }
     },
-
     "Workspace": {
       "$className": "Workspace",
       "$properties": {
@@ -30,17 +27,23 @@
         "StreamingTargetRadius": 1500
       }
     },
-
     "Lighting": {
       "$className": "Lighting",
       "$properties": {
         "Technology": "ShadowMap",
         "ClockTime": 15,
         "GeographicLatitude": 44.81,
-
         "Brightness": 2,
-        "OutdoorAmbient": [0.431, 0.439, 0.463],
-        "Ambient": [0, 0, 0]
+        "OutdoorAmbient": [
+          0.431,
+          0.439,
+          0.463
+        ],
+        "Ambient": [
+          0,
+          0,
+          0
+        ]
       }
     }
   }

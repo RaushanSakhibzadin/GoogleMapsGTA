@@ -138,6 +138,13 @@ writeFileSync(`${ROOT}/ReplicatedStorage/Shared/RoadMask.luau`,
   `\tspan = ${CO.mask.span},\n` +
   `\tcellStuds = ${R(CO.mask.cell * S)},\n` +
   `\toriginStuds = ${R(-half)},\n` +
+  /* AND THE SAME THING IN METRES, because the driving model is in metres.
+     Every constant in drive() -- TOP_SPEED 100, STRAY_TOP 4.5, STRAY_TOL 10 --
+     is metres and seconds, and the whole value of porting that model is that
+     those numbers carry over unchanged. So the model asks this mask in metres
+     and only the renderer multiplies by studsPerMetre. */
+  `\tcellM = ${CO.mask.cell},\n` +
+  `\toriginM = ${-CONFIG.half},\n` +
   `\tbits = "${CO.mask.bits}",\n` +
   '}\n');
 
