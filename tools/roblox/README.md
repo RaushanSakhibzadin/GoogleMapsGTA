@@ -63,7 +63,28 @@ The three files are concatenated into **one** script before evaluation, because
 way `function` does. Loading them separately compiles fine and then hands you an
 undefined `ROADW`.
 
-## Measured
+## Two renderers
+
+`CONFIG.render` picks one. Both are baked on every run.
+
+| | parts | client build |
+|---|---:|---:|
+| `voxel`, hex 2.5 m, windows | 252,817 | 4.96 s |
+| **`flat`, extruded footprints** | **3,038** | **1.56 s** |
+
+`flat` is what `js/render3d.js` draws: each building extruded from its own OSM
+polygon, roofs cut by the game's own `earClip()`, and the ground as one surface
+with the streets painted on it. `voxel` rasterises onto the lattice below and is
+kept because the look is a legitimate choice — just an expensive one.
+
+**An EditableMesh is a live resource, not a description.** Creating three
+thousand without destroying them exhausts the budget after a handful, and the
+symptom is one building drawn and then silence. `CityFlat` destroys each one as
+soon as its MeshPart exists, and counts failures rather than reporting only
+successes — the first version reported what it made, so 1,519 coming out as one
+looked like a geometry bug.
+
+## Measured (voxel path)
 
 1.2 × 1.2 km centred on Palilula, 3 studs/m, both lattices:
 

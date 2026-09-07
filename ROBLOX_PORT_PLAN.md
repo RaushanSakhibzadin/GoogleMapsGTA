@@ -681,14 +681,51 @@ walls merge either way) but not entirely.
 **Recommendation: 4 m for the first bake, and make it a single constant.** Bake both, look at
 them in Studio, decide with your eyes. The pipeline should not care.
 
-### 5.4 Part budget — **measured, and the lattice chosen**
+### 5.4 Part budget — **measured, and the voxel premise abandoned**
 
-The preprocessor is built (`tools/roblox/`) and the city has been stood up in
-Studio. These are measurements, not estimates. 1.2 × 1.2 km centred on Palilula,
-3 studs/m:
+The preprocessor is built (`tools/roblox/`) and both renderers have been stood up in
+Studio. These are measurements. 1.2 × 1.2 km centred on Palilula, 3 studs/m:
 
-| | 4 m voxels | **2 m voxels (chosen)** | First estimate |
-|---|---:|---:|---:|
+| | parts | client build |
+|---|---:|---:|
+| Voxel, 4 m cubes | 40,637 | 0.37 s |
+| Voxel, 2 m cubes | 88,231 | — |
+| Voxel, hex R 2.5 m | 152,000 | — |
+| Voxel, hex + windows | 252,817 | 4.96 s |
+| **Extruded footprints (current)** | **3,038** | **1.56 s** |
+
+**The voxel premise turned out to be the expensive way to do this, and it was my
+recommendation.** §5 originally argued for a voxel city partly because "the OSM
+footprints can be extruded procedurally instead of hand-modeled" — but extruding them
+*directly*, the way `js/render3d.js` already does, is both closer to the source game and
+**83× cheaper**. A voxel lattice does not simplify OSM footprints; it re-samples them,
+and re-sampling a polygon into cells costs orders of magnitude more geometry than
+keeping the polygon.
+
+What the flat path ships: 1,519 buildings as 3,038 MeshParts (walls and roof each, so
+each keeps its own colour), 6,744 roof triangles from the game's own `earClip()`, and the
+ground as **one flat part with the streets painted on it** rather than 89,000 ground
+prisms.
+
+**Both paths are kept and both are baked** — `CONFIG.render` switches in a word — because
+the voxel look is a legitimate art direction, just an expensive one. The numbers above
+are what it costs.
+
+**Consequence for R2 (part count / mobile).** At 3,038 parts this stops being the
+project's leading risk. It has not been measured on a phone yet, but the margin is now
+two orders of magnitude rather than a coin toss.
+
+**Two Roblox-specific findings, both of which cost a debugging round:**
+
+- **An `EditableMesh` is a live resource, not a description.** Creating 3,038 without
+  destroying them exhausts the budget after a handful — the city drew one building and
+  then silently stopped. Destroy each one as soon as its MeshPart exists.
+- **Roblox ships no image or mesh without an uploaded asset**, so everything generated
+  — the hex prism, the ground texture, the minimap — is built at runtime through
+  `EditableMesh` / `EditableImage`. This works, and it keeps the project's "no image
+  assets" property from the browser game intact.
+
+---|---:|---:|---:|
 | Raw cubes | 190,248 | 794,156 | ~260,000 |
 | Building shells, meshed | 18,415 | — | ~18,000 ✅ |
 | Ground, meshed | 15,284 | — | ~6,000 ❌ |
@@ -796,7 +833,7 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | R1 | **Float precision past 10k studs** | High if ignored | District sized to 3,600 studs (§3.2) — 4× headroom. No floating origin. Revisit only past ~8,000. |
-| R2 | **Part count / mobile memory** | **Highest** | Measured at **88,231 parts** at the chosen 2 m lattice (§5.4). Desktop builds it in well under a second; **mobile is still unmeasured and is now the main open risk**. Levers: collision/visual split (§4.4), greedy meshing, kerbs off, an 8 m or 4 m quality setting, and a smaller district. Note `StreamingEnabled` does NOT help the visual shell — see R18. |
+| R2 | ~~Part count / mobile memory~~ | **Largely closed** | Extruding the footprints directly instead of voxelising took this from 252,817 parts to **3,038** (§5.4). Still unmeasured on a phone, but the margin is now two orders of magnitude. The voxel path remains available and remains expensive. |
 | R3 | **Server-authoritative driving feels bad** | High | Do not do it. Client ownership + server validation (§4.1). This is a stated disagreement with the brief. |
 | R4 | **Incident claim races** | Medium | Synchronous no-yield critical section, idempotent claim tokens, per-player rate limit, one slot per player (§4.6). |
 | R5 | **DataStore throttling / duplicate profiles** | High | Session locking with heartbeat; 60 s dirty-write cadence + on-leave + `BindToClose`; single writer for money (§4.5). |
