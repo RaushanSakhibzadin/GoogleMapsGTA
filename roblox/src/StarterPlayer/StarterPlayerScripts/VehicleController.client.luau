@@ -32,7 +32,31 @@ local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local Tarmac = require(Shared:WaitForChild("Tarmac"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
-local Audio = require(Shared:WaitForChild("Audio"))
+-- REQUIRED THROUGH A PCALL, WITH A SILENT STUB IF IT FAILS. Sound is
+-- optional; driving is not. When Shared/Audio threw at module scope --
+-- `SoundGroup` is not a property of SoundGroup -- it took this script down
+-- with it, and the camera stayed wherever the loading screen parked it --
+-- reported as "i am in the sky".
+-- The dependency cannot do that any more: a module that will not load costs
+-- the noise and nothing else.
+local Audio = (function()
+	local ok, m = pcall(require, Shared:WaitForChild("Audio"))
+	if ok then
+		return m
+	end
+	warn("[audio] failed to load (" .. tostring(m) .. ") -- carrying on in silence")
+	return {
+		warm = function() end,
+		make = function(): Sound?
+			return nil
+		end,
+		shot = function() end,
+		setVolume = function() end,
+		getVolume = function(): number
+			return 0
+		end,
+	}
+end)()
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")

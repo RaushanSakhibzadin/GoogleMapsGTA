@@ -1020,10 +1020,16 @@ is written.
 the Roblox client, which need no upload and no moderation (R14). What is worth
 recording is the shape rather than the paths:
 
-- **SoundGroups, not a multiplier per sound.** Roblox already has a mixer: a Sound
-  in a group is scaled by that group's Volume, and groups nest. Four sliders in the
-  settings panel therefore reach every sound in the game, including ones already
-  playing and ones made later, with no bookkeeping anywhere.
+- **Three SoundGroups, and "Master" is arithmetic.** A Sound in a group is scaled by
+  that group's Volume, so three sliders reach every sound in the game — including
+  ones already playing — with no bookkeeping. Master is a Luau multiplier over the
+  three rather than a fourth group above them, because nesting them by
+  `group.SoundGroup = master` is not a property that exists, and finding that out
+  cost a round trip: it threw at module scope, which took Audio down and
+  **VehicleController, DispatchUI, Life and SettingsUI with it**. The minimap and
+  the city survived, so the game looked built and finished loading and left the
+  camera parked a kilometre up — reported as "very long loading and i am in the
+  sky".
 - **The first balance was wrong in a way worth naming.** Reported as "for hits it is
   too loud and for engine it is too silent". Hits topped out at 0.9 and the engine
   at 0.62, so a scrape was the loudest thing in the game — but the engine's real
@@ -1034,6 +1040,31 @@ recording is the shape rather than the paths:
 - **Settings do not persist.** Roblox has no client-side storage, so it needs a
   DataStore write, and this place has no DataStore access (ProfileService says so on
   every boot). Four numbers into the profile when it does.
+
+### 7.4b One bad module must not take the car with it
+
+Three separate rounds of this project have been spent on the same conversation
+shape: a single unmistakable line in the Output window, invisible in a
+screenshot, costing a round trip.
+
+| reported as | actually |
+|---|---|
+| "the screen is empty" | `CityVisual.FlatData` indexed before it replicated, killing CityVisuals |
+| "the car is invisible" | no `ReplicationFocus`, so the car never streamed in |
+| "i am in the sky" | `SoundGroup.SoundGroup` is not a property; Audio threw at module scope and took four client scripts with it |
+
+Two things came out of the third:
+
+- **`ReplicatedFirst/ErrorBanner`** shows client errors on screen, above the
+  loading screen, deduplicated and capped at four. Every one of the three above
+  would have named itself instantly.
+- **The scripts that must not die no longer hard-require the optional ones.**
+  VehicleController, DispatchUI and Life take Audio through a `pcall` with a
+  silent stub. Sound is optional; driving is not.
+
+And the loading screen now parks the camera at street level as it hands over, so
+a controller that never wakes leaves the player standing in the city rather than
+looking down at it from orbit.
 
 ### 7.5a StreamingEnabled needs a replication focus, and had none
 

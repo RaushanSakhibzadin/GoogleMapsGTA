@@ -112,46 +112,76 @@ local CATEGORY: { [string]: string } = {
 
 -- ---------------------------------------------------------------- the mixer
 
--- SOUNDGROUPS, NOT A MULTIPLIER PER SOUND. Roblox already has a mixer: a Sound
--- in a SoundGroup is scaled by that group's Volume, and a group nested in
--- another is scaled by both. So the settings panel sets three numbers and every
--- sound in the game -- including ones already playing, and ones made later --
--- follows, with no bookkeeping here and nothing to keep in step.
+-- THREE GROUPS, AND "MASTER" IS ARITHMETIC.
 --
--- The defaults are the balance, and they are the answer to "for hits it is too
--- loud and for engine it is too silent": effects sit under the engine rather
--- than over it.
+-- The obvious build nests them: a Master SoundGroup with Engine, Effects and
+-- Interface under it, so Roblox multiplies for you. The first attempt did that
+-- by setting `group.SoundGroup = master`, which is not a thing:
+--
+--     SoundGroup is not a valid member of SoundGroup "Interface"
+--
+-- and because that is a module-scope error, it did not just lose the mixer. It
+-- took Audio down, and Audio down took VehicleController, DispatchUI, Life and
+-- SettingsUI with it -- every client script that requires it. What was left
+-- running was the minimap and the city, so the game looked built and finished
+-- loading and left the camera wherever the loading screen had parked it. The
+-- report was "very long loading and i am in the sky".
+--
+-- THE SECOND MISTAKE OF THE SAME KIND IN THIS FILE, which is the reason for the
+-- shape of the fix rather than a smaller one. Nesting may well work by parenting
+-- instead -- but "may well" is exactly the confidence that produced the last
+-- two rounds of this, so the master is a multiplier in Luau over three flat
+-- groups and there is no API here that can be wrong.
+--
+-- AND THE WHOLE THING IS WRAPPED, so that even a mistake nobody has thought of
+-- yet costs the mixer and not the car.
 local groups: { [string]: SoundGroup } = {}
-do
-	local master = Instance.new("SoundGroup")
-	master.Name = "Master"
-	master.Volume = 1
-	master.Parent = SoundService
-	groups.Master = master
+local base: { [string]: number } = { Engine = 1.0, Effects = 0.5, Interface = 0.6 }
+local master = 1
 
-	for name, vol in { Engine = 1.0, Effects = 0.5, Interface = 0.6 } do
-		local g = Instance.new("SoundGroup")
-		g.Name = name
-		g.Volume = vol
-		g.SoundGroup = master
-		g.Parent = SoundService
-		groups[name] = g
+local function applyGains()
+	for name, g in groups do
+		g.Volume = base[name] * master
 	end
 end
 
--- 0..1 in, applied to the named group. Unknown names are ignored rather than
--- thrown, because this is driven by a UI and a typo there should not stop the
--- game.
+do
+	local ok, err = pcall(function()
+		for name, vol in base do
+			local g = Instance.new("SoundGroup")
+			g.Name = name
+			g.Volume = vol
+			g.Parent = SoundService
+			groups[name] = g
+		end
+	end)
+	if not ok then
+		-- Everything downstream copes with an empty table: a Sound with no group
+		-- plays at its own volume, which is the balance minus the master slider.
+		warn("[audio] no mixer (" .. tostring(err) .. ") -- sounds play ungrouped")
+		table.clear(groups)
+	end
+end
+
+-- 0..1 in. "Master" scales the other three; the rest set their own level.
+-- Unknown names are ignored rather than thrown, because this is driven by a UI
+-- and a typo there must not stop the game.
 function Audio.setVolume(group: string, v: number)
-	local g = groups[group]
-	if g then
-		g.Volume = math.clamp(v, 0, 1)
+	v = math.clamp(v, 0, 1)
+	if group == "Master" then
+		master = v
+		applyGains()
+	elseif base[group] then
+		base[group] = v
+		applyGains()
 	end
 end
 
 function Audio.getVolume(group: string): number
-	local g = groups[group]
-	return if g then g.Volume else 0
+	if group == "Master" then
+		return master
+	end
+	return base[group] or 0
 end
 
 Audio.GROUPS = { "Master", "Engine", "Effects", "Interface" }

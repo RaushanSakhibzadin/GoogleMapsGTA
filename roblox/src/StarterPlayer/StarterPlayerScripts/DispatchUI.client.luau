@@ -24,7 +24,23 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Audio = require(Shared:WaitForChild("Audio"))
+-- REQUIRED THROUGH A PCALL, WITH A SILENT STUB IF IT FAILS. Sound is optional;
+-- the fires and the dispatch card are not. See the same note in
+-- VehicleController for the round trip that paid for this.
+local Audio = (function()
+	local ok, m = pcall(require, Shared:WaitForChild("Audio"))
+	if ok then
+		return m
+	end
+	warn("[audio] failed to load (" .. tostring(m) .. ") -- carrying on in silence")
+	return {
+		warm = function() end,
+		make = function(): Sound?
+			return nil
+		end,
+		shot = function() end,
+	}
+end)()
 local FireFX = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("FireFX"))
 
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent

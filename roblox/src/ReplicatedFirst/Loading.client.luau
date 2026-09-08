@@ -334,6 +334,7 @@ task.spawn(function()
 					tostring(carHere())
 				) .. "Letting the player in anyway; something above did not finish."
 			)
+			status.Text = "Something did not finish loading — see the log"
 			break
 		end
 		task.wait(0.1)
@@ -354,6 +355,32 @@ task.spawn(function()
 	-- camera behind it.
 	ownCamera = false
 	workspace:SetAttribute("Loading", false)
+
+	-- AND PARKED SOMEWHERE SANE ON THE WAY OUT.
+	--
+	-- This orbits a kilometre above the district, and it hands the camera to
+	-- VehicleController -- which takes it on the next frame IF it is alive. When
+	-- it was not, nothing moved the camera at all and the player was left looking
+	-- down at the city from the last orbit position: reported as "i am in the
+	-- sky", and it read as a camera bug rather than as the module crash it
+	-- actually was.
+	--
+	-- So the last thing this does is put the camera at street level near the
+	-- spawn. If the controller is alive it overwrites this a frame later and
+	-- nobody sees it; if it is not, the player is at least standing in the city
+	-- they can see is broken, which is a far better place to report from.
+	local cars = workspace:FindFirstChild("Cars")
+	local mine = nil
+	if cars then
+		for _, m in cars:GetChildren() do
+			if m:IsA("Model") and m:GetAttribute("Owner") == player.UserId then
+				mine = m
+				break
+			end
+		end
+	end
+	local at = if mine then (mine :: Model):GetPivot().Position else Vector3.new(0, 6, 0)
+	camera.CFrame = CFrame.lookAt(at + Vector3.new(0, 12, 30), at)
 
 	pcall(function()
 		local out = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
