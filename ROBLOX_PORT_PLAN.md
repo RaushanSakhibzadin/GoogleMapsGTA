@@ -1074,6 +1074,15 @@ The sheet is built **on first open**, not at join — a million pixels is about 
 second of work, most sessions never open it, and joining is already three waits
 long (§7.5).
 
+**A square cut out of a continuous city has no edge in it**, which is its own
+usability problem: asked "is this full map?", the answer was yes — the whole
+2.4 km, 1:1 with the raster — and there was nothing on screen to say so, because
+the streets run to all four edges and simply stop. It has a district outline and
+a scale bar now, and the hint line reports the span in **metres** rather than a
+bare multiplier: "2.4 km across" is a fact about Belgrade, "1.0x" is a fact
+about the widget. `tools/roblox/render-map.mjs` is what settled it — it decodes
+the baked raster to a PNG, so that question is answerable without a screenshot.
+
 Two things the first build got wrong that are worth keeping written down:
 **`✕` (U+2715) is not in Roblox's Gotham set** and rendered as a missing-glyph
 box on the close button and in the hint line naming it — UI text here stays

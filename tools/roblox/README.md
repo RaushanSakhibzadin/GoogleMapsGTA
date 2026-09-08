@@ -152,6 +152,24 @@ find roblox/src -name '*.luau' -exec luau-compile --binary {} \; > /dev/null
 `luau-analyze` is not much use here — it has no Roblox type definitions and
 cannot resolve a `WaitForChild` require, so every line comes back unknown.
 
+## Looking at the baked map
+
+```
+node tools/roblox/render-map.mjs      # -> build/district.png
+```
+
+The district ships as two bits a pixel inside `Shared/Minimap.luau` — a 350 kB
+base64 string, completely unreadable. This decodes it with the same arithmetic
+the game uses and writes a PNG, plus the class histogram and how far the road
+network reaches.
+
+It exists because of a question that could not otherwise be answered without a
+screenshot and a round trip: *is the big map showing the whole city?* It was —
+the render matched the screenshot pixel for pixel — and the reason it did not
+look like it is that a square cut out of a continuous city has no boundary in
+it. The streets run to all four edges and stop. So the map grew an outline and a
+scale bar, which is the actual fix.
+
 ## Trees, which are invented
 
 `js/render3d.js` draws no vegetation at all, so there is nothing to be faithful

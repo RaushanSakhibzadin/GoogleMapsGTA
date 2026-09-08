@@ -34,6 +34,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
 
 local MapPaint = require(CityVisual:WaitForChild("MapPaint"))
+local CityMeta = require(CityVisual:WaitForChild("CityMeta"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local Depots = require(Shared:WaitForChild("Depots"))
 
@@ -45,6 +46,7 @@ local DIM = Color3.fromRGB(150, 156, 166)
 local ACCENT = Color3.fromRGB(255, 140, 40)
 
 local HALF = MapPaint.halfStuds
+local S = CityMeta.studsPerMetre
 
 -- Zoom 1 fits the whole district in the window; 6 is close enough to pick a
 -- street out. Beyond that the raster is 2.3 m a pixel and there is nothing more
@@ -150,8 +152,8 @@ local titleBar = pill(UDim2.fromOffset(10, 10), UDim2.fromOffset(232, 30))
 local title = text(titleBar, UDim2.fromOffset(12, 0), UDim2.new(1, -12, 1, 0), "PALILULA  ·  BEOGRAD", 14, ACCENT, Enum.Font.GothamMedium)
 title.ZIndex = 21
 
--- NARROWED ON THE RIGHT so the button column below has its own lane: at full
--- width the bar ran underneath the ME button.
+-- NARROWED ON THE RIGHT so the button column has its own lane: at full width
+-- the bar ran underneath the ME button.
 local hintBar = pill(UDim2.new(0, 10, 1, -40), UDim2.new(1, -74, 0, 30))
 local hint = text(hintBar, UDim2.fromOffset(12, 0), UDim2.new(1, -12, 1, 0), "", 13, DIM, Enum.Font.Gotham)
 hint.ZIndex = 21
@@ -193,6 +195,44 @@ local function chromeButton(order: number, label: string, size: number): TextBut
 	c.Parent = b
 	return b
 end
+
+-- WHERE THE CITY STOPS.
+--
+-- Asked, reasonably: "is this full map?" -- and it was. The whole 2.4 km
+-- district, at 1:1 with the raster. It does not READ as the whole thing because
+-- a square cut out of a continuous city has no boundary in it: the streets run
+-- to all four edges and simply stop, so there is nothing to tell you whether
+-- you are looking at everything or at a corner of it.
+--
+-- So the district gets an outline. At 1x it is the window edge, which says "you
+-- have it all"; zoomed in it is off screen, which says "there is more this way".
+-- Sized and positioned exactly like the sheet, so it follows every pan.
+local edge = Instance.new("Frame")
+edge.BackgroundTransparency = 1
+edge.ZIndex = 4
+edge.Parent = window
+local edgeStroke = Instance.new("UIStroke")
+edgeStroke.Color = Color3.fromRGB(120, 128, 142)
+edgeStroke.Thickness = 2
+edgeStroke.Transparency = 0.35
+edgeStroke.Parent = edge
+
+-- AND HOW BIG ANY OF IT IS. A map with no scale is a picture: "1.0x" says
+-- nothing about whether the block you are looking at is a hundred metres or a
+-- thousand. The bar picks a round distance that comes out between a tenth and a
+-- third of the window, so it is always a number worth reading.
+local scaleBar = pill(UDim2.new(0, 10, 1, -76), UDim2.fromOffset(150, 28))
+local scaleRule = Instance.new("Frame")
+scaleRule.Position = UDim2.fromOffset(12, 18)
+scaleRule.Size = UDim2.fromOffset(10, 3)
+scaleRule.BackgroundColor3 = INK
+scaleRule.BorderSizePixel = 0
+scaleRule.ZIndex = 21
+scaleRule.Parent = scaleBar
+local scaleText = text(scaleBar, UDim2.fromOffset(12, 0), UDim2.new(1, -12, 0, 18), "", 12, INK, Enum.Font.GothamMedium)
+scaleText.ZIndex = 21
+
+local NICE = { 50, 100, 200, 500, 1000, 2000 }
 
 local zoomIn = chromeButton(2, "+", 22)
 local zoomOut = chromeButton(1, "-", 22)
@@ -286,6 +326,25 @@ local function layout()
 	local u = (cx + HALF) / (HALF * 2)
 	local v = (cz + HALF) / (HALF * 2)
 	sheet.Position = UDim2.fromScale(0.5 - u * zoom, 0.5 - v * zoom)
+
+	-- The outline IS the sheet's rectangle, so it takes the same two numbers.
+	edge.Size = sheet.Size
+	edge.Position = sheet.Position
+
+	-- The scale bar. Metres across the window, then the largest round distance
+	-- that fits in a third of it -- so the bar is never a sliver and never runs
+	-- off the end.
+	local across = (HALF * 2 / zoom) / S
+	local pick = NICE[1]
+	for _, m in NICE do
+		if m <= across / 3 then
+			pick = m
+		end
+	end
+	scaleRule.Size = UDim2.new(pick / across, 0, 0, 3)
+	scaleText.Text = if pick >= 1000
+		then ("%.1f km"):format(pick / 1000)
+		else ("%d m"):format(pick)
 end
 
 -- World studs to a position inside the window, 0..1 on each axis.
@@ -523,7 +582,14 @@ RunService.RenderStepped:Connect(function()
 	if noImage then
 		hint.Text = "Map image unavailable on this client -- markers only"
 	else
-		hint.Text = ("drag to pan  ·  + and - to zoom (%.1fx)  ·  ME centres on you  ·  %d jobs  ·  M or X closes")
-			:format(zoom, n)
+		-- THE SPAN, NOT THE MULTIPLIER. "1.0x" is a number about the widget;
+		-- "2.4 km across" is a number about Belgrade, and it is the one that
+		-- answers "is this the full map".
+		local across = (HALF * 2 / zoom) / S
+		hint.Text = ("%s across  ·  drag to pan  ·  + and - to zoom  ·  ME centres on you  ·  %d jobs  ·  M or X closes")
+			:format(
+				if across >= 1000 then ("%.1f km"):format(across / 1000) else ("%d m"):format(across),
+				n
+			)
 	end
 end)
