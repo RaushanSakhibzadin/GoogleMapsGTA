@@ -1052,7 +1052,7 @@ Different enough questions that they are drawn differently:
 | orientation | **heading up** | **north up** |
 | what it shows | ~200 m around the car | the whole 2.4 km district |
 | how it is drawn | resamples a rotating window, 96², 20 Hz | the raster decoded **once** into a 1024² image |
-| panning | follows the car | drag, and scroll to zoom 1×–6× |
+| panning | follows the car | drag, + / − buttons and the wheel, 1×–6× |
 
 Heading-up is right for the one you read a second at a time out of the corner of
 your eye — left on the map is left through the windscreen. It is wrong for the
@@ -1064,9 +1064,23 @@ how the world and the minimap ended up running opposite ground palettes, with
 the same street reading as the light thing in one and the dark thing in the
 other; a shared module is the fix for the class rather than the instance.
 
-The big map's sheet is built **on first open**, not at join — a million pixels
-is about a second of work, most sessions never open it, and joining is already
-three waits long (§7.5).
+It **opens on the whole district**. The first version opened at 3× centred on the
+car, on the reasoning that "where am I" is the first question — but the arrow
+answers that at any zoom, and opening zoomed in means the first thing you do
+every time is zoom out to see what you are looking at. Opening on the city with
+a ME button is the better way round.
+
+The sheet is built **on first open**, not at join — a million pixels is about a
+second of work, most sessions never open it, and joining is already three waits
+long (§7.5).
+
+Two things the first build got wrong that are worth keeping written down:
+**`✕` (U+2715) is not in Roblox's Gotham set** and rendered as a missing-glyph
+box on the close button and in the hint line naming it — UI text here stays
+ASCII apart from the interpunct, which does render. And **all the chrome lives
+inside the map window**: with `IgnoreGuiInset` the screen starts at y = 0, where
+Roblox's own menu and chat buttons are, and a title anchored just above the
+window landed underneath them.
 
 ### 7.4b One bad module must not take the car with it
 

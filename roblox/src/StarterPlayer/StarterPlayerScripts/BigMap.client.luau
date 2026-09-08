@@ -40,6 +40,7 @@ local Depots = require(Shared:WaitForChild("Depots"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
 
+local INK = Color3.fromRGB(238, 240, 244)
 local DIM = Color3.fromRGB(150, 156, 166)
 local ACCENT = Color3.fromRGB(255, 140, 40)
 
@@ -72,7 +73,7 @@ dim.Parent = gui
 -- that looks like a mistake. Scale on both axes with AspectRatio doing the
 -- work, so it follows a resize with no code.
 local window = Instance.new("Frame")
-window.Size = UDim2.fromScale(0.82, 0.82)
+window.Size = UDim2.fromScale(0.86, 0.86)
 window.Position = UDim2.fromScale(0.5, 0.5)
 window.AnchorPoint = Vector2.new(0.5, 0.5)
 window.BackgroundColor3 = Color3.fromRGB(12, 13, 16)
@@ -99,6 +100,7 @@ sheet.Parent = window
 local marks = Instance.new("Frame")
 marks.Size = UDim2.fromScale(1, 1)
 marks.BackgroundTransparency = 1
+marks.ZIndex = 5 -- over the map and the drag pad, under the chrome
 marks.Parent = window
 
 local function text(parent: Instance, pos: UDim2, size: UDim2, str: string, sz: number, colour: Color3, font: Enum.Font): TextLabel
@@ -115,18 +117,86 @@ local function text(parent: Instance, pos: UDim2, size: UDim2, str: string, sz: 
 	return t
 end
 
-local title = text(gui, UDim2.new(0.09, 0, 0.09, -34), UDim2.new(0, 400, 0, 24), "PALILULA  ·  BEOGRAD", 15, ACCENT, Enum.Font.GothamMedium)
-local hint = text(gui, UDim2.new(0.09, 0, 0.91, 6), UDim2.new(0, 700, 0, 20), "", 13, DIM, Enum.Font.Gotham)
+-- ALL THE CHROME LIVES INSIDE THE WINDOW, and that is not a style choice. With
+-- IgnoreGuiInset the screen starts at y = 0, where Roblox's own menu and chat
+-- buttons are -- and the title, sitting just above the map, landed underneath
+-- them. Anything anchored to the window cannot collide with the platform's UI,
+-- and it cannot land on top of the dispatch card in the other corner either.
+--
+-- ZIndex 20 puts the whole lot over the map and over the markers, so a button
+-- is never fighting a blip for the same click.
+local chrome = Instance.new("Frame")
+chrome.Size = UDim2.fromScale(1, 1)
+chrome.BackgroundTransparency = 1
+chrome.ZIndex = 20
+chrome.Parent = window
+
+local function pill(pos: UDim2, size: UDim2): Frame
+	local f = Instance.new("Frame")
+	f.Position = pos
+	f.Size = size
+	f.BackgroundColor3 = Color3.fromRGB(10, 11, 14)
+	f.BackgroundTransparency = 0.25
+	f.BorderSizePixel = 0
+	f.ZIndex = 20
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = f
+	f.Parent = chrome
+	return f
+end
+
+local titleBar = pill(UDim2.fromOffset(10, 10), UDim2.fromOffset(232, 30))
+local title = text(titleBar, UDim2.fromOffset(12, 0), UDim2.new(1, -12, 1, 0), "PALILULA  ·  BEOGRAD", 14, ACCENT, Enum.Font.GothamMedium)
+title.ZIndex = 21
+
+-- NARROWED ON THE RIGHT so the button column below has its own lane: at full
+-- width the bar ran underneath the ME button.
+local hintBar = pill(UDim2.new(0, 10, 1, -40), UDim2.new(1, -74, 0, 30))
+local hint = text(hintBar, UDim2.fromOffset(12, 0), UDim2.new(1, -12, 1, 0), "", 13, DIM, Enum.Font.Gotham)
+hint.ZIndex = 21
 
 local close = Instance.new("TextButton")
-close.Size = UDim2.fromOffset(34, 34)
-close.Position = UDim2.new(0.91, -34, 0.09, -38)
-close.BackgroundTransparency = 1
-close.Text = "✕"
-close.TextSize = 20
+close.Size = UDim2.fromOffset(30, 30)
+close.Position = UDim2.new(1, -40, 0, 10)
+close.BackgroundColor3 = Color3.fromRGB(10, 11, 14)
+close.BackgroundTransparency = 0.25
+close.BorderSizePixel = 0
+close.Text = "X"
+close.TextSize = 16
 close.TextColor3 = DIM
 close.Font = Enum.Font.GothamMedium
-close.Parent = gui
+close.ZIndex = 21
+close.Parent = chrome
+local cc = Instance.new("UICorner")
+cc.CornerRadius = UDim.new(0, 6)
+cc.Parent = close
+
+-- THE ZOOM BUTTONS, asked for by name. Scroll and pinch both work too, but a
+-- button is the one control that needs no mouse and no explanation -- and on a
+-- touch screen it is the only one of the three that exists.
+local function chromeButton(order: number, label: string, size: number): TextButton
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(34, 34)
+	b.Position = UDim2.new(1, -44, 1, -50 - order * 40)
+	b.BackgroundColor3 = Color3.fromRGB(10, 11, 14)
+	b.BackgroundTransparency = 0.25
+	b.BorderSizePixel = 0
+	b.Text = label
+	b.TextSize = size
+	b.TextColor3 = INK
+	b.Font = Enum.Font.GothamMedium
+	b.ZIndex = 21
+	b.Parent = chrome
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = b
+	return b
+end
+
+local zoomIn = chromeButton(2, "+", 22)
+local zoomOut = chromeButton(1, "-", 22)
+local locate = chromeButton(0, "ME", 12)
 
 -- ---------------------------------------------------------------- markers
 
@@ -242,6 +312,7 @@ end
 
 local built = false
 local building = false
+local noImage = false
 
 local function ensureSheet()
 	if built or building then
@@ -260,7 +331,10 @@ local function ensureSheet()
 			-- is a diagram rather than nothing -- which is a good deal more
 			-- useful than an error.
 			window.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
-			hint.Text = "Map image unavailable on this client — markers only"
+			-- LATCHED, not written once. The hint line is rewritten every frame
+			-- further down, so a message set here would have survived exactly one
+			-- of them.
+			noImage = true
 		end
 		building = false
 	end)
@@ -275,13 +349,14 @@ local function setOpen(v: boolean)
 	gui.Enabled = v
 	if v then
 		ensureSheet()
-		-- OPENS ON YOU, not on the middle. The first thing anybody wants from a
-		-- big map is where they are; the whole district is one scroll away.
-		local pivot = carPivot()
-		if pivot then
-			cx, cz = pivot.Position.X, pivot.Position.Z
-		end
-		zoom = 3
+		-- OPENS ON THE WHOLE DISTRICT. It used to open at 3x centred on the car,
+		-- on the reasoning that "where am I" is the first question -- but the
+		-- arrow answers that at any zoom, and opening zoomed in means the first
+		-- thing you do every single time is zoom out to see what you are looking
+		-- at. A map that opens on the city and has a ME button is the better way
+		-- round.
+		zoom = ZOOM_MIN
+		cx, cz = 0, 0
 		layout()
 	end
 end
@@ -291,6 +366,32 @@ ClientBus.toggleMap.Event:Connect(function()
 end)
 close.Activated:Connect(function()
 	setOpen(false)
+end)
+
+-- MULTIPLICATIVE, like the wheel, so a press is the same proportion at every
+-- zoom. A fixed step is glacial at 1x and violent at 6x.
+local function stepZoom(by: number)
+	zoom = math.clamp(zoom * by, ZOOM_MIN, ZOOM_MAX)
+	layout()
+end
+zoomIn.Activated:Connect(function()
+	stepZoom(1.5)
+end)
+zoomOut.Activated:Connect(function()
+	stepZoom(1 / 1.5)
+end)
+
+-- ME: put the car in the middle, and go in far enough to see the street it is
+-- on if the map is still showing the whole district.
+locate.Activated:Connect(function()
+	local pivot = carPivot()
+	if pivot then
+		cx, cz = pivot.Position.X, pivot.Position.Z
+		if zoom < 2.5 then
+			zoom = 3
+		end
+		layout()
+	end
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -312,7 +413,25 @@ end)
 local dragging = false
 local lastX, lastY = 0, 0
 
-window.InputBegan:Connect(function(input)
+-- THE DRAG TARGET IS A BUTTON, NOT THE FRAME.
+--
+-- A Frame only receives InputBegan when it is Active, and whether it does at all
+-- through a stack of other GuiObjects is exactly the kind of thing this project
+-- cannot test. A TextButton filling the window is unambiguous: buttons take
+-- input, that is what they are.
+--
+-- It sits ABOVE the map and BELOW the chrome (ZIndex 2 against 20), so the zoom
+-- and close buttons get their clicks first and everything else is a drag. The
+-- markers are plain Frames, so they do not take input and cannot swallow one.
+local dragPad = Instance.new("TextButton")
+dragPad.Size = UDim2.fromScale(1, 1)
+dragPad.BackgroundTransparency = 1
+dragPad.Text = ""
+dragPad.AutoButtonColor = false
+dragPad.ZIndex = 2
+dragPad.Parent = window
+
+dragPad.InputBegan:Connect(function(input)
 	if
 		input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch
@@ -401,6 +520,10 @@ RunService.RenderStepped:Connect(function()
 		blips[i].Visible = false
 	end
 
-	hint.Text = ("M or ✕ closes this  ·  drag to pan  ·  scroll to zoom (%.1fx)  ·  %d jobs on the board")
-		:format(zoom, n)
+	if noImage then
+		hint.Text = "Map image unavailable on this client -- markers only"
+	else
+		hint.Text = ("drag to pan  ·  + and - to zoom (%.1fx)  ·  ME centres on you  ·  %d jobs  ·  M or X closes")
+			:format(zoom, n)
+	end
 end)

@@ -99,7 +99,7 @@ local close = Instance.new("TextButton")
 close.Size = UDim2.fromOffset(28, 28)
 close.Position = UDim2.new(1, -38, 0, 14)
 close.BackgroundTransparency = 1
-close.Text = "✕"
+close.Text = "X"
 close.TextSize = 18
 close.TextColor3 = DIM
 close.Font = Enum.Font.GothamMedium
@@ -243,7 +243,7 @@ local open = false
 local function setOpen(v: boolean)
 	open = v
 	panel.Visible = v
-	button.Text = if v then "✕" else "⚙"
+	button.Text = if v then "X" else "⚙"
 	-- Nudged rather than hidden while open, so the corner does not empty out.
 	TweenService:Create(button, TweenInfo.new(0.15), {
 		BackgroundTransparency = if v then 0.45 else 0.15,
