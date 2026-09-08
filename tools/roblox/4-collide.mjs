@@ -221,31 +221,108 @@ for (let i = 0; i < mask.length; i++) if (mask[i]) packed[i >> 3] |= 1 << (i & 7
 
    Capped and evenly spread rather than taking the first N: a list built in
    parse order is a list of whatever happens to be in the north-west corner. */
-const SITE_REACH = 40;             // metres from the building to the nearest road
+/* SITE_REACH IS THE TIGHTEST ON-SCENE RADIUS, IN METRES, AND NOT A ROUND NUMBER
+   SOMEBODY LIKED.
+
+   It was 40, and 40 was wrong. An incident's `radius` in IncidentTypes is how
+   close you have to be to count as on scene, and it is measured from the
+   BUILDING -- but the building is a centroid and you are in a car, so the
+   closest you can actually get is the nearest bit of road. At 40 m of reach the
+   two do not meet:
+
+       metres from a site to the nearest drivable cell, over 400 sites
+       min 4.4   median 14.5   p90 26.5   p99 39.0   max 44.8
+
+       radius 40 studs (13.3 m)  ->  39.8% of sites reachable
+       radius 90 studs (30.0 m)  ->  94.0% of sites reachable
+
+   So one fire in sixteen could not be worked at all, and the fare and the
+   parcel -- which are 40-stud jobs, because a passenger on a pavement is not a
+   burning building -- would have been unreachable three times in five. That is
+   the kind of bug that arrives as "sometimes the job never completes" a week
+   after somebody has stopped being able to reproduce it.
+
+   13 m is the tightest radius any kind declares, converted at 3 studs a metre.
+   It costs nothing: 2,133 of the district's 6,002 buildings are within it, and
+   only 400 are wanted. The coupling to IncidentTypes is checked rather than
+   hoped for -- verify-roles.mjs asserts it against the radii the game actually
+   ships, so tightening a radius fails the check instead of the play session. */
+const SITE_REACH = 13;
 const SITE_CAP = 400;
-function nearRoadCell(x, y, reach) {
+/* The distance to the nearest drivable cell, or Infinity. Was a boolean; the
+   number is what lets the bake state its own guarantee. */
+function roadDistance(x, y, reach) {
+  let best = Infinity;
   const c = Math.ceil(reach / MC);
   const gi = Math.floor((x + H) / MC), gj = Math.floor((y + H) / MC);
   for (let j = gj - c; j <= gj + c; j++)
     for (let i = gi - c; i <= gi + c; i++)
       if (i >= 0 && i < MSPAN && j >= 0 && j < MSPAN && mask[j * MSPAN + i]) {
         const dx = (i + 0.5) * MC - H - x, dy = (j + 0.5) * MC - H - y;
-        if (Math.hypot(dx, dy) <= reach) return true;
+        const d = Math.hypot(dx, dy);
+        if (d <= reach && d < best) best = d;
       }
-  return false;
+  return best;
 }
+
+/* ---------------- depot gates ----------------
+
+   WHERE YOU ACTUALLY PULL UP TO SIGN ON, which is not the depot.
+
+   This is game.js:1215 depotGate(), moved into the bake. The browser found the
+   problem in play and the report was "fire stations have no roads to come close
+   to" — measured on THIS station, Ватрогасни савез Београд, where the nearest
+   way of any kind is 60.5 m from the building centre. A sign-on radius that
+   would work for a shopfront leaves you stopped in the yard with no button.
+
+   So a depot has two places its work is offered: the building itself, and the
+   nearest drivable cell to it. GATE_MAX is the honest limit — past it the
+   building really has no road near it, and the answer is no gate rather than a
+   gate that lies about where you can stand.
+
+   Done here rather than on the client because it is a fixed answer over fixed
+   data: twenty-seven ring searches once at bake time against twenty-seven every
+   time somebody joins. */
+const GATE_MAX = 130;
+function nearestRoadPoint(x, y, reach) {
+  let best = null, bestD = reach * reach;
+  const c = Math.ceil(reach / MC);
+  const gi = Math.floor((x + H) / MC), gj = Math.floor((y + H) / MC);
+  for (let j = gj - c; j <= gj + c; j++)
+    for (let i = gi - c; i <= gi + c; i++) {
+      if (i < 0 || i >= MSPAN || j < 0 || j >= MSPAN || !mask[j * MSPAN + i]) continue;
+      const px = (i + 0.5) * MC - H, py = (j + 0.5) * MC - H;
+      const d = (px - x) ** 2 + (py - y) ** 2;
+      if (d < bestD) { bestD = d; best = { x: px, y: py }; }
+    }
+  return best;
+}
+
+const depots = D.pois.map(p => {
+  const g = nearestRoadPoint(p.x, p.y, GATE_MAX);
+  return {
+    ...p,
+    gx: g ? Math.round(g.x * 10) / 10 : null,
+    gy: g ? Math.round(g.y * 10) / 10 : null,
+    gd: g ? Math.round(Math.hypot(g.x - p.x, g.y - p.y)) : null
+  };
+});
 
 const usable = [];
 for (const b of D.buildings) {
   let cx = 0, cy = 0;
   for (const p of b.pts) { cx += p[0]; cy += p[1]; }
   cx /= b.pts.length; cy /= b.pts.length;
-  if (!nearRoadCell(cx, cy, SITE_REACH)) continue;
+  const d = roadDistance(cx, cy, SITE_REACH);
+  if (!isFinite(d)) continue;
   usable.push({ x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10,
-                name: b.name || '', h: b.h });
+                name: b.name || '', h: b.h, d });
 }
 const stride = Math.max(1, Math.floor(usable.length / SITE_CAP));
 const sites = usable.filter((_, i) => i % stride === 0).slice(0, SITE_CAP);
+/* The guarantee, measured rather than assumed: no dispatched incident is
+   further than this from somewhere a car can stop. */
+const siteMaxRoadM = sites.reduce((a, s) => Math.max(a, s.d), 0);
 
 /* ---------------- the minimap ----------------
 
@@ -323,8 +400,9 @@ writeFileSync(`${CONFIG.out}/collision.json`, JSON.stringify({
           note: 'boxes are [x, z, sx, sz, levels] in lattice cells; y from 0 to levels' },
   boxes,
   mask: { span: MSPAN, cell: MC, bits: packed.toString('base64') },
-  depots: D.pois,
+  depots,
   sites,
+  siteMaxRoadM,
   minimap: { px: MAP_PX, bits: mapPacked.toString('base64') }
 }));
 
@@ -339,8 +417,17 @@ let arch = 0;
 for (const v of baseCell.values()) if (v > 0) arch++;
 console.log(`  archways      ${arch} cells left open under a passage`);
 console.log(`  road mask     ${MSPAN} x ${MSPAN} at ${MC} m, ${drivable} drivable cells (${(100 * drivable / mask.length).toFixed(1)}%), ${packed.length} bytes`);
-console.log(`  depots        ${D.pois.map(p => p.kind).join(', ') || '(none in district)'}`);
-console.log(`  incident sites ${sites.length} of ${usable.length} buildings reachable by road`);
+{
+  const byKind = {};
+  for (const d of depots) byKind[d.kind] = (byKind[d.kind] || 0) + 1;
+  const noGate = depots.filter(d => d.gx === null);
+  const far = depots.filter(d => d.gd !== null && d.gd > 25);
+  console.log(`  depots        ${Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(', ') || '(none in district)'}`);
+  console.log(`  depot gates   ${depots.length - noGate.length}/${depots.length} reachable, ` +
+              `${far.length} set back more than 25 m` +
+              (noGate.length ? ` -- unreachable: ${noGate.map(d => d.name || d.kind).join(', ')}` : ''));
+}
+console.log(`  incident sites ${sites.length} of ${usable.length} buildings within ${SITE_REACH} m of a road, worst ${siteMaxRoadM.toFixed(1)} m`);
 let mapRoad = 0;
 for (const b of mapBits) if (b === 3) mapRoad++;
 console.log(`  minimap       ${MAP_PX}x${MAP_PX} at ${(2 * H / MAP_PX).toFixed(1)} m a pixel, ${(100 * mapRoad / mapBits.length).toFixed(1)}% road, ${(mapPacked.length / 1024).toFixed(0)} kB`);

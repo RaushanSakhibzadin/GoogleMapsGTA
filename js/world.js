@@ -114,7 +114,11 @@ function buildingColours(t, area, h, seed) {
 const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
                   fire: '#ff6a2b', taxi: '#f2b705',
                   // the colour of a roulette layout, which is what it is for
-                  casino: '#c81e3c' };
+                  casino: '#c81e3c',
+                  /* The two fallbacks wear a paler version of the depot they
+                     stand in for, so a map with both on it reads as "the real
+                     one and the other one" rather than as two more services. */
+                  clinic: '#ff92a6', fuel: '#e5cf7a' };
 /* AND A FACE FOR EACH, because three coloured dots are three coloured dots.
 
    The colours are the same three a player has to learn and then remember, and
@@ -133,6 +137,7 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
    flag where it is going. */
 const POI_EMOJI = {
   police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕', casino: '🎰',
+  clinic: '🩺', fuel: '⛽',
   /* THE GOAL LOOKS LIKE WHAT IT IS. Reported from play: on the ambulance shift
      the casualty was marked with a parcel. Every shift shared one pickup icon,
      so the taxi went to collect a box as well, and only the courier was ever
@@ -186,7 +191,18 @@ const POI_KIND = t => t.amenity === 'police' ? 'police'
                     : t.amenity === 'fire_station' ? 'fire'
                     : t.amenity === 'taxi' ? 'taxi'
                     : t.amenity === 'casino' ? 'casino'
-                    : t.shop === 'car_repair' ? 'repair' : null;
+                    : t.shop === 'car_repair' ? 'repair'
+                    /* THE TWO FALLBACK DEPOTS, and they are last on purpose:
+                       anything tagged as the real thing is classified as the
+                       real thing first, and only a clinic that is not a hospital
+                       becomes a clinic. JOBS reads them as second choices —
+                       ambulance prefers hospital and takes clinic, taxi prefers
+                       a rank and takes a filling station — so a city with the
+                       real depot never sees these, and a city without one gets
+                       a shift instead of a dead job. See geo.js for the count
+                       that paid for it: Belgrade has 0 hospitals and 12 clinics. */
+                    : (t.amenity === 'clinic' || t.amenity === 'doctors') ? 'clinic'
+                    : t.amenity === 'fuel' ? 'fuel' : null;
 
 /* ------------------- the name, in a script you can read -------------------
 

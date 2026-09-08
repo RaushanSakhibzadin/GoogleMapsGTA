@@ -1122,7 +1122,8 @@ function jobBand(job, minD, maxD) {
    wear, so taking the shift makes you look like the cars you drive alongside. */
 const JOBS = {
   courier:   { at: null,       emoji: '📦', col: '#ff4fd8' },
-  taxi:      { at: 'taxi',     emoji: '🚕', col: '#f2b705', livery: 'taxi' },
+  taxi:      { at: ['taxi', 'fuel'],
+                                emoji: '🚕', col: '#f2b705', livery: 'taxi' },
   police:    { at: 'police',   emoji: '🚓', col: '#eef1f6', livery: 'police' },
   fire:      { at: 'fire',     emoji: '🚒', col: '#e0301f', livery: 'fire',
                /* AND THE FIRE SHIFT CHANGES THE VEHICLE, not just its paint. A
@@ -1144,7 +1145,8 @@ const JOBS = {
                   ordinary car is already three, so eight is the appliance at
                   something near the real ratio to the traffic around it. */
                mass: 8 },
-  ambulance: { at: 'hospital', emoji: '🚑', col: '#f4f6fa', livery: 'ambulance',
+  ambulance: { at: ['hospital', 'clinic'],
+                                emoji: '🚑', col: '#f4f6fa', livery: 'ambulance',
                /* A VAN, NOT A SALOON. Same reasoning as the appliance: the shape
                   is what says ambulance, and a red cross on a hatchback is a
                   hatchback with a sticker. Six metres and two and a half tall is
@@ -1179,8 +1181,19 @@ function massFor(job, stock) {
   const vol = q => q.l * q.w * q.bh;
   return stock.mass * Math.pow(vol(b) / vol(stock), .6);
 }
+/* WHICH DEPOT OFFERS WHICH SHIFT. `at` is one kind or a list of them in order of
+   preference, and the list is what makes a shift exist in a city that does not
+   have the textbook depot for it: Belgrade has no amenity=hospital and no
+   amenity=taxi anywhere in the bundled capture, so before this the ambulance and
+   the taxi were two shifts you could not take. The fallback is second in the
+   list, never first, so a city with a real hospital in it still sends you to the
+   hospital. */
 const JOB_AT = {};
-for (const id in JOBS) if (JOBS[id].at) JOB_AT[JOBS[id].at] = id;
+for (const id in JOBS) {
+  const at = JOBS[id].at;
+  if (!at) continue;
+  for (const kind of (Array.isArray(at) ? at : [at])) if (!JOB_AT[kind]) JOB_AT[kind] = id;
+}
 /* Close enough to have pulled up at it. The landmark itself is a point at the
    centre of a building, so this has to clear the building — twenty-two metres is
    about a forecourt, and it is the same order as the eight the delivery drop

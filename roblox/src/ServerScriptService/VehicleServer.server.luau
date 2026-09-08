@@ -86,9 +86,16 @@ local PALETTE = {
 }
 
 local function spawnCar(player: Player)
-	local model = CarBuild.new(PALETTE[(player.UserId % #PALETTE) + 1])
+	local own = PALETTE[(player.UserId % #PALETTE) + 1]
+	local model = CarBuild.new(own)
 	model.Name = "Car_" .. player.UserId
 	model:SetAttribute("Owner", player.UserId)
+	-- THE PAINT THIS PLAYER ARRIVED IN, kept because a shift takes it away and
+	-- signing off has to give it back. Without it, clocking off a police shift
+	-- leaves you in a white car for ever -- the same bug the browser avoids by
+	-- keeping `P.car.stock` for the body.
+	model:SetAttribute("OwnColour", own)
+	model:SetAttribute("Role", "courier")
 
 	-- NEVER STREAMED OUT. With StreamingEnabled a server-made model comes and
 	-- goes with the replication focus, and a car can be several things at once:

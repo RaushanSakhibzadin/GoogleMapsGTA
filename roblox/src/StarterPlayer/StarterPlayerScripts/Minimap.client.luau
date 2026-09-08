@@ -168,6 +168,31 @@ Board.OnClientEvent:Connect(function(list)
 	board = list
 end)
 
+-- ---------------------------------------------------------------- depots
+
+-- THE DEPOT YOU ARE NEAR, and only that one.
+--
+-- The big map draws all twenty-seven, because that is a map you have opened to
+-- decide where to drive. This is a 190-pixel circle showing 300 m of city, and
+-- putting nine clinics on it would fill it with dots for buildings you are not
+-- going to -- so the minimap shows the nearest sign-on depot and nothing else,
+-- and only once you are close enough for it to be a thing you might do.
+--
+-- SMALLER AND DARKER THAN AN INCIDENT, deliberately: a job is what you are
+-- meant to look at, and a depot is furniture until you want it.
+local SHOW_NEAR = 600
+local DEPOT_COLOUR: { [string]: Color3 } = {
+	fire = Color3.fromRGB(226, 72, 56),
+	police = Color3.fromRGB(96, 152, 230),
+	hospital = Color3.fromRGB(240, 240, 244),
+	clinic = Color3.fromRGB(255, 146, 166),
+	taxi = Color3.fromRGB(242, 183, 5),
+	fuel = Color3.fromRGB(229, 207, 122),
+}
+local depotDot = dot(7, Color3.fromRGB(150, 156, 166), 7)
+depotDot.BackgroundTransparency = 0.25
+depotDot.Visible = false
+
 -- ---------------------------------------------------------------- the frame
 
 local function carPivot(): CFrame?
@@ -234,6 +259,35 @@ RunService.RenderStepped:Connect(function(dt)
 	-- Blips, in the same rotated basis as the pixels.
 	local n = 0
 	local scale = VIEW / SPAN
+
+	-- The nearest sign-on depot, if there is one worth showing. Its GATE, not
+	-- its centroid: the gate is where you actually pull up, and on this
+	-- district's fire station the two are 51 m apart.
+	do
+		local best, bestD, bestKind = nil, SHOW_NEAR * SHOW_NEAR, ""
+		for _, d in ClientBus.depots do
+			local dx, dz = (d.gx or d.x) - p.X, (d.gz or d.z) - p.Z
+			local q = dx * dx + dz * dz
+			if q < bestD then
+				best, bestD, bestKind = { x = d.gx or d.x, z = d.gz or d.z }, q, d.kind
+			end
+		end
+		if best then
+			local wx, wz = best.x - p.X, best.z - p.Z
+			local sx = (wx * rx + wz * rz) * scale
+			local sy = (wx * bx + wz * bz) * scale
+			local R = VIEW / 2 - 7
+			local d = math.sqrt(sx * sx + sy * sy)
+			if d > R then
+				sx, sy = sx / d * R, sy / d * R
+			end
+			depotDot.BackgroundColor3 = DEPOT_COLOUR[bestKind] or Color3.fromRGB(150, 156, 166)
+			depotDot.Position = UDim2.fromOffset(VIEW / 2 + sx, VIEW / 2 + sy)
+			depotDot.Visible = true
+		else
+			depotDot.Visible = false
+		end
+	end
 	for _, inc in board do
 		n += 1
 		local f = blips[n]
@@ -242,9 +296,18 @@ RunService.RenderStepped:Connect(function(dt)
 			blips[n] = f
 		end
 		f.Visible = true
-		f.BackgroundColor3 = if inc.filled > 0
-			then Color3.fromRGB(120, 200, 150)
-			else Color3.fromRGB(255, 140, 40)
+		-- The kind's own colour, so the dot and the column over the building
+		-- match; dimmed when this shift has no place on it. Same rule as the big
+		-- map, and the same reason: with five kinds on the board, most of what is
+		-- on it is somebody else's work.
+		local canTake = false
+		for _, s in inc.slots or {} do
+			if s.role == ClientBus.role and s.filled < s.max then
+				canTake = true
+			end
+		end
+		f.BackgroundColor3 = inc.colour or Color3.fromRGB(255, 140, 40)
+		f.BackgroundTransparency = if canTake then 0 else 0.55
 
 		local wx, wz = inc.x - p.X, inc.z - p.Z
 		local sx = (wx * rx + wz * rz) * scale

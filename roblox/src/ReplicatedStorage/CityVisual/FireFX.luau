@@ -25,11 +25,17 @@
 
 local FireFX = {}
 
+-- AND NOT EVERY INCIDENT IS ON FIRE. Once there is more than one kind on the
+-- board -- a road collision, a medical call, a fare -- the flame stops being
+-- decoration and starts being a lie: it is the one glance that tells a
+-- firefighter this job is theirs. So the flame is optional and the beacon is
+-- not, and a rig without one is the same column, glow and light in the kind's
+-- own colour with nothing burning inside it.
 export type Rig = {
 	model: Model,
 	seat: BasePart, -- the burning thing itself
-	fire: Fire,
-	smoke: Smoke,
+	fire: Fire?,
+	smoke: Smoke?,
 	light: PointLight,
 	beacon: BasePart,
 	glow: BasePart,
@@ -54,9 +60,15 @@ local function part(name: string, parent: Instance): Part
 	return p
 end
 
-function FireFX.new(parent: Instance): Rig
+-- `burning` builds the flame and the smoke; `tint` is the colour of everything
+-- that is not the flame. Both default to the structure fire this started as, so
+-- an old call site is unchanged.
+function FireFX.new(parent: Instance, burning: boolean?, tint: Color3?): Rig
 	local model = Instance.new("Model")
-	model.Name = "Fire"
+	model.Name = "Incident"
+
+	local alight = burning ~= false
+	local colour = tint or Color3.fromRGB(255, 140, 40)
 
 	-- THE SEAT IS INVISIBLE. Fire and Smoke are drawn ON a part, at its size,
 	-- and the part underneath would otherwise be a grey box sitting in the
@@ -65,24 +77,30 @@ function FireFX.new(parent: Instance): Rig
 	seat.Transparency = 1
 	seat.Size = Vector3.new(10, 10, 10)
 
-	local fire = Instance.new("Fire")
-	fire.Heat = 16
-	fire.Size = 18
-	fire.Color = FLAME_COOL
-	fire.SecondaryColor = FLAME_HOT
-	fire.Parent = seat
+	local fire: Fire? = nil
+	local smoke: Smoke? = nil
+	if alight then
+		local f = Instance.new("Fire")
+		f.Heat = 16
+		f.Size = 18
+		f.Color = FLAME_COOL
+		f.SecondaryColor = FLAME_HOT
+		f.Parent = seat
+		fire = f
 
-	local smoke = Instance.new("Smoke")
-	smoke.Color = Color3.fromRGB(38, 36, 34)
-	smoke.Opacity = 0.28
-	smoke.RiseVelocity = 14
-	smoke.Size = 26
-	smoke.Parent = seat
+		local s = Instance.new("Smoke")
+		s.Color = Color3.fromRGB(38, 36, 34)
+		s.Opacity = 0.28
+		s.RiseVelocity = 14
+		s.Size = 26
+		s.Parent = seat
+		smoke = s
+	end
 
 	-- Light does most of the work at night and a surprising amount by day: it is
 	-- what makes the wall behind the fire look lit rather than painted.
 	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(255, 148, 60)
+	light.Color = if alight then Color3.fromRGB(255, 148, 60) else colour
 	light.Range = 46
 	light.Brightness = 2.4
 	light.Shadows = false
@@ -93,14 +111,14 @@ function FireFX.new(parent: Instance): Rig
 	-- where the fire is, from any angle.
 	local glow = part("Glow", model)
 	glow.Material = Enum.Material.Neon
-	glow.Color = FLAME_COOL
+	glow.Color = if alight then FLAME_COOL else colour
 	glow.Transparency = 0.25
 	glow.Size = Vector3.new(11, 1.5, 11)
 
 	-- And the column you navigate by, which is what this used to be all of.
 	local beacon = part("Beacon", model)
 	beacon.Material = Enum.Material.Neon
-	beacon.Color = Color3.fromRGB(255, 140, 40)
+	beacon.Color = colour
 	beacon.Transparency = 0.55
 	beacon.Size = Vector3.new(5, 400, 5)
 
@@ -145,14 +163,20 @@ function FireFX.update(rig: Rig, x: number, z: number, progress: number, fought:
 	-- over the cap is silently clamped, which would eat the bright half of the
 	-- blink at full strength and leave it looking like a one-way flicker. Base
 	-- 18 x the 1.55 bright phase is 27.9, comfortably under.
-	rig.fire.Size = math.clamp(18 * scale * blink, 2, 30)
-	rig.fire.Heat = math.clamp(16 * scale, 1, 25)
-	-- Whiter at full strength, redder as it dies.
-	rig.fire.Color = FLAME_COOL:Lerp(FLAME_HOT, left * 0.5)
+	if rig.fire then
+		local f = rig.fire :: Fire
+		f.Size = math.clamp(18 * scale * blink, 2, 30)
+		f.Heat = math.clamp(16 * scale, 1, 25)
+		-- Whiter at full strength, redder as it dies.
+		f.Color = FLAME_COOL:Lerp(FLAME_HOT, left * 0.5)
+	end
 
-	rig.smoke.Size = math.clamp(26 * scale, 1, 100)
-	rig.smoke.Opacity = 0.28 * left
-	rig.smoke.Enabled = left > 0.05
+	if rig.smoke then
+		local s = rig.smoke :: Smoke
+		s.Size = math.clamp(26 * scale, 1, 100)
+		s.Opacity = 0.28 * left
+		s.Enabled = left > 0.05
+	end
 
 	rig.light.Brightness = 2.4 * scale * blink
 	rig.light.Range = math.clamp(46 * scale, 4, 60)

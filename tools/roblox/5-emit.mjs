@@ -209,18 +209,34 @@ writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Minimap.luau`,
 writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Sites.luau`,
   HDR('Buildings an incident can happen at -- reachable by road, evenly spread.\n' +
       '-- Studs. name is the OSM name where there is one, for the dispatch card.') +
-  'return {\n' +
+  'local Sites = {\n' +
   CO.sites.map(s2 =>
     `\t{ x = ${R(s2.x * S)}, z = ${R(s2.y * S)}, h = ${R(s2.h * S)}, name = ${JSON.stringify(s2.name)} },`
   ).join('\n') +
-  '\n}\n');
+  '\n}\n\n' +
+  '-- THE BAKE\'S GUARANTEE, in studs: no site above is further than this from\n' +
+  '-- somewhere a car can stop. It has to stay under the TIGHTEST `radius` any\n' +
+  '-- kind in IncidentTypes declares, or that kind has incidents nobody can reach\n' +
+  "-- -- which is not a crash, it is a job that never completes.\n" +
+  '--\n' +
+  '-- A NAMED FIELD ON THE ARRAY, so `#Sites` and an indexed pick are unaffected.\n' +
+  '-- `for _, s in Sites do` is NOT: Luau generalised iteration walks the hash part\n' +
+  '-- too, and would hand you this number as if it were a site. Index it.\n' +
+  `Sites.maxRoadStuds = ${R(CO.siteMaxRoadM * S)}\n\n` +
+  'return Sites\n');
 
 /* ---------------- depots ---------------- */
 writeFileSync(`${ROOT}/ReplicatedStorage/Shared/Depots.luau`,
-  HDR('Where a shift can be signed on, from OSM amenity tags.') +
+  HDR('Where a shift can be signed on, from OSM amenity tags.\n' +
+      '-- gx/gz is the GATE: the nearest drivable point to the depot, which is where\n' +
+      '-- you actually pull up. Absent when the depot has no road within 130 m -- and\n' +
+      '-- when it is absent the depot cannot be signed on at by car at all, which is\n' +
+      '-- the truth rather than a radius large enough to hide it. See 4-collide.mjs.') +
   'return {\n' +
   CO.depots.map(d =>
-    `\t{ kind = "${d.kind}", x = ${R(d.x * S)}, z = ${R(d.y * S)}, name = ${JSON.stringify(d.name)} },`
+    `\t{ kind = "${d.kind}", x = ${R(d.x * S)}, z = ${R(d.y * S)}, ` +
+    (d.gx === null ? '' : `gx = ${R(d.gx * S)}, gz = ${R(d.gy * S)}, `) +
+    `name = ${JSON.stringify(d.name)} },`
   ).join('\n') +
   '\n}\n');
 

@@ -30,6 +30,13 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local IncidentTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("IncidentTypes"))
+-- SAFE TO REQUIRE FROM THE CRITICAL SECTION, and the direction matters: this
+-- module reads RoleService and RoleService reads nothing back. A player's role
+-- is a table lookup, so the "are you on that shift" check costs the claim path
+-- nothing and, more to the point, cannot yield. The other direction -- releasing
+-- a slot when somebody changes shift -- is wired up in IncidentServer off
+-- RoleService.changed, precisely so that this require stays one-way.
+local RoleService = require(script.Parent:WaitForChild("RoleService"))
 
 local IncidentService = {}
 
@@ -46,6 +53,9 @@ export type Incident = {
 	filled: number,
 	tier: number,
 	progress: number, -- 0..1 of the tier's work
+	-- Competitive kinds only: whoever reached it first. Locked the moment
+	-- somebody is on scene and never reopened, so a race is decided once.
+	winner: number?,
 }
 
 local incidents: { [string]: Incident } = {}
@@ -86,6 +96,7 @@ function IncidentService.create(kindId: string, x: number, z: number, name: stri
 		filled = 0,
 		tier = 1,
 		progress = 0,
+		winner = nil,
 	}
 	incidents[id] = inc
 	IncidentService.changed:Fire()
@@ -113,7 +124,10 @@ local function releaseInner(userId: number): string?
 	if inc and inc.claims[userId] then
 		inc.claims[userId] = nil
 		inc.filled = math.max(0, inc.filled - 1)
-		if inc.filled == 0 and inc.state == "engaged" then
+		-- A COMPETITIVE JOB THAT HAS BEEN WON DOES NOT GO BACK ON THE BOARD. The
+		-- winner leaving mid-payout would otherwise re-offer a fare that has
+		-- already been picked up.
+		if inc.filled == 0 and inc.state == "engaged" and inc.winner == nil then
 			-- nobody left on it; back on the board rather than failed
 			inc.state = "open"
 			inc.progress = 0
@@ -162,19 +176,30 @@ function IncidentService.tryClaim(
 	end
 
 	local kind = IncidentTypes[inc.kind]
-	local slot: IncidentTypes.Slot? = nil
-	for _, s in kind.slots do
-		if s.role == role then
-			slot = s
-			break
-		end
-	end
+	local slot = IncidentTypes.slotFor(kind, role)
 	if not slot then
 		return false, "no such role here"
 	end
 
+	-- YOU MAY ONLY CLAIM THE SHIFT YOU ARE ON, and this is the check that makes
+	-- the whole roster mean anything. Without it `role` is a string the client
+	-- picked, and a courier could take the fire slot by asking for it -- the
+	-- depot would be decoration and every incident would be open to everyone.
+	--
+	-- A table lookup, so it costs the section nothing and cannot yield.
+	if RoleService.roleOf(userId) ~= role then
+		return false, "not on that shift"
+	end
+
 	if inc.claims[userId] then
 		return true, "already yours"
+	end
+
+	-- A COMPETITIVE JOB THAT SOMEBODY HAS ALREADY REACHED IS OVER, whatever the
+	-- board still says: it lingers for the three seconds of its own work and a
+	-- claim landing in that window would be a claim on a fare already taken.
+	if inc.winner ~= nil then
+		return false, "already taken"
 	end
 
 	local inRole = 0
@@ -211,7 +236,11 @@ end
 
 -- Progress, expiry and resolution. Driven from a heartbeat by the server
 -- script; separated from the claim path because this one is allowed to yield.
-function IncidentService.step(dt: number, onScene: (Incident) -> number)
+-- `onScene` answers two questions about one incident: how many of its claimants
+-- are standing at it, and which one of them is (any one -- for a competitive job
+-- it is the winner, because the first frame anybody is there is the frame it is
+-- decided).
+function IncidentService.step(dt: number, onScene: (Incident) -> (number, number?))
 	local now = os.clock()
 	local dirty = false
 
@@ -225,7 +254,22 @@ function IncidentService.step(dt: number, onScene: (Incident) -> number)
 		elseif inc.state == "engaged" then
 			local kind = IncidentTypes[inc.kind]
 			local tier = kind.tiers[inc.tier]
-			local present = onScene(inc)
+			local present, someone = onScene(inc)
+
+			-- CLAIM IS NOT AWARD. Everyone on the shift can be holding a slot on
+			-- the same fare; the first to actually arrive takes it, and from that
+			-- instant nobody else's presence counts towards finishing it. That is
+			-- the whole of "competitive" -- it is a race rather than a rota, and
+			-- the losers simply stop being on it.
+			if kind.competitive then
+				if inc.winner == nil then
+					inc.winner = someone
+					if someone ~= nil then
+						dirty = true
+					end
+				end
+				present = if inc.winner ~= nil and someone == inc.winner then 1 else 0
+			end
 
 			-- WORK SCALES WITH WHO IS ACTUALLY THERE, not with who claimed.
 			-- Claiming a slot and driving the other way should not finish a job.
@@ -238,7 +282,14 @@ function IncidentService.step(dt: number, onScene: (Incident) -> number)
 					for userId in inc.claims do
 						held[userId] = nil
 					end
-					IncidentService.resolved:Fire(inc.id, inc.kind, inc.tier, inc.claims, tier.pay)
+					-- Paid to the winner alone on a competitive job, to everybody
+					-- who claimed on a dispatched one.
+					local paid = inc.claims
+					if kind.competitive then
+						local w = inc.winner
+						paid = if w then { [w] = inc.claims[w] } else {}
+					end
+					IncidentService.resolved:Fire(inc.id, inc.kind, inc.tier, paid, tier.pay)
 				end
 			end
 		end

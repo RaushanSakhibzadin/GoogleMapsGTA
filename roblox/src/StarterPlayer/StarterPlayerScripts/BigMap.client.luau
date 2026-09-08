@@ -269,19 +269,34 @@ meCorner.CornerRadius = UDim.new(1, 0)
 meCorner.Parent = me
 
 -- DEPOTS ARE STATIC, so they are made once. This is the district's answer to
--- "where do I sign on" -- and at 2.4 km it finally has one worth showing: ten
--- of them, including two police and a fire station.
+-- "where do I sign on" -- and at 2.4 km it finally has one worth showing:
+-- twenty-seven, covering all five shifts.
+--
+-- CLINIC AND FUEL ARE THE FALLBACK DEPOTS and they wear a paler version of the
+-- service they stand in for -- Belgrade has no amenity=hospital and no taxi
+-- rank anywhere in the capture, so these ARE the ambulance and taxi stations
+-- here. Same palette decision as the browser's POI_COL, for the same reason:
+-- the map should read as "the real one and the other one" rather than as two
+-- more services to learn.
 local DEPOT_COLOUR: { [string]: Color3 } = {
 	fire = Color3.fromRGB(226, 72, 56),
 	police = Color3.fromRGB(96, 152, 230),
 	repair = Color3.fromRGB(150, 156, 166),
 	hospital = Color3.fromRGB(240, 240, 244),
+	clinic = Color3.fromRGB(255, 146, 166),
+	taxi = Color3.fromRGB(242, 183, 5),
+	fuel = Color3.fromRGB(229, 207, 122),
 }
 local depotDots: { { f: Frame, x: number, z: number } } = {}
 for _, d in Depots :: { any } do
 	local f = dot(8, DEPOT_COLOUR[d.kind] or DIM, 6)
 	f.BackgroundTransparency = 0.15
-	table.insert(depotDots, { f = f, x = d.x, z = d.z })
+	-- THE GATE IS THE ONE YOU DRIVE TO. The building's own point is a centroid
+	-- that can sit fifty metres inside a block -- on this district's fire
+	-- station, 51 m from the nearest road -- and a map dot you cannot reach is
+	-- worse than no dot. The gate is what the sign-on prompt actually tests
+	-- against, so it is what the map should point at.
+	table.insert(depotDots, { f = f, x = d.gx or d.x, z = d.gz or d.z })
 end
 
 local blips: { Frame } = {}
@@ -572,7 +587,20 @@ RunService.RenderStepped:Connect(function()
 			f = dot(11, ACCENT, 10)
 			blips[n] = f
 		end
-		f.BackgroundColor3 = if inc.filled > 0 then Color3.fromRGB(120, 200, 150) else ACCENT
+		-- THE JOB'S OWN COLOUR, so the dot on the map and the column over the
+		-- building are the same thing. And FADED when this shift has no place on
+		-- it: with five kinds on the board most of it belongs to somebody else,
+		-- and a map that shows five equally bright dots is a map that sends you
+		-- to four jobs you cannot take.
+		local mine = false
+		for _, s in inc.slots or {} do
+			if s.role == ClientBus.role and s.filled < s.max then
+				mine = true
+			end
+		end
+		f.BackgroundColor3 = inc.colour or ACCENT
+		f.BackgroundTransparency = if mine then 0 else 0.6
+		f.Size = UDim2.fromOffset(if mine then 11 else 8, if mine then 11 else 8)
 		place(f, inc.x, inc.z)
 	end
 	for i = n + 1, #blips do

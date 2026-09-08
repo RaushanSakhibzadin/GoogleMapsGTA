@@ -79,6 +79,13 @@ export type Car = {
 	w: number,
 	l: number,
 	kind: string,
+	-- A VEHICLE THAT IS ALLOWED OFF THE TARMAC, which is the fire appliance and
+	-- the ambulance. A fire is a building and the last thirty metres to one are
+	-- a forecourt or a yard, so without this the end of every call is a crawl at
+	-- walking pace -- reported from play in the browser twice, once at a
+	-- hospital and once at a fire, and fixed there with the same flag.
+	-- Optional so every other car in the game stays exactly as it was.
+	offroad: boolean?,
 }
 
 export type Input = {
@@ -141,7 +148,11 @@ function VehicleModel.step(
 	local stray = false
 	if onTarmac then
 		c.road = onTarmac(c.x, c.y)
-		stray = not c.road
+		-- The appliance still KNOWS it is off the road -- c.road stays false, so
+		-- it still loses grip and still drags like a vehicle on a forecourt. What
+		-- it does not get is STRAY_TOP, the walking pace that exists to stop
+		-- ordinary cars driving across the city in a straight line.
+		stray = not c.road and not c.offroad
 	else
 		c.road = true
 	end

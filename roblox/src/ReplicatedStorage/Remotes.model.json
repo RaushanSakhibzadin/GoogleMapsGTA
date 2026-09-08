@@ -5,6 +5,8 @@
     { "name": "CarCorrection", "className": "RemoteEvent" },
     { "name": "IncidentBoard", "className": "RemoteEvent" },
     { "name": "ClaimSlot", "className": "RemoteFunction" },
-    { "name": "Wallet", "className": "RemoteEvent" }
+    { "name": "Wallet", "className": "RemoteEvent" },
+    { "name": "SignOn", "className": "RemoteFunction" },
+    { "name": "RoleState", "className": "RemoteEvent" }
   ]
 }

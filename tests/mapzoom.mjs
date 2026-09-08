@@ -155,23 +155,49 @@ out.centreFindsYou =
    have lost track of where you are.
  *
  * The car is the only pure white thing on the overlay; the roads by daylight are
- * #ffffff too, so this is read at dusk, where they are violet. */
+ * #ffffff too, so this is read at dusk, where they are violet.
+ *
+ * READ IN A WINDOW ROUND THE MIDDLE, NOT OVER THE WHOLE CANVAS.
+ *
+ * It used to count white pixels anywhere on the map, which worked only because
+ * of an accident: the offline Belgrade has no amenity=hospital in it, so 🏥 —
+ * which is 21 white pixels of landmark face — was never drawn. The moment any
+ * white-ish landmark exists in the loaded city the count is measuring furniture
+ * rather than the car, and the two zooms show different numbers of landmarks,
+ * so the stability check below fails for a reason that has nothing to do with
+ * the arrow. Adding one POI kind was enough to trip it.
+ *
+ * __mapCentre() has just put the car at the middle of the canvas, and the arrow
+ * is the only thing drawn AT the car, so a window round the middle is the arrow
+ * and nothing else. `clipped` is what keeps this honest in both directions: if
+ * the blob touches the edge of the window, either the arrow is not where this
+ * says it is or something else has wandered in, and either way the measurement
+ * is refused rather than quietly reported. That makes this a stricter test than
+ * the one it replaces, not a looser one. */
 out.arrow = await p.evaluate(async () => {
   applyTheme('dusk');
   window.__openMap();
   const cv = document.getElementById('bigmapC');
   const g = cv.getContext('2d');
   const measure = () => {
-    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    /* Comfortably bigger than the arrow, which encloses about 15 by 18 device
+       pixels, and small enough that a landmark face has to be sitting almost on
+       top of the car to reach it. */
+    const R = Math.round(40 * DPR);
+    const mx = Math.round(cv.width / 2), my = Math.round(cv.height / 2);
+    const bx = Math.max(0, mx - R), by = Math.max(0, my - R);
+    const bw = Math.min(cv.width, mx + R) - bx, bh = Math.min(cv.height, my + R) - by;
+    const d = g.getImageData(bx, by, bw, bh).data;
     let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0;
-    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
-      const i = (y * cv.width + x) * 4;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const i = (y * bw + x) * 4;
       if (d[i] < 250 || d[i + 1] < 250 || d[i + 2] < 250) continue;
       n++;
       if (x < x0) x0 = x; if (x > x1) x1 = x;
       if (y < y0) y0 = y; if (y > y1) y1 = y;
     }
-    return { n, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    const clipped = n === 0 || x0 === 0 || y0 === 0 || x1 === bw - 1 || y1 === bh - 1;
+    return { n, w: x1 - x0 + 1, h: y1 - y0 + 1, clipped };
   };
   window.__tp((W.minX + W.maxX) / 2, (W.minY + W.maxY) / 2, 0.6);
   window.__mapCentre();
@@ -194,7 +220,10 @@ out.arrow = await p.evaluate(async () => {
    because it is an area. */
 out.arrowIsFindable =
   out.arrow.far.n >= 90 * out.arrow.dpr * out.arrow.dpr &&
-  Math.abs(out.arrow.far.n - out.arrow.near.n) <= 6;
+  Math.abs(out.arrow.far.n - out.arrow.near.n) <= 6 &&
+  // and what was measured was one blob sitting clear of the window's edges,
+  // which is the arrow at the centre and nothing that wandered in beside it
+  !out.arrow.far.clipped && !out.arrow.near.clipped;
 
 /* ---- 4. and a new city does not inherit the last one's zoom ---- */
 out.newCity = await p.evaluate(() => {

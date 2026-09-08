@@ -190,6 +190,20 @@ function overpassQL(s, w, n, e, kind, opt) {
          a company office, which is where a shift starts. */
       `nwr["amenity"~"^(police|hospital|fire_station|taxi)$"](${bb});` +
       `nwr["shop"="car_repair"](${bb});` +
+      /* AND THE TWO STAND-INS, which are what make the ambulance and taxi shifts
+         exist in a real city rather than in an imagined one.
+         Counted on the bundled Belgrade capture (10,907 tagged elements inside
+         the district) rather than assumed:
+             amenity=hospital   0        amenity=taxi   0
+             amenity=clinic    12        amenity=fuel   5
+         Belgrade's hospitals are tagged as clinics and institutes — Дом здравља
+         „Стари град”, Институт за неонатологију — because that is what дом
+         здравља is, and OSM's amenity=hospital is reserved for something
+         narrower. So the ambulance shift had NO depot in the shipped offline
+         city and could not be taken at all; the taxi shift has no rank either.
+         These two tags are what those depots actually look like on the ground,
+         and POI_KIND ranks them below the real thing rather than beside it. */
+      `nwr["amenity"~"^(clinic|doctors|fuel)$"](${bb});` +
       /* AND THE CASINOS, which ride along for nothing. This union is already
          tag-indexed over a 45 km box, and amenity=casino is one more indexed tag
          — Belgrade, which has more of them than anywhere else this game gets

@@ -18,4 +18,25 @@ local ClientBus = {}
 -- frame at 20 Hz forever, the other is idle until it is opened.
 ClientBus.toggleMap = Instance.new("BindableEvent")
 
+-- THE SHIFT, and the district's depots, held rather than only signalled.
+--
+-- RoleState arrives once at join, and three scripts need it: the sign-on prompt,
+-- the dispatch card (which jobs may I take?) and both maps (where are the
+-- depots?). A BindableEvent alone would only reach whoever happened to be
+-- listening at the moment the message landed, and on a client where every
+-- script is still doing WaitForChild that is a coin toss. So the value is KEPT
+-- here and the event says it changed -- a late listener reads the field, an
+-- early one hears the event, and neither has to know which it was.
+ClientBus.role = "courier"
+ClientBus.playable = {} :: { string }
+ClientBus.depots = {} :: { { kind: string, role: string, x: number, z: number, gx: number?, gz: number?, name: string } }
+ClientBus.roleChanged = Instance.new("BindableEvent")
+
+-- ON A SHOUT. True while you hold a slot on an incident and are not there yet,
+-- which is exactly when a blue light is on and a siren is running. Written by
+-- DispatchUI, which is the only script that knows; read by RoleUI to flash the
+-- beacon. A plain field rather than an event because it is read every frame and
+-- there is nothing to react to -- only a value to look at.
+ClientBus.responding = false
+
 return ClientBus

@@ -22,6 +22,7 @@ local Sites = require(Shared:WaitForChild("Sites"))
 local Services = script.Parent:WaitForChild("Services")
 local IncidentService = require(Services:WaitForChild("IncidentService"))
 local ProfileService = require(Services:WaitForChild("ProfileService"))
+local RoleService = require(Services:WaitForChild("RoleService"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
@@ -40,6 +41,24 @@ local function pack()
 	for id, inc in IncidentService.all() do
 		local kind = IncidentTypes[inc.kind]
 		local tier = kind.tiers[inc.tier]
+
+		-- PER ROLE, not a single headcount. With one kind and one role, "2/3" was
+		-- the whole truth about an incident; with three services on a collision
+		-- it hides the only thing worth knowing, which is WHICH service is still
+		-- missing. This is what lets the card say "needs fire" rather than "1/4".
+		local slots = {}
+		local total = 0
+		for _, s in kind.slots do
+			local n = 0
+			for _, r in inc.claims do
+				if r == s.role then
+					n += 1
+				end
+			end
+			slots[#slots + 1] = { role = s.role, max = s.max, filled = n }
+			total += s.max
+		end
+
 		out[#out + 1] = {
 			id = id,
 			kind = inc.kind,
@@ -50,7 +69,11 @@ local function pack()
 			z = inc.z,
 			name = inc.name,
 			filled = inc.filled,
-			max = kind.slots[1].max,
+			max = total,
+			slots = slots,
+			competitive = kind.competitive == true,
+			marker = kind.marker,
+			colour = kind.colour,
 			progress = inc.progress,
 			state = inc.state,
 			pay = tier.pay,
@@ -73,29 +96,94 @@ local cars = workspace:WaitForChild("Cars")
 -- How many of an incident's claimants are actually standing at it. This is what
 -- makes progress mean something: claiming a slot and driving the other way must
 -- not finish a job for the people who did turn up.
-local function onScene(inc): number
+local function onScene(inc): (number, number?)
 	local kind = IncidentTypes[inc.kind]
 	local radius = kind.tiers[inc.tier].radius
 	local n = 0
+	-- WHO, as well as how many. A competitive job is decided by which claimant
+	-- arrived, so the count alone is not enough to award one. Once a winner is
+	-- locked it is that player who has to be here, and nobody else's arrival
+	-- can take the fare back off them.
+	local who: number? = inc.winner
 	for userId in inc.claims do
 		local model = cars:FindFirstChild("Car_" .. userId)
 		if model and model:IsA("Model") then
 			local p = model:GetPivot().Position
 			if (Vector2.new(p.X, p.Z) - Vector2.new(inc.x, inc.z)).Magnitude <= radius then
 				n += 1
+				if who == nil then
+					who = userId
+				end
 			end
 		end
 	end
-	return n
+	if inc.winner ~= nil then
+		-- The locked winner counts only while they are actually here.
+		local model = cars:FindFirstChild("Car_" .. inc.winner)
+		local here = false
+		if model and model:IsA("Model") then
+			local p = model:GetPivot().Position
+			here = (Vector2.new(p.X, p.Z) - Vector2.new(inc.x, inc.z)).Magnitude <= radius
+		end
+		who = if here then inc.winner else nil
+	end
+	return n, who
 end
 
 -- ---------------------------------------------------------------- dispatch
 
 local rng = Random.new()
 
+-- WHAT THE BOARD IS ALLOWED TO PUT ON IT, and it is decided from the district
+-- rather than written down. A kind whose roles cannot be signed on here is a
+-- kind nobody can ever clear -- it would sit on the board for its whole life,
+-- take up one of the four slots and expire. So a kind is dispatchable only if
+-- at least one of its roles has a depot in this district, and the FIRST slot's
+-- role is the one that has to: that is the service the job is fundamentally
+-- for, and a collision with no police is not a collision anybody can start.
+--
+-- Weighted rather than uniform. The emergencies are the game; the fare and the
+-- parcel are what there is to do between them, and at equal weight five kinds
+-- over four board slots means the board is mostly errands.
+local MIX = {
+	{ kind = "fire", weight = 3 },
+	{ kind = "medical", weight = 3 },
+	{ kind = "collision", weight = 3 },
+	{ kind = "fare", weight = 2 },
+	{ kind = "parcel", weight = 2 },
+}
+
+local dispatchable: { { kind: string, weight: number } } = {}
+local totalWeight = 0
+for _, entry in MIX do
+	local lead = IncidentTypes[entry.kind].slots[1].role
+	if RoleService.available(lead) then
+		dispatchable[#dispatchable + 1] = entry
+		totalWeight += entry.weight
+	end
+end
+
+local function pickKind(): string?
+	if totalWeight == 0 then
+		return nil
+	end
+	local r = rng:NextNumber() * totalWeight
+	for _, entry in dispatchable do
+		r -= entry.weight
+		if r <= 0 then
+			return entry.kind
+		end
+	end
+	return dispatchable[#dispatchable].kind
+end
+
 local function spawnOne()
+	local kindId = pickKind()
+	if not kindId then
+		return
+	end
 	local site = Sites[rng:NextInteger(1, #Sites)]
-	IncidentService.create("fire", site.x, site.z, site.name)
+	IncidentService.create(kindId, site.x, site.z, site.name)
 end
 
 task.spawn(function()
@@ -107,7 +195,9 @@ task.spawn(function()
 		if n < WANT then
 			spawnOne()
 		end
-		task.wait(if n < WANT then 1 else SPAWN_EVERY)
+		-- A district that can staff nothing would otherwise spin this loop once a
+		-- second for ever, achieving nothing each time.
+		task.wait(if totalWeight == 0 then 60 elseif n < WANT then 1 else SPAWN_EVERY)
 	end
 end)
 
@@ -174,4 +264,27 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
-print(("[dispatch] %d sites, %d incidents wanted"):format(#Sites, WANT))
+-- ---------------------------------------------------------------- shifts
+
+-- CHANGING SHIFT DROPS THE JOB, and it has to: a slot is claimed as a role, and
+-- keeping it after signing off would leave a courier holding the fire slot on a
+-- flat fire that nobody else can now take.
+--
+-- WIRED HERE RATHER THAN INSIDE EITHER SERVICE, so the require between them
+-- stays one-way -- IncidentService reads RoleService, never the reverse. This
+-- script is the one place that knows about both.
+RoleService.changed.Event:Connect(function(player: Player)
+	IncidentService.release(player.UserId)
+end)
+
+local kinds = {}
+for _, entry in dispatchable do
+	kinds[#kinds + 1] = entry.kind
+end
+print(
+	("[dispatch] %d sites, %d incidents wanted, dispatching %s"):format(
+		#Sites,
+		WANT,
+		if #kinds > 0 then table.concat(kinds, ", ") else "NOTHING -- no role has a depot here"
+	)
+)

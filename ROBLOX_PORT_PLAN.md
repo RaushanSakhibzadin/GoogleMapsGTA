@@ -1,10 +1,12 @@
 # Porting VICE MAPS to Roblox — plan document
 
-Status: M0–M2 built; M3 part-built — a 2.4 × 2.4 km streamed district with traffic,
-pedestrians, trees, fires that burn, a loading screen, a round minimap over a
-full-screen map, and a placeholder sound layer with a mixer.
+Status: M0–M3 built — a 2.4 × 2.4 km streamed district with traffic, pedestrians,
+trees, five shifts signed on at 27 real depots, five kinds of incident including
+two that need more than one service and two that are raced for, fires that burn,
+a loading screen, a round minimap over a full-screen map, and a placeholder sound
+layer with a mixer.
 The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
-the remaining four roles and the radio are still a plan.
+the two-stage errand missions and the radio are still a plan.
 Source read at commit `af6e9a7`.
 
 ---
@@ -354,6 +356,32 @@ where float precision bites (§3.1), at 2× headroom rather than the 3.9× the s
 A useful side effect: at 1.2 km the district held **two depots, both car repair**, so four of
 M3's five roles had nowhere to sign on. At 2.4 km it holds ten, including **two police and a
 fire station**. That was the stated blocker on M3 and the data had the answer in it.
+
+**And then the tags were counted rather than assumed, which found the rest of it.** Over the
+10,907 tagged elements inside the district:
+
+| depot | tag | in district |
+|---|---|---:|
+| police station | `amenity=police` | 2 |
+| fire station | `amenity=fire_station` | 1 |
+| hospital | `amenity=hospital` | **0** |
+| taxi rank | `amenity=taxi` | **0** |
+| clinic | `amenity=clinic` | 12 |
+| filling station | `amenity=fuel` | 5 |
+| car repair | `shop=car_repair` | 7 |
+
+Belgrade has **no `amenity=hospital` and no `amenity=taxi` anywhere in the capture** — not in the
+district, not outside it. Its hospitals are tagged as clinics and institutes, because that is what
+a дом здравља is and OSM reserves `amenity=hospital` for something narrower. So the ambulance and
+the taxi were two shifts with nowhere to start, **in the browser game too** — `JOBS.ambulance.at`
+is `'hospital'` and the offline city has none, so that shift has been unreachable the whole time.
+
+The fix is a **preference list** rather than a single tag: `ambulance` wants `hospital` and takes
+`clinic`; `taxi` wants `taxi` and takes `fuel`. The fallback is second and never first, so a city
+with the real depot still sends you to the real depot. Both games read the same list. That takes
+the district to **27 depots covering all five shifts**, and `courier` needs none — it is the shift
+you are on when you are not on a shift, which is `at: null` in the browser and the way out of every
+other one.
 
 Recognisability argument goes the other way: **Stari Grad** — Knez Mihailova, Republic Square,
 Kalemegdan, the Sava/Danube confluence — is what people picture when they picture Belgrade, and
@@ -934,7 +962,7 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | R7 | **Chunk build hitching on join** | Medium | Build voxel chunks over multiple frames with a budget per frame; nearest-first; hold the player at a spawn overlook until the first ring is up. |
 | R8 | **Belgrade's real hills** | Low | v1 flat. Terrain is optional (§2) and adding it later only touches the preprocessor and the ground layer. |
 | R18 | ~~**`StreamingEnabled` does not cover the client-built city**~~ | **Closed** | Streaming applies only to instances the *server* replicates; the city is built by a LocalScript, so Roblox never streams it. Chunk load/unload had to be our own code — and now is, at 1,500 studs to match `StreamingTargetRadius` so the buildings you see and the collision you hit arrive together. §7.4. |
-| R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Partly addressed: `tools/roblox/verify-life.mjs` transliterates the traffic and pedestrian sims into Node and measures them against the emitted data, which found three real bugs; and `luau-compile` gives a syntax gate over every `.luau`. Still planned: TestEZ for pure Luau (VehicleModel, IncidentService, RecordService). Rendering and feel stay eyeballed. |
+| R9 | **No test coverage** | Medium | 24k lines of Playwright do not transfer and there is no equivalent. Partly addressed: `tools/roblox/verify-life.mjs` transliterates the traffic and pedestrian sims into Node and measures them against the emitted data, which found three real bugs; `tools/roblox/verify-roles.mjs` does the same for the shift system and the claim path over the *emitted* depot and incident tables, which found a fourth (incidents nobody could reach); and `luau-compile` gives a syntax gate over all 1,177 `.luau` files. Still planned: TestEZ for pure Luau (VehicleModel, RecordService). Rendering and feel stay eyeballed. |
 | R19 | **Traffic and pedestrians are client-side** | Medium, deliberate | Every player sees their own traffic, and nothing about them is authoritative. Accepted for now; §7.3 says what would flip it and what it would cost. |
 
 ### 7.2 Moderation and IP
@@ -1198,22 +1226,67 @@ saves it.
 Fire role, fire vehicle. `ProfileService` + money. Minimal HUD: dispatch card, money, objective marker.
 **Done when:** a solo player and a group of three both get a fire that fits them, from the same code.
 
-### M3 — The full roster *(part-built)*
+### M3 — The full roster *(built)*
 Police, ambulance, taxi, courier. Three incident kinds (fire / medical / collision-response) plus
 competitive dispatch for taxi and courier (§4.6). Depots to sign on at, keyed off OSM POIs the way
 `JOBS`/`depotGate` already does. NPC traffic. Pedestrians with knockdown/get-up.
 
-**Built:** NPC traffic (78 cars, every tenth a bus, lorry, appliance, patrol car or ambulance),
+**The city:** NPC traffic (78 cars, every tenth a bus, lorry, appliance, patrol car or ambulance),
 pedestrians with knockdown and get-up, and street trees — plus the road graph and junction
 table those need, which the mask could not provide (§5.5). Traffic follows centrelines and
 takes junctions; pedestrians hold the pavement. All of it client-side — see §7.3.
 
-**Not built:** the four remaining roles, the other two incident kinds, competitive dispatch,
-and depots for anything but repair — this district has two depots and both are car repair,
-so signing on as a firefighter has nowhere to happen. That is a district problem, not a code
-one, and it is the argument for a Stari Grad capture (§3.3).
+**The roster:** all five shifts, in `Shared/Roles.luau` as data ported from `JOBS`. A shift changes
+the paint, the livery, the **body** (the appliance is 7.4 m and 2.7 m tall, the ambulance a 6 m box
+on a cab, both built out of the same boxes the hatchback is), the handling, and whether the vehicle
+is allowed off the tarmac — an appliance that crawls the last thirty metres to a burning building
+was a report the browser acted on twice. `Services/RoleService.luau` signs you on, and it is the
+server that decides where you are standing: the client's prompt is a hint, the server's answer off
+the model it moves itself is the authority.
 
-**Done when:** all five roles are playable and co-op incidents actually need each other.
+**The depots** are the 27 above, with a **gate** each — the nearest drivable point, baked by
+`4-collide.mjs`. Eight of them are set back more than the 22 m sign-on radius; this district's one
+fire station is **51 m** from its nearest road, which is exactly the "fire stations have no roads to
+come close to" report `depotGate()` exists for. Both the building and its gate sign you on.
+
+**The incidents:** five kinds. `fire` now wants **police for the cordon** at its third tier, which
+is where the roster starts to mean something — the tier text always said "hold the cordon" and until
+now there was nobody who could. `medical` and `collision` are new; a collision at full tier needs
+**all three emergency services**, because cutting a car open is the fire service's job everywhere in
+Europe. `fare` and `parcel` are **competitive** (§4.6): everyone on the shift can claim, the first
+to arrive is paid, and the rest get nothing. The claim path gained one line that the whole roster
+rests on — **you may only claim the shift you are on** — and without it `role` was a string the
+client picked and the depots were decoration.
+
+**Verified** by `tools/roblox/verify-roles.mjs`, which reads the Luau that was actually emitted and
+actually written (not a copy of the numbers) and asserts 15 things about it: every shift has a
+depot, no depot kind signs on two, standing at a gate signs its shift on, a courier claiming the
+fire slot is refused, a full police slot does not block the ambulance, a fare pays exactly one of
+eight racers. Same approach as `verify-life.mjs`.
+
+**And it found a bug that was already shipped.** An incident's `radius` is how close you must be to
+count as on scene, and it is measured from the *building* — but you are in a car, so the closest you
+can get is the nearest road. The bake accepted a site up to 40 m from one:
+
+| tightest radius | sites reachable |
+|---|---:|
+| 40 studs (13.3 m) — the new fare | **39.8%** |
+| 90 studs (30.0 m) — the structure fire | **94.0%** |
+
+So one fire in sixteen could never be worked, and the two new errands would have failed three times
+in five. Not a crash — a job that never completes, which arrives as a play report a week later.
+`SITE_REACH` is now 13 m (2,133 of the district's 6,002 buildings qualify; only 400 are wanted), the
+bake emits its own guarantee as `Sites.maxRoadStuds`, and the check asserts it against the tightest
+radius the game actually ships with half a car of margin. Tightening a radius now fails the check
+instead of the session.
+
+**Not built:** the missions themselves. A `fare` currently resolves by arriving at the pickup — there
+is no passenger to carry to a destination and no parcel to deliver, so both competitive kinds are a
+race to a point rather than a job with two ends. That is M3's remaining half and it needs the
+two-stage objective the browser has (`pickup` → `drop`).
+
+**Done when:** all five roles are playable and co-op incidents actually need each other. *The roles
+are; the collision needs all three. The two errands need their second leg.*
 
 ### M4 — Infractions
 Service Record (persistent), Dispatch Status ladder, pursuit-as-incident, the stop, fines.

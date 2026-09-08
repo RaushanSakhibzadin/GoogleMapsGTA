@@ -43,22 +43,78 @@ end
 -- the body height, with -Z along the car's nose. Everything else is welded to
 -- it by offset, so the whole car moves with one PivotTo.
 function CarBuild.new(colour: Color3): Model
-	local L, W, H = CarBuild.LENGTH * S, CarBuild.WIDTH * S, CarBuild.HEIGHT * S
-
 	local model = Instance.new("Model")
 	model.Name = "Car"
 
-	-- the hull: two thirds of the height, full length
-	local body = box("Body", W, H * 0.62, L, colour)
+	-- THE HULL IS MADE HERE AND NEVER REMADE, which is the one thing dress()
+	-- below is not allowed to touch. It is the model's PrimaryPart, it is what
+	-- the server points a player's ReplicationFocus at, and it is what every
+	-- client that has already found this car is holding a reference to. Changing
+	-- shift resizes it; destroying it would silently break all three.
+	local body = box("Body", 1, 1, 1, colour)
+	body.CFrame = CFrame.new()
 	body.Parent = model
 	model.PrimaryPart = body
 
-	-- the cabin, set back and inset, which is what makes it read as a car
-	-- rather than as a brick
-	local cabin = box("Cabin", W * 0.86, H * 0.5, L * 0.46, colour:Lerp(Color3.new(0, 0, 0), 0.18))
+	CarBuild.dress(model, colour, nil, "none", nil)
+	return model
+end
+
+-- ---------------------------------------------------------------- the shift
+
+-- REBUILD THE CAR AS THE VEHICLE THE SHIFT DRIVES, in place.
+--
+-- Everything except the hull is decoration, so everything except the hull is
+-- thrown away and made again at the new dimensions. That is a dozen parts once,
+-- at a depot, on a deliberate act -- against the alternative, which is a table
+-- of per-part offsets that has to stay in step with five body shapes.
+--
+-- `body` is metres or nil for the stock hatchback; `livery` is what is painted
+-- ON the paint, and it is the half of "looks like the job" that colour cannot
+-- do -- a white car is an ambulance, a police car and half the traffic.
+function CarBuild.dress(model: Model, colour: Color3, body: { l: number, w: number, h: number }?, livery: string, beacon: Color3?)
+	local hull = model.PrimaryPart
+	if not hull then
+		return
+	end
+
+	local lM = if body then body.l else CarBuild.LENGTH
+	local wM = if body then body.w else CarBuild.WIDTH
+	local hM = if body then body.h else CarBuild.HEIGHT
+	local L, W, H = lM * S, wM * S, hM * S
+
+	-- A van and an appliance are a cabin that runs nearly the whole length and
+	-- sits square on the hull; a car is a cabin set back from the nose. Same
+	-- decision, and the same word for it, as CarBuild.npc.
+	local boxy = hM > 2.2
+
+	for _, d in model:GetChildren() do
+		if d ~= hull then
+			d:Destroy()
+		end
+	end
+
+	local hullH = H * (if boxy then 0.45 else 0.62)
+	hull.Size = Vector3.new(W, hullH, L)
+	hull.Color = colour
+
+	local cabinH = H * (if boxy then 0.55 else 0.5)
+	local cabin = box(
+		"Cabin",
+		W * (if boxy then 0.96 else 0.86),
+		cabinH,
+		L * (if boxy then 0.7 else 0.46),
+		colour:Lerp(Color3.new(0, 0, 0), 0.18)
+	)
 	cabin.Parent = model
 
-	local glass = box("Glass", W * 0.88, H * 0.3, L * 0.44, Color3.fromRGB(60, 74, 88))
+	local glass = box(
+		"Glass",
+		W * (if boxy then 0.98 else 0.88),
+		H * (if boxy then 0.22 else 0.3),
+		L * (if boxy then 0.66 else 0.44),
+		Color3.fromRGB(60, 74, 88)
+	)
 	glass.Parent = model
 
 	local wheelColour = Color3.fromRGB(28, 28, 32)
@@ -71,7 +127,7 @@ function CarBuild.new(colour: Color3): Model
 		}
 	do
 		local w = box("Wheel" .. i, W * 0.16, H * 0.34, L * 0.19, wheelColour)
-		w.CFrame = CFrame.new(off.X * W * 0.46, -H * 0.28, off.Z * L * 0.32)
+		w.CFrame = CFrame.new(off.X * W * 0.46, -hullH * 0.5 - H * 0.02, off.Z * L * 0.32)
 		w.Parent = model
 	end
 
@@ -87,10 +143,10 @@ function CarBuild.new(colour: Color3): Model
 	-- they have to read at a distance and in shadow, and small, because the
 	-- point is orientation rather than decoration. The cabin is also set back
 	-- rather than centred, which gives the silhouette a bonnet.
-	local function lamp(name: string, colour: Color3, x: number, z: number)
-		local p = box(name, W * 0.2, H * 0.16, L * 0.05, colour)
+	local function lamp(name: string, lampColour: Color3, x: number, z: number)
+		local p = box(name, W * 0.2, H * 0.16, L * 0.05, lampColour)
 		p.Material = Enum.Material.Neon
-		p.CFrame = CFrame.new(x, -H * 0.02, z)
+		p.CFrame = CFrame.new(x, hullH * 0.1, z)
 		p.Parent = model
 	end
 	local nose = -L * 0.5
@@ -100,18 +156,105 @@ function CarBuild.new(colour: Color3): Model
 	lamp("TailL", Color3.fromRGB(226, 46, 42), -W * 0.3, tail)
 	lamp("TailR", Color3.fromRGB(226, 46, 42), W * 0.3, tail)
 
-	-- POSITIONED ONCE, HERE, relative to the body sitting at the origin. PivotTo
+	-- POSITIONED ONCE, HERE, relative to the hull sitting at the origin. PivotTo
 	-- moves a model's parts together and preserves what they are relative to
 	-- each other, so laying the car out once at build time is all it needs -- an
 	-- earlier version carried a table of per-part offsets and reapplied them
 	-- every frame, which is work PivotTo was already doing.
-	body.CFrame = CFrame.new()
+	local cabinY = (hullH + cabinH) * 0.5 - H * 0.06
 	-- Set BACK from centre, so the bonnet is longer than the boot and the shape
 	-- itself says which way it faces even with the lamps off screen.
-	cabin.CFrame = CFrame.new(0, H * 0.55, L * 0.1)
-	glass.CFrame = CFrame.new(0, H * 0.56, L * 0.06)
+	cabin.CFrame = CFrame.new(0, cabinY, L * (if boxy then 0.08 else 0.1))
+	glass.CFrame = CFrame.new(0, cabinY + cabinH * 0.12, L * (if boxy then 0.04 else 0.06))
 
-	return model
+	-- ---- the markings ----
+
+	-- A BAND ALONG THE FLANK is what every service vehicle on a European street
+	-- actually wears, and it is the cheapest marking that survives being seen
+	-- from a chase camera: two thin parts, one a side, at the hull's waist.
+	local function flank(name: string, bandColour: Color3, y: number, thick: number, len: number)
+		for _, side in { -1, 1 } do
+			local p = box(name, W * 0.06, hullH * thick, L * len, bandColour)
+			p.CFrame = CFrame.new(side * W * 0.5, y, 0)
+			p.Parent = model
+		end
+	end
+
+	if livery == "police" then
+		-- The chequer, reduced to what reads: a dark band with pale blocks in it.
+		flank("Band", Color3.fromRGB(30, 44, 96), 0, 0.34, 0.92)
+		for i = -2, 2 do
+			for _, side in { -1, 1 } do
+				local p = box("Check", W * 0.07, hullH * 0.34, L * 0.09, Color3.fromRGB(236, 240, 248))
+				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
+				p.Parent = model
+			end
+		end
+	elseif livery == "fire" then
+		flank("Band", Color3.fromRGB(255, 236, 180), hullH * 0.1, 0.2, 0.94)
+	elseif livery == "ambulance" then
+		flank("Band", Color3.fromRGB(46, 190, 120), 0, 0.3, 0.94)
+		-- The cross, on the flank rather than the roof: the roof is the one
+		-- surface a chase camera never shows you.
+		for _, side in { -1, 1 } do
+			local a = box("Cross", W * 0.07, hullH * 0.5, L * 0.055, Color3.fromRGB(240, 246, 250))
+			a.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
+			a.Parent = model
+			local b = box("Cross", W * 0.07, hullH * 0.18, L * 0.16, Color3.fromRGB(240, 246, 250))
+			b.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
+			b.Parent = model
+		end
+	elseif livery == "taxi" then
+		-- The chequer again, in the one place a taxi wears it, plus the sign that
+		-- is the actual silhouette of a private-hire car.
+		flank("Band", Color3.fromRGB(24, 24, 28), 0, 0.26, 0.9)
+		for i = -2, 2 do
+			for _, side in { -1, 1 } do
+				local p = box("Check", W * 0.07, hullH * 0.26, L * 0.09, Color3.fromRGB(246, 226, 120))
+				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
+				p.Parent = model
+			end
+		end
+		local sign = box("Sign", W * 0.34, H * 0.14, L * 0.1, Color3.fromRGB(28, 28, 32))
+		sign.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.07, L * 0.02)
+		sign.Parent = model
+	end
+
+	-- ---- the beacon ----
+
+	-- ONE PART AND ONE LIGHT, animated by whoever owns the car rather than here:
+	-- this module builds, it does not run. Named so a controller can find it,
+	-- and dark until something turns it on, because a beacon that is always lit
+	-- says nothing about whether you are responding.
+	if beacon then
+		local bar = box("Beacon", W * 0.5, H * 0.06, L * 0.09, beacon)
+		bar.Material = Enum.Material.Neon
+		bar.Transparency = 0.55
+		bar.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.045, L * (if boxy then -0.24 else 0.02))
+		bar.Parent = model
+
+		local light = Instance.new("PointLight")
+		light.Color = beacon
+		light.Range = 26
+		light.Brightness = 0
+		light.Shadows = false
+		light.Parent = bar
+	end
+
+	-- WHERE THE PIVOT WANTS TO BE, so a caller that did not build the car does
+	-- not have to re-derive a hull height it was never told. It CHANGES with the
+	-- shift, which is why it is an attribute rather than a constant.
+	--
+	-- DERIVED FROM THE WHEELS rather than from the body, and the difference only
+	-- shows up now that a body can be something other than a hatchback. The old
+	-- value was H * 0.5, which is exactly this formula for the stock car -- half
+	-- the hull is H * 0.31 and the wheel drop is H * 0.19, and they sum to the
+	-- half height it was written as. For the appliance they do not: a boxy hull
+	-- is 0.45 of the height rather than 0.62, so H * 0.5 stands it two thirds of
+	-- a stud off the road. Same number as before for every car that existed
+	-- yesterday, and the right number for the two that did not.
+	model:SetAttribute("BodyY", hullH * 0.5 + H * 0.19)
+	model:SetAttribute("Livery", livery)
 end
 
 -- ---------------------------------------------------------------- traffic
@@ -195,7 +338,9 @@ function CarBuild.place(model: Model, x: number, y: number, h: number, bodyY: nu
 	if not body then
 		return
 	end
-	local yBase = bodyY or (CarBuild.HEIGHT * S * 0.5)
+	-- The attribute first, because a car on a shift is a different height and
+	-- CarBuild.HEIGHT is only the hatchback's. An explicit argument still wins.
+	local yBase = bodyY or (model:GetAttribute("BodyY") :: number?) or (CarBuild.HEIGHT * S * 0.5)
 	local pivot = CFrame.new(x * S, yBase, y * S) * CFrame.Angles(0, -h - math.pi * 0.5, 0)
 	model:PivotTo(pivot)
 end

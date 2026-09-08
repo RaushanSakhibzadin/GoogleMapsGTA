@@ -42,6 +42,8 @@ local Audio = (function()
 	}
 end)()
 local FireFX = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("FireFX"))
+local ClientBus = require(Shared:WaitForChild("ClientBus"))
+local Roles = require(Shared:WaitForChild("Roles"))
 
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
 local Claim = Remotes:WaitForChild("ClaimSlot") :: RemoteFunction
@@ -118,6 +120,18 @@ wallet.TextXAlignment = Enum.TextXAlignment.Right
 local fires = Instance.new("Folder")
 fires.Name = "Incidents"
 fires.Parent = workspace
+
+-- THE COLUMN'S COLOUR IS THE SERVICE IT WANTS, which is the whole of what a
+-- marker can say from a kilometre away. Blue is police, and it is the blue the
+-- patrol cars and the minimap's police blips already use; red is fire; the
+-- green is the ambulance flash; and the two errands wear the paint of the shift
+-- that runs them.
+--
+-- It arrives on the board rather than being repeated here: it is the same
+-- number the minimap and the big map draw their blips with, and one palette in
+-- IncidentTypes is what stops the beacon you drove towards being a different
+-- colour from the dot you drove towards it from.
+local FALLBACK = Color3.fromRGB(255, 140, 40)
 
 local rigs: { [string]: FireFX.Rig } = {}
 -- A Sound once attached, `false` once the slot is known to be silent, nil while
@@ -223,14 +237,30 @@ local function carPos(): Vector3?
 	return nil
 end
 
--- The one being offered: whichever I am on, else the nearest that has room.
+-- MY SLOT ON AN INCIDENT, or nil if this shift has no place on it. This is what
+-- turned the card from "the nearest job" into "the nearest job I can do": with
+-- five services and five kinds, most of the board is somebody else's work, and
+-- offering a firefighter a fare is offering them a button that fails.
+local function slotFor(inc): { role: string, max: number, filled: number }?
+	local role = ClientBus.role
+	for _, s in inc.slots or {} do
+		if s.role == role then
+			return s
+		end
+	end
+	return nil
+end
+
+-- The one being offered: whichever I am on, else the nearest my shift can take
+-- and that still has room in my role's slot.
 local function current(from: Vector3?)
 	local best, bestD = nil, math.huge
 	for _, inc in board do
 		if mine and inc.id == mine then
 			return inc
 		end
-		if from and inc.filled < inc.max then
+		local s = slotFor(inc)
+		if from and s and s.filled < s.max and not (inc.competitive and inc.progress > 0) then
 			local d = (Vector2.new(inc.x, inc.z) - Vector2.new(from.X, from.Z)).Magnitude
 			if d < bestD then
 				best, bestD = inc, d
@@ -240,7 +270,39 @@ local function current(from: Vector3?)
 	return best
 end
 
+-- WHAT THE BOARD STILL WANTS, in words rather than in a fraction. "1/4" on a
+-- road collision does not tell you that the ambulance is the one missing, and
+-- that is the only part a player can act on -- either by driving there or by
+-- telling somebody else to.
+local function needs(inc): string
+	local out = {}
+	for _, s in inc.slots or {} do
+		if s.filled < s.max then
+			out[#out + 1] = Roles.get(s.role).short
+		end
+	end
+	if #out == 0 then
+		return "CREWED"
+	end
+	return "NEEDS " .. table.concat(out, " + ")
+end
+
 -- ---------------------------------------------------------------- the claim
+
+-- WHY THE BUTTON DID NOT WORK, held on screen long enough to read.
+--
+-- The refusal used to be written straight into `status` -- and `status` is
+-- rewritten by the frame loop below, so the message survived exactly one frame
+-- and was invisible. That was survivable while the only possible refusal was
+-- "role full" on the one kind of job. It is not survivable now: "not on that
+-- shift" is the commonest thing the server will say to a player who has not
+-- worked out that the depots are the point.
+local sayUntil = 0
+local saying = ""
+local function say(text: string)
+	saying = text
+	sayUntil = os.clock() + 2.5
+end
 
 -- The token is what makes a retry safe. If the reply is lost the client can
 -- send the same request again and the server treats it as the same claim
@@ -252,12 +314,16 @@ local function respond(inc)
 	end
 	claiming = true
 	local token = ("%d-%s-%d"):format(player.UserId, inc.id, math.floor(os.clock() * 1000))
-	local ok, why = Claim:InvokeServer(inc.id, "fire", token)
+	-- THE SHIFT YOU ARE ON, not the kind of incident it is. The server checks
+	-- this against its own record and refuses a mismatch, so sending the wrong
+	-- one is a refusal rather than an exploit -- but sending the right one is
+	-- what makes the button work at all.
+	local ok, why = Claim:InvokeServer(inc.id, ClientBus.role, token)
 	if ok then
 		mine = inc.id
 		Audio.shot("click", nil, 0.5, 1)
 	else
-		status.Text = "DISPATCH: " .. tostring(why)
+		say("DISPATCH: " .. tostring(why))
 		Audio.shot("click", nil, 0.35, 0.6)
 	end
 	claiming = false
@@ -285,14 +351,21 @@ RunService.RenderStepped:Connect(function()
 		seen[e.id] = true
 		local rig = rigs[e.id]
 		if not rig then
-			rig = FireFX.new(fires)
+			-- ONLY A FIRE BURNS. Every incident gets the beacon, the glow and the
+			-- column over it -- that is what makes a job three streets away
+			-- findable without reading a bearing off a card -- but a road
+			-- collision is not on fire and a fare is certainly not, and lighting
+			-- them all identically would throw away the one piece of information
+			-- the marker gives you for free.
+			rig = FireFX.new(fires, e.marker == "fire", e.colour or FALLBACK)
 			rigs[e.id] = rig
 		end
 
 		-- Attached once, when the fire is made. Audio.make no longer has a "not
 		-- ready yet" answer to cope with.
 		if burn[e.id] == nil then
-			local s = Audio.make("fire", rig.seat)
+			-- Only the ones that are actually alight. A collision does not roar.
+			local s = if e.marker == "fire" then Audio.make("fire", rig.seat) else nil
 			if s then
 				local snd = s :: Sound
 				snd.Looped = true
@@ -336,12 +409,35 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	if not inc then
-		card.Visible = false
+		-- THE BOARD IS NOT EMPTY JUST BECAUSE NONE OF IT IS YOURS, and saying so
+		-- is the difference between "there is nothing to do" and "you are on the
+		-- wrong shift for what there is". The second has an answer and the player
+		-- can act on it; hiding the card leaves them believing the first.
+		local elsewhere = 0
+		for _, e in board do
+			if e.state ~= "resolved" then
+				elsewhere += 1
+			end
+		end
+		if elsewhere > 0 then
+			card.Visible = true
+			kicker.Text = "DISPATCH"
+			title.Text = "Nothing for this shift"
+			detail.Text = ("%d job%s on the board for other services. Sign on at a depot to take one.")
+				:format(elsewhere, if elsewhere == 1 then "" else "s")
+			status.Text = "ON  ·  " .. Roles.get(ClientBus.role).title
+			status.TextColor3 = Color3.fromRGB(150, 156, 166)
+			fill.Size = UDim2.new(0, 0, 1, 0)
+		else
+			card.Visible = false
+		end
 		updateSiren(false, now)
+		ClientBus.responding = false
 		mine = nil
 		return
 	end
 	card.Visible = true
+	kicker.Text = inc.title or "DISPATCH"
 
 	-- If the board no longer lists the one I was on, it resolved or expired.
 	if mine and inc.id ~= mine then
@@ -355,21 +451,34 @@ RunService.RenderStepped:Connect(function()
 	local d = if from then (Vector2.new(inc.x, inc.z) - Vector2.new(from.X, from.Z)).Magnitude else 0
 	local metres = math.floor(d / 3)
 
-	-- RESPONDING, not merely signed on: the siren goes off when you arrive.
-	updateSiren(mine == inc.id and d > inc.radius, now)
+	-- RESPONDING, not merely signed on: the siren goes off when you arrive, and
+	-- so does the beacon RoleUI flashes off the same flag.
+	local responding = mine == inc.id and d > inc.radius
+	updateSiren(responding, now)
+	ClientBus.responding = responding
 
-	if mine == inc.id then
+	if now < sayUntil then
+		-- A refusal wins the line for as long as it is up. It is the only thing
+		-- on the card that is news.
+		status.Text = saying
+		status.TextColor3 = Color3.fromRGB(232, 116, 108)
+	elseif mine == inc.id then
 		if d <= inc.radius then
-			status.Text = ("ON SCENE  ·  %d/%d responding  ·  $%d")
-				:format(inc.filled, inc.max, inc.pay)
+			status.Text = ("ON SCENE  ·  %s  ·  $%d"):format(needs(inc), inc.pay)
 			status.TextColor3 = Color3.fromRGB(120, 200, 150)
 		else
-			status.Text = ("RESPONDING  ·  %d m  ·  %d/%d"):format(metres, inc.filled, inc.max)
+			status.Text = ("RESPONDING  ·  %d m  ·  %s"):format(metres, needs(inc))
 			status.TextColor3 = Color3.fromRGB(255, 176, 64)
 		end
+	elseif inc.competitive then
+		-- A RACE SAYS SO. "2/8 responding" on a fare reads as a job that is
+		-- filling up, which is the opposite of the truth: every one of those is
+		-- somebody you are racing, and only the first arrival is paid.
+		status.Text = ("[E] TAKE IT  ·  %d m  ·  %d racing  ·  $%d")
+			:format(metres, inc.filled, inc.pay)
+		status.TextColor3 = Color3.fromRGB(242, 183, 5)
 	else
-		status.Text = ("[E] RESPOND  ·  %d m  ·  %d/%d  ·  $%d")
-			:format(metres, inc.filled, inc.max, inc.pay)
+		status.Text = ("[E] RESPOND  ·  %d m  ·  %s  ·  $%d"):format(metres, needs(inc), inc.pay)
 		status.TextColor3 = Color3.fromRGB(150, 156, 166)
 	end
 end)
