@@ -40,36 +40,24 @@ local AssetService = game:GetService("AssetService")
 
 local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local MapData = require(Shared:WaitForChild("Minimap"))
-local Base64 = require(Shared:WaitForChild("Base64"))
+local ClientBus = require(Shared:WaitForChild("ClientBus"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
+
+-- The raster, the palette and the lookup all come from CityVisual/MapPaint,
+-- which the big map reads too. They are the same picture at two scales, and a
+-- second copy of the decode here is a second chance for the two to disagree --
+-- which is exactly how the world and this map ended up running opposite ground
+-- palettes once already.
+local MapPaint = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("MapPaint"))
+local CLASS = MapPaint.CLASS
+local classAt = MapPaint.classAt
 
 local VIEW = 196 -- the panel on screen, in GUI pixels
 local RES = 96 -- the image behind it; chunky on purpose
 local SPAN = 620 -- studs across the panel: about 200 m of city
 local HZ = 20 -- redraws a second
-
--- Class colours, TAKEN FROM THE CITY'S OWN PALETTE rather than repeated here.
---
--- These used to be a second copy, and the two drifted into exact opposites: the
--- world drew dark asphalt on pale ground and the map drew pale tarmac on dark
--- ground, so the same street was the light thing in one and the dark thing in
--- the other. Reading them out of StreetMeta means they cannot disagree again.
---
--- Unpacked to RGB triples once, because the inner loop writes bytes nine
--- thousand times an update and should not be pulling fields off a Color3.
-local StreetMeta = require(Shared.Parent:WaitForChild("CityVisual"):WaitForChild("StreetMeta"))
-local function triple(c: Color3): { number }
-	return { math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255) }
-end
-local CLASS = {
-	[0] = triple(StreetMeta.colours.plain),
-	[1] = triple(StreetMeta.colours.park),
-	[2] = triple(StreetMeta.colours.kerb),
-	[3] = triple(StreetMeta.colours.road),
-}
 
 -- ---------------------------------------------------------------- the panel
 
@@ -79,11 +67,22 @@ gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.Parent = player:WaitForChild("PlayerGui")
 
-local panel = Instance.new("Frame")
+-- A BUTTON, NOT A FRAME. Tapping the minimap opens the big map -- which is what
+-- you reach for when the minimap is not enough, and reaching for it by tapping
+-- the thing you were already looking at is the obvious gesture. The blips and
+-- the arrow are children of it and do not swallow the tap: a Frame does not
+-- take input unless something asks it to.
+local panel = Instance.new("TextButton")
 panel.Size = UDim2.fromOffset(VIEW, VIEW)
 panel.Position = UDim2.new(1, -VIEW - 18, 0, 18)
 panel.BackgroundTransparency = 1
+panel.Text = ""
+panel.AutoButtonColor = false
 panel.Parent = gui
+
+panel.Activated:Connect(function()
+	ClientBus.toggleMap:Fire()
+end)
 
 local sheet = Instance.new("ImageLabel")
 sheet.Size = UDim2.fromScale(1, 1)
@@ -93,24 +92,6 @@ sheet.ScaleType = Enum.ScaleType.Stretch
 -- bilinear would blur the street edges into porridge.
 sheet.ResampleMode = Enum.ResamplerMode.Pixelated
 sheet.Parent = panel
-
--- ---------------------------------------------------------------- the source
-
-local SRC = MapData.px
-local SRC_BITS = Base64.decode(MapData.bits)
-local HALF = MapData.halfStuds
-local SRC_PER_STUD = SRC / (HALF * 2)
-
--- Class at a world position, or 0 outside the district.
-local function classAt(x: number, z: number): number
-	local i = math.floor((x + HALF) * SRC_PER_STUD)
-	local j = math.floor((z + HALF) * SRC_PER_STUD)
-	if i < 0 or i >= SRC or j < 0 or j >= SRC then
-		return 0
-	end
-	local at = j * SRC + i
-	return (buffer.readu8(SRC_BITS, at // 4) // (2 ^ ((at % 4) * 2))) % 4
-end
 
 -- ---------------------------------------------------------------- the circle
 

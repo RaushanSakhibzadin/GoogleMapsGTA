@@ -188,6 +188,7 @@ local TIPS = {
 	"W A S D to drive  ·  SPACE for the handbrake",
 	"E responds to the nearest job on the board",
 	"O opens settings — the sound mixer lives there",
+	"M opens the big map, or just tap the minimap",
 	"The map in the corner turns with you — north is wherever you are pointing",
 	"Off the tarmac you crawl. The roads are the real roads.",
 	"A fire blinks while you are working it",

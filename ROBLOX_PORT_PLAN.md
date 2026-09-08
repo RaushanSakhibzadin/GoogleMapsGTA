@@ -1,8 +1,8 @@
 # Porting VICE MAPS to Roblox — plan document
 
 Status: M0–M2 built; M3 part-built — a 2.4 × 2.4 km streamed district with traffic,
-pedestrians, trees, fires that burn, a loading screen, a round minimap, and a
-placeholder sound layer with a mixer.
+pedestrians, trees, fires that burn, a loading screen, a round minimap over a
+full-screen map, and a placeholder sound layer with a mixer.
 The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
 the remaining four roles and the radio are still a plan.
 Source read at commit `af6e9a7`.
@@ -1040,6 +1040,33 @@ recording is the shape rather than the paths:
 - **Settings do not persist.** Roblox has no client-side storage, so it needs a
   DataStore write, and this place has no DataStore access (ProfileService says so on
   every boot). Four numbers into the profile when it does.
+
+### 7.4c Two maps, one raster
+
+The minimap answers "which way do I turn at this junction". The big map — tap
+the minimap, or M — answers "where in Belgrade am I and what else is out there".
+Different enough questions that they are drawn differently:
+
+| | minimap | big map |
+|---|---|---|
+| orientation | **heading up** | **north up** |
+| what it shows | ~200 m around the car | the whole 2.4 km district |
+| how it is drawn | resamples a rotating window, 96², 20 Hz | the raster decoded **once** into a 1024² image |
+| panning | follows the car | drag, and scroll to zoom 1×–6× |
+
+Heading-up is right for the one you read a second at a time out of the corner of
+your eye — left on the map is left through the windscreen. It is wrong for the
+one you study, because a map that rotates has no memory and building one is
+what a big map is for.
+
+**One raster, one palette, one decode**, in `CityVisual/MapPaint`. Two copies is
+how the world and the minimap ended up running opposite ground palettes, with
+the same street reading as the light thing in one and the dark thing in the
+other; a shared module is the fix for the class rather than the instance.
+
+The big map's sheet is built **on first open**, not at join — a million pixels
+is about a second of work, most sessions never open it, and joining is already
+three waits long (§7.5).
 
 ### 7.4b One bad module must not take the car with it
 
