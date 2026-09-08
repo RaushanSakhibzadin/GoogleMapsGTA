@@ -1013,6 +1013,33 @@ from being a hole where the next chunk has not arrived.
 radius pops rather than fades. Distance fog or a coarse silhouette pass would hide it; neither
 is written.
 
+### 7.5a StreamingEnabled needs a replication focus, and had none
+
+`Players.CharacterAutoLoads = false` — the design says the player is always in a
+vehicle, and it is the cheapest simplification in the project (§4.1). But
+`Workspace.StreamingEnabled` is also on, and **Roblox anchors streaming to the
+player's character**. With no character and no `Player.ReplicationFocus` set, the
+focus never leaves the world origin.
+
+Reported as "when the loading finishes, the car is still invisible" — the car is a
+server-made model, so it is streamed like anything else. The larger half of the bug
+had not bitten yet: **every collision box more than 1,500 studs from the origin was
+never replicated either**, so driving half a kilometre would have meant driving
+through the buildings you can see. On a 1.2 km district that was most of the map
+being within range by luck; on a 2.4 km one it is a quarter of it.
+
+Two lines fix it, both in `VehicleServer`:
+
+- `player.ReplicationFocus = model.PrimaryPart` — the server moves that part on
+  every accepted position report, so the focus follows the player exactly as a
+  character would have.
+- `model.ModelStreamingMode = Persistent` on cars, so a car is never streamed out
+  at all. For a handful of them that costs nothing and removes streaming as a
+  variable from the one model that must always exist.
+
+None of this touches the client-built scenery: Roblox does not stream what a
+LocalScript makes, which is why §7.4 exists.
+
 ### 7.5 The join sequence, and why it needed a screen
 
 Reported as "the car does not exist at the beginning". Correct, and it is three

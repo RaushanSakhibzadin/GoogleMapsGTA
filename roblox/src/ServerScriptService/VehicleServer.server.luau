@@ -89,10 +89,45 @@ local function spawnCar(player: Player)
 	local model = CarBuild.new(PALETTE[(player.UserId % #PALETTE) + 1])
 	model.Name = "Car_" .. player.UserId
 	model:SetAttribute("Owner", player.UserId)
+
+	-- NEVER STREAMED OUT. With StreamingEnabled a server-made model comes and
+	-- goes with the replication focus, and a car can be several things at once:
+	-- the thing the focus is anchored TO, the thing another player is chasing,
+	-- and the thing that must exist for VehicleController to have anything to
+	-- drive. Persistent takes it out of that system entirely, which for a
+	-- handful of cars costs nothing.
+	--
+	-- PCALLED because ModelStreamingMode is a newer property than this project
+	-- assumes anywhere else, and a missing one must not stop a car existing.
+	pcall(function()
+		model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	end)
 	CarBuild.place(model, SPAWN.x, SPAWN.y, SPAWN.h)
 	model.Parent = cars
 
 	state[player] = { model = model, x = SPAWN.x, y = SPAWN.y, h = SPAWN.h, t = os.clock() }
+
+	-- THE REPLICATION FOCUS, WHICH IS NOT OPTIONAL HERE.
+	--
+	-- Workspace.StreamingEnabled is on, so the server only replicates instances
+	-- near each player's focus -- and with CharacterAutoLoads off there IS no
+	-- character for Roblox to use as one. Without this the focus never leaves
+	-- the world origin, which breaks two things at once:
+	--
+	--   · the CAR ITSELF. It is a server-made model, so it is streamed like
+	--     anything else; reported as "when the loading finishes, the car is
+	--     still invisible".
+	--   · every COLLISION BOX more than the streaming radius from the origin.
+	--     That one had not been noticed yet because it only bites once you have
+	--     driven half a kilometre -- at which point the city stops being solid
+	--     and you drive through the buildings you can see.
+	--
+	-- Pointed at the car's own body, which the server moves on every accepted
+	-- position report, so the focus follows the player exactly as a character
+	-- would have. The client-built scenery is unaffected either way: Roblox does
+	-- not stream what a LocalScript makes (see CityVisuals).
+	player.ReplicationFocus = model.PrimaryPart
+
 	CarCorrection:FireClient(player, SPAWN.x, SPAWN.y, SPAWN.h)
 end
 

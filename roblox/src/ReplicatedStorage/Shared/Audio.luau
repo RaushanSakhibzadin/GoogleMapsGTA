@@ -2,61 +2,69 @@
 -- SOUND, WITHOUT UPLOADING ANYTHING.
 --
 -- THE PROBLEM. Roblox will not play audio that is not an asset, and an asset
--- means Open Cloud, an upload and a moderation pass -- which is the M0 job in
--- ROBLOX_PORT_PLAN.md §6 and is not done. Worse, from where this file was
--- written there is no way to verify that any given asset id exists, is public,
--- or has not been moderated away since: an id here would be a guess, and a
--- wrong guess is silence with no error.
+-- means Open Cloud, an upload and a moderation pass -- the M0 job in
+-- ROBLOX_PORT_PLAN.md §6, which is not done. Nothing in this repository can
+-- verify that a given asset id exists, is public, or has not been moderated
+-- away since, so an id here would be a guess and a wrong guess is silence.
 --
 -- THE WAY ROUND IT. `rbxasset://` is content shipped INSIDE the Roblox client
--- rather than fetched from the asset service. It needs no upload, no id, no
--- moderation and no network. It is a small and rather odd library -- these are
--- the sounds the engine has carried around for years -- but a low tone you can
--- pitch-shift is an engine, and a click is a click.
+-- rather than fetched from the asset service: no upload, no id, no moderation,
+-- no network. A low tone you can pitch-shift is an engine, and a click is a
+-- click.
 --
--- IT IS STILL A GUESS, so it is a CHECKED one. Every slot below is a LIST of
--- candidates, tried in order: each is loaded through ContentProvider and the
--- first that actually arrives is the one that plays. A slot where nothing loads
--- goes silent and says so once in the output, and every call site carries on
--- as though it had played. Nothing in this game may break because a sound did
--- not.
+-- ---------------------------------------------------------------------------
 --
--- SO IF SOMETHING IS SILENT, that is where to look -- the warning names the
--- slot. Put your own uploaded id at the FRONT of that slot's list and it wins;
--- nothing else has to change. That is also the upgrade path when the real audio
--- from §6 is finally uploaded: this table, and nothing else.
+-- AND HERE IS THE MISTAKE THE FIRST VERSION MADE, because it is the whole
+-- lesson of this file. It tried to be careful: every slot probed its candidates
+-- through ContentProvider:PreloadAsync, checked Sound.IsLoaded, and only played
+-- the ones that came back loaded. Every single slot reported itself silent:
+--
+--     [audio] slot 'siren' is silent -- none of its 2 candidates loaded
+--     [audio] slot 'engine' is silent -- none of its 3 candidates loaded
+--     ... and so on, for all six
+--
+-- The paths were not the problem. PRELOADASYNC IS NOT A VALID TEST FOR
+-- rbxasset:// CONTENT -- it is built for the asset service, and local client
+-- content does not necessarily come back through it with IsLoaded set. So a
+-- careful gate, written to fail safe, failed CLOSED on everything and turned
+-- the whole feature off.
+--
+-- The rule that follows is worth keeping: DO NOT GATE A FEATURE ON A CHECK YOU
+-- CANNOT RUN. A sound that is simply played either works or logs a warning from
+-- the engine and costs nothing; a sound behind an unverifiable test is silent
+-- for reasons nobody can see. So nothing here gates any more -- it assigns and
+-- plays, and the only thing the checking does now is REPORT.
 
-local ContentProvider = game:GetService("ContentProvider")
 local SoundService = game:GetService("SoundService")
 
 local Audio = {}
 
 -- ---------------------------------------------------------------- the slots
 
--- Ordered candidates. Put a real asset id ("rbxassetid://...") first to override.
+-- Ordered candidates. Put a real asset id ("rbxassetid://...") at the front of
+-- a list to override it -- that is the entire upgrade path for when the audio
+-- in §6 is finally uploaded.
 local SLOTS: { [string]: { string } } = {
 	-- THE ENGINE IS ONE SUSTAINED SOUND, PITCHED. There is no engine loop in the
 	-- client library and no oscillator in Luau, so the engine is whichever of
-	-- these lands, with PlaybackSpeed following road speed. It reads as an
-	-- engine because it rises and falls with the throttle, not because of its
-	-- timbre -- which is the part your ear is actually listening to.
-	--
-	-- `action_falling` is a rushing wind loop and is the better one if it is
-	-- there; a bass note is the fallback.
+	-- these lands, with PlaybackSpeed following road speed and volume following
+	-- the throttle. It reads as an engine because it rises and falls when you
+	-- ask it to, which is the part the ear is actually listening to.
 	engine = {
 		"rbxasset://sounds/action_falling.mp3",
 		"rbxasset://sounds/bass.wav",
 		"rbxasset://sounds/action_swim.mp3",
+		"rbxasset://sounds/uuhhh.mp3",
 	},
 
-	-- Something hard, for hitting a building, a car or a person. Scaled by
-	-- impact speed and pitched at the call site.
+	-- Something hard, for a building, a car or a person. Scaled by impact speed
+	-- and pitched at the call site.
 	impact = {
 		"rbxasset://sounds/metal.ogg",
 		"rbxasset://sounds/impact_water.mp3",
 		"rbxasset://sounds/snap.mp3",
-		"rbxasset://sounds/hit.wav",
 		"rbxasset://sounds/switch3.wav",
+		"rbxasset://sounds/uuhhh.mp3",
 	},
 
 	-- The dispatch tones. Short, dry, and used sparingly -- a UI that pings at
@@ -65,6 +73,7 @@ local SLOTS: { [string]: { string } } = {
 		"rbxasset://sounds/electronicpingshort.wav",
 		"rbxasset://sounds/switch.wav",
 		"rbxasset://sounds/clickfast.wav",
+		"rbxasset://sounds/snap.mp3",
 	},
 	click = {
 		"rbxasset://sounds/switch3.wav",
@@ -73,12 +82,12 @@ local SLOTS: { [string]: { string } } = {
 		"rbxasset://sounds/electronicpingshort.wav",
 	},
 
-	-- THE SIREN, and the same trick as the engine: one tone, pitched up and down
-	-- on a timer. A two-tone siren is two pitches of one note, which is all this
-	-- has to be.
+	-- THE SIREN: one tone, pitched between two values on a timer, because a
+	-- two-tone siren IS two pitches of one note.
 	siren = {
 		"rbxasset://sounds/bass.wav",
 		"rbxasset://sounds/electronicpingshort.wav",
+		"rbxasset://sounds/action_falling.mp3",
 	},
 
 	-- Fire. Nothing in the library is a crackle, so this is whatever rumbles,
@@ -91,126 +100,36 @@ local SLOTS: { [string]: { string } } = {
 	},
 }
 
--- NO SLOT DEPENDS ON A SINGLE FILE, deliberately. Every path above is a guess:
--- nothing in this repository can list what the Roblox client actually ships, so
--- these are the names that have been in it for years and the probe below finds
--- out which of them are real. Three slots pointing at one file would have meant
--- one wrong guess taking out the engine, the siren and the fire together.
+-- Which candidate is KNOWN to work, once anything has established it. Empty is
+-- not a failure state: it just means nothing has confirmed one yet, and the
+-- first candidate is used meanwhile.
+local chosen: { [string]: string } = {}
 
--- ---------------------------------------------------------------- resolving
-
--- NOTHING HERE EVER YIELDS ITS CALLER, and that is the whole design of this
--- section rather than a nicety.
---
--- Resolving a slot means ContentProvider:PreloadAsync, which yields. The first
--- version simply called it from make(), which is called from a RenderStepped
--- handler when a fire appears -- so the handler yielded mid-frame, and worse,
--- the guard against re-entering returned nil while the first resolution was
--- still in flight. The fire got asked for its sound exactly once, during the
--- window where the answer was "not yet", and was silent for ever after.
---
--- So: a slot is in one of three states, resolution happens on its own thread,
--- and asking for an unresolved slot starts that thread and returns nil this
--- frame. Callers that want a persistent sound retry; callers firing a one-shot
--- simply miss the first one, which nobody has ever noticed.
---
---   nil    not looked at yet
---   false  looked at, nothing loaded -- silent for the rest of the session
---   string the content id that worked
-local resolved: { [string]: (string | boolean)? } = {}
-local resolving: { [string]: boolean } = {}
-
-local function startResolve(slot: string)
-	if resolved[slot] ~= nil or resolving[slot] then
-		return
+local function best(slot: string): string?
+	local known = chosen[slot]
+	if known then
+		return known
 	end
 	local list = SLOTS[slot]
-	if not list then
-		warn("[audio] no such slot: " .. slot)
-		resolved[slot] = false
-		return
+	if not list or #list == 0 then
+		return nil
 	end
-	resolving[slot] = true
-
-	task.spawn(function()
-		for _, id in list do
-			local probe = Instance.new("Sound")
-			probe.SoundId = id
-			-- PCALLED, because PreloadAsync throws on a malformed content string
-			-- rather than returning a failure -- and a malformed string is
-			-- exactly what a guessed rbxasset path is.
-			local ok = pcall(function()
-				ContentProvider:PreloadAsync({ probe })
-			end)
-			local loaded = ok and probe.IsLoaded
-			probe:Destroy()
-			if loaded then
-				resolved[slot] = id
-				resolving[slot] = nil
-				return
-			end
-		end
-		warn(
-			("[audio] slot '%s' is silent -- none of its %d candidates loaded. "):format(slot, #list)
-				.. "Put a working id at the front of SLOTS."
-				.. slot
-				.. " in Shared/Audio."
-		)
-		resolved[slot] = false
-		resolving[slot] = nil
-	end)
-end
-
--- The id for a slot, or nil. Never yields; starts resolution if it has not
--- happened yet, so the SECOND call is usually the one that succeeds.
-local function idOf(slot: string): string?
-	local r = resolved[slot]
-	if type(r) == "string" then
-		return r
-	end
-	if r == nil then
-		startResolve(slot)
-	end
-	return nil
-end
-
--- "unknown" while it is still being looked at, "silent" once it is known not to
--- work, or the id. A caller that wants a permanent looping sound uses this to
--- know whether to keep retrying or to give up.
-function Audio.state(slot: string): string
-	local r = resolved[slot]
-	if type(r) == "string" then
-		return r
-	end
-	if r == false then
-		return "silent"
-	end
-	startResolve(slot)
-	return "unknown"
-end
-
--- Warm every slot up front, so the first gearshift is not the thing that pays
--- for the preload, and so the failures are all logged in one place at boot
--- rather than at whatever moment each sound was first wanted.
-function Audio.warm()
-	for slot in SLOTS do
-		startResolve(slot)
-	end
+	return list[1]
 end
 
 -- ---------------------------------------------------------------- playing
 
--- A Sound that lives as long as the caller wants it to. Parent it to a part and
--- Roblox does the 3D placement and rolloff; parent it to nothing and it is 2D.
+-- A Sound the caller owns. Parent it to a part and Roblox does the 3D placement
+-- and rolloff; parent it to nothing and it is 2D.
 --
--- Returns nil when the slot is silent OR not resolved yet, and EVERY CALLER
--- MUST COPE -- that is the whole discipline this file is built on. Guarding at
--- the call site is one `if`; a game that errors because a sound is missing is
--- unshippable. A caller that needs the sound eventually should retry while
--- Audio.state() is still "unknown".
+-- NEVER NIL for a slot that exists, which is the difference from the version
+-- that gated on a probe: there is no "not resolved yet" state to cope with any
+-- more, so callers do not need retry logic and cannot end up permanently silent
+-- because they asked one frame too early.
 function Audio.make(slot: string, parent: Instance?): Sound?
-	local id = idOf(slot)
+	local id = best(slot)
 	if not id then
+		warn("[audio] no such slot: " .. slot)
 		return nil
 	end
 	local s = Instance.new("Sound")
@@ -221,7 +140,7 @@ end
 
 -- Fire and forget: a one-shot at a position, cleaned up when it finishes.
 function Audio.shot(slot: string, at: Vector3?, volume: number?, speed: number?)
-	local id = idOf(slot)
+	local id = best(slot)
 	if not id then
 		return
 	end
@@ -232,11 +151,7 @@ function Audio.shot(slot: string, at: Vector3?, volume: number?, speed: number?)
 
 	if at then
 		-- A Sound is only positional if its parent has a position, so a one-shot
-		-- in the world gets a speck of a Part to hang off. An Attachment would
-		-- do too and is cheaper -- but an Attachment has to be parented to
-		-- something that already has a position, and at the moment a car hits a
-		-- wall there is no guarantee of a convenient one. A part that exists for
-		-- six seconds is simpler than a rule about where to hang the attachment.
+		-- in the world gets a speck of a Part to hang off.
 		local anchor = Instance.new("Part")
 		anchor.Name = "SoundAt"
 		anchor.Anchored = true
@@ -263,6 +178,76 @@ function Audio.shot(slot: string, at: Vector3?, volume: number?, speed: number?)
 			s:Destroy()
 		end)
 	end
+end
+
+-- ---------------------------------------------------------------- the report
+
+-- WHAT ACTUALLY EXISTS ON THIS CLIENT, established by PLAYING each candidate
+-- rather than by asking a loader about it -- which is the one method that could
+-- not be wrong about local content, because it is what the game does anyway.
+--
+-- Silent (Volume 0) and stopped immediately, so this is inaudible. It reports
+-- once, and it sets `chosen` for every slot it can, so the sounds that follow
+-- go straight to a path known to work rather than to a guess.
+--
+-- It never gates anything. If it finds nothing, every slot still plays its
+-- first candidate and Roblox logs its own complaint -- which is strictly more
+-- information than a silence this file decided on.
+function Audio.warm()
+	task.spawn(function()
+		local probe = Instance.new("Sound")
+		probe.Volume = 0
+		probe.Parent = SoundService
+
+		local lines: { string } = {}
+		local anyWorked = false
+
+		for slot, list in SLOTS do
+			local found: string? = nil
+			for _, id in list do
+				probe.SoundId = id
+				-- PCALLED because assigning a malformed content string throws,
+				-- and a hand-written rbxasset path is exactly that risk.
+				pcall(function()
+					probe:Play()
+				end)
+				-- A moment for the engine to either load it or not. Local
+				-- content is effectively instant; this is generous.
+				local t0 = os.clock()
+				while os.clock() - t0 < 0.6 do
+					if probe.IsLoaded or probe.TimeLength > 0 then
+						break
+					end
+					task.wait(0.05)
+				end
+				local ok = probe.IsLoaded or probe.TimeLength > 0
+				probe:Stop()
+				if ok then
+					found = id
+					break
+				end
+			end
+			if found then
+				chosen[slot] = found
+				anyWorked = true
+				table.insert(lines, ("  %-7s %s"):format(slot, found))
+			else
+				table.insert(lines, ("  %-7s NONE of %d candidates loaded"):format(slot, #list))
+			end
+		end
+
+		probe:Destroy()
+
+		print("[audio] what loaded on this client:\n" .. table.concat(lines, "\n"))
+		if not anyWorked then
+			warn(
+				"[audio] nothing in the client's own sound library loaded. Every slot will "
+					.. "still try its first candidate, so the engine's own warnings in this "
+					.. "log will name the paths that do not exist. Fix by putting a working "
+					.. "rbxassetid:// at the front of that slot's list in Shared/Audio."
+			)
+		end
+	end)
 end
 
 return Audio

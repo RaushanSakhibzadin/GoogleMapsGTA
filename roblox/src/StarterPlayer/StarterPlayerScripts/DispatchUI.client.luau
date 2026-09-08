@@ -133,7 +133,7 @@ local siren: (Sound | boolean)? = nil
 local sirenOn = false
 
 local function updateSiren(want: boolean, t: number)
-	if siren == nil and Audio.state("siren") ~= "unknown" then
+	if siren == nil then
 		local cars = workspace:FindFirstChild("Cars")
 		local model = cars and cars:FindFirstChild("Car_" .. player.UserId)
 		local body = if model and model:IsA("Model") then model.PrimaryPart else nil
@@ -273,12 +273,9 @@ RunService.RenderStepped:Connect(function()
 			rigs[e.id] = rig
 		end
 
-		-- THE BURN IS ATTACHED WHEN IT CAN BE, not when the fire is made. Audio
-		-- resolves its slots on a background thread and hands back nil until one
-		-- lands, so attaching once at creation gets nil on a cold client and the
-		-- fire stays silent for its whole life. Retried while the slot is still
-		-- "unknown", and dropped for good once it is known to be silent.
-		if burn[e.id] == nil and Audio.state("fire") ~= "unknown" then
+		-- Attached once, when the fire is made. Audio.make no longer has a "not
+		-- ready yet" answer to cope with.
+		if burn[e.id] == nil then
 			local s = Audio.make("fire", rig.seat)
 			if s then
 				local snd = s :: Sound

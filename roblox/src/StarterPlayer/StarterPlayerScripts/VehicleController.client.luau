@@ -173,29 +173,30 @@ end
 -- engine because it rises and falls with the throttle, which is the part your
 -- ear is actually listening to.
 --
--- The whole block is guarded on the sound existing: Audio hands back nil for a
--- slot that would not load, and the car has to drive exactly as well either way.
+-- Every use is still guarded on the sound existing, because a slot name can be
+-- wrong and the car has to drive exactly as well either way. What is gone is
+-- the gate that could turn a working sound off; see Shared/Audio.
+--
+-- warm() plays each candidate silently once and prints what actually loaded on
+-- this client, which is the only reliable way to find out and the thing the
+-- first version got wrong.
 Audio.warm()
 
 local engine: Sound? = nil
 local scrub: Sound? = nil
-local soundReady = false
 
 local IDLE_PITCH = 0.55
 local REV_PITCH = 2.4
 local hitCool = 0
 
--- RETRIED, NOT ATTEMPTED ONCE. Audio resolves its slots on a background thread
--- and hands back nil until one lands, so the frame the car appears is usually
--- too early -- see the note at the top of Shared/Audio. This keeps asking until
--- it gets a sound or until Audio says the slot is definitively silent.
+-- ONCE, WHEN THE CAR APPEARS. Audio.make never returns nil for a slot that
+-- exists any more -- the version that could was the one that gated on an
+-- unverifiable probe and turned every sound in the game off -- so there is
+-- nothing here to retry.
 local function attachSound(m: Model): boolean
 	local body = m.PrimaryPart
 	if not body then
-		return true -- nothing to attach to; do not keep trying
-	end
-	if Audio.state("engine") == "unknown" then
-		return false
+		return true -- nothing to attach to
 	end
 	engine = Audio.make("engine", body)
 	if engine then
@@ -284,10 +285,40 @@ RunService.RenderStepped:Connect(function(dt)
 		if not model then
 			return
 		end
-		soundReady = attachSound(model :: Model)
-	end
-	if not soundReady then
-		soundReady = attachSound(model :: Model)
+		attachSound(model :: Model)
+
+		-- SAID OUT LOUD, ONCE. "The car is invisible" is a symptom with several
+		-- possible causes -- streamed out, no parts, parked underground, camera
+		-- somewhere else -- and they are indistinguishable from a screenshot.
+		-- This costs one line in the log and settles it.
+		task.spawn(function()
+			task.wait(1)
+			local m = model :: Model
+			local parts, hidden = 0, 0
+			for _, d in m:GetDescendants() do
+				if d:IsA("BasePart") then
+					parts += 1
+					if d.Transparency > 0.95 then
+						hidden += 1
+					end
+				end
+			end
+			local p = m:GetPivot().Position
+			print(
+				("[car] %d parts (%d invisible), pivot %.0f,%.0f,%.0f, camera %.0f,%.0f,%.0f, primary=%s")
+					:format(
+						parts,
+						hidden,
+						p.X,
+						p.Y,
+						p.Z,
+						camera.CFrame.Position.X,
+						camera.CFrame.Position.Y,
+						camera.CFrame.Position.Z,
+						tostring(m.PrimaryPart ~= nil)
+					)
+			)
+		end)
 	end
 
 	-- HELD WHILE THE LOADING SCREEN IS UP. The car is spawned by the server as

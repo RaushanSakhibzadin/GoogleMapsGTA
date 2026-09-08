@@ -314,11 +314,15 @@ task.spawn(function()
 	local opened = os.clock()
 
 	-- AND A CEILING ON IT, because a loading screen that can wait forever is the
-	-- worst failure mode this could have: if CityVisuals throws, or the server
-	-- never spawns a car, the player sits looking at a bar at 74% with no way to
-	-- tell whether anything is wrong. Better to let them into a half-built city
-	-- with a warning in the log naming exactly what never arrived.
-	local GIVE_UP = 60
+	-- worst failure mode this could have: if CityVisuals throws, or the car never
+	-- reaches this client, the player sits looking at a bar at 74% with no way to
+	-- tell whether anything is wrong. Better to let them in with a warning in the
+	-- log naming exactly what never arrived.
+	--
+	-- Thirty seconds, against a cold join measured at about five: collision 4.6 s
+	-- and the first ring of city 3.1 s, in parallel. Six times the real cost is
+	-- generous; a minute was just a long time to stare at a stuck bar.
+	local GIVE_UP = 30
 	while not (collisionDone() and cityFraction() >= 1 and carHere()) do
 		if os.clock() - opened > GIVE_UP then
 			warn(
