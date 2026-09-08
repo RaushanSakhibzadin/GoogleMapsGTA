@@ -212,8 +212,23 @@ local function playerXZ(): (number, number)
 	return 0, 0
 end
 
+local firstRingDone = false
+
 local function rescan()
 	local px, pz = playerXZ()
+
+	-- How many chunks are in range and how many of those are not up yet. Counted
+	-- before the queue is rebuilt, because the queue is what is MISSING and the
+	-- loading bar wants the ratio.
+	local wanted, missing = 0, 0
+	for _, c in order do
+		if (c.x - px) ^ 2 + (c.z - pz) ^ 2 <= LOAD2 then
+			wanted += 1
+			if not live[c.cx .. "," .. c.cz] then
+				missing += 1
+			end
+		end
+	end
 
 	-- Drop what is well behind. Done first, so the parts a chunk is about to
 	-- make are not competing with parts that should already be gone.
@@ -230,6 +245,16 @@ local function rescan()
 	-- the difference between driving immediately and waiting.
 	table.clear(pending)
 	head = 1
+	-- WHAT THE LOADING SCREEN IS WATCHING. Reported as "the car does not exist
+	-- at the beginning": three things have to land before the game is playable
+	-- and this is one of them, so it says how far along it is rather than
+	-- leaving ReplicatedFirst/Loading to guess. Only the FIRST ring is
+	-- interesting -- after that the numbers keep moving as you drive and nobody
+	-- is looking at them.
+	if not firstRingDone then
+		workspace:SetAttribute("CityRingWanted", math.max(1, wanted))
+		workspace:SetAttribute("CityRingBuilt", wanted - missing)
+	end
 	for _, c in order do
 		if not live[c.cx .. "," .. c.cz] then
 			local d2 = (c.x - px) ^ 2 + (c.z - pz) ^ 2
@@ -266,6 +291,8 @@ task.spawn(function()
 
 		if not reported then
 			reported = true
+			firstRingDone = true
+			workspace:SetAttribute("CityRingBuilt", workspace:GetAttribute("CityRingWanted"))
 			local ring = 0
 			for _ in live do
 				ring += 1

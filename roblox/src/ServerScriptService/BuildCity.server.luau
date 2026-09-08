@@ -85,4 +85,11 @@ spawnPad.Size = Vector3.new(12, 1, 12)
 spawnPad.Position = Vector3.new(0, 40, 0)
 spawnPad.Parent = workspace
 
+-- TOLD, RATHER THAN GUESSED AT. The loading screen in ReplicatedFirst has to
+-- know when the ground and the collision are actually down -- a car handed to a
+-- player before this finishes falls through the city. An attribute on Workspace
+-- replicates to every client, including one that joins after this has already
+-- run, which an event would not.
+workspace:SetAttribute("CollisionReady", true)
+
 print(("[collision] %d boxes in %.2fs"):format(built, os.clock() - started))

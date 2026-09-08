@@ -17,18 +17,29 @@ local CityVisual = ReplicatedStorage:WaitForChild("CityVisual")
 local Palette = require(CityVisual:WaitForChild("Palette")) :: { Color3 }
 local Meta = require(CityVisual:WaitForChild("CityMeta"))
 local HexPrism = require(CityVisual:WaitForChild("HexPrism"))
--- TIMED, AND LOUD WHEN IT IS NOT THERE. The voxel chunks are only baked when
--- CONFIG.render is 'voxel' -- they are 29 MB of generated data on the 2.4 km
--- district for a renderer §5.4 measured at 83x the cost of the one in use -- so
--- an untimed WaitForChild here would simply hang forever with no message, which
--- is the worst way for a switched-off feature to present.
-local ChunkData = CityVisual:WaitForChild("ChunkData", 5)
-if not ChunkData then
-	error(
-		"[CityBuild] no ChunkData: the voxel city is not baked. "
-			.. "Set CONFIG.render = 'voxel' in tools/roblox/config.mjs and re-run "
-			.. "node tools/roblox/bake.mjs. The flat renderer (CityVisuals) needs none of this."
-	)
+-- LOOKED UP WHEN IT IS USED, NOT WHEN THIS IS REQUIRED, and that distinction
+-- turned out to matter a great deal.
+--
+-- The voxel chunks are only baked when CONFIG.render is 'voxel' -- 29 MB of
+-- generated data on the 2.4 km district, for a renderer §5.4 measured at 83x
+-- the cost of the one in use. An untimed `WaitForChild("ChunkData")` at module
+-- scope therefore hangs forever, and a timed one that errors is worse: this
+-- module also owns clearWorkspace(), which ServerScriptService/BuildCity calls
+-- before laying down every collision box in the game. Erroring here took the
+-- COLLISION with it -- a city you drive straight through, from a module that
+-- has nothing to do with collision.
+--
+-- So the check is inside shell(), which is the only thing that needs it.
+local function chunkData(): Instance
+	local folder = CityVisual:FindFirstChild("ChunkData")
+	if not folder then
+		error(
+			"[CityBuild] no ChunkData: the voxel city is not baked. "
+				.. "Set CONFIG.render = 'voxel' in tools/roblox/config.mjs and re-run "
+				.. "node tools/roblox/bake.mjs. The flat renderer needs none of this."
+		)
+	end
+	return folder
 end
 
 local CityBuild = {}
@@ -67,6 +78,7 @@ end
 -- Thirty thousand parts in one go is a freeze with no way to tell whether the
 -- game has hung.
 function CityBuild.shell(castShadows: boolean, budget: number, yieldFn: () -> ()): (number, boolean)
+	local ChunkData = chunkData()
 	local template, realHex = HexPrism.template()
 	local hex = CityBuild.isHex
 

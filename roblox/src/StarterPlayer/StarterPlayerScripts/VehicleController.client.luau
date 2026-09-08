@@ -32,6 +32,7 @@ local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local Tarmac = require(Shared:WaitForChild("Tarmac"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
+local Audio = require(Shared:WaitForChild("Audio"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -164,6 +165,83 @@ local function updateCamera(dt: number)
 	)
 end
 
+-- ---------------------------------------------------------------- sound
+
+-- THE ENGINE IS ONE LOW NOTE, PITCHED BY ROAD SPEED, because there is no engine
+-- loop in the Roblox client library and no oscillator in Luau -- see
+-- Shared/Audio for why nothing here uses an uploaded asset. It reads as an
+-- engine because it rises and falls with the throttle, which is the part your
+-- ear is actually listening to.
+--
+-- The whole block is guarded on the sound existing: Audio hands back nil for a
+-- slot that would not load, and the car has to drive exactly as well either way.
+Audio.warm()
+
+local engine: Sound? = nil
+local scrub: Sound? = nil
+local soundReady = false
+
+local IDLE_PITCH = 0.55
+local REV_PITCH = 2.4
+local hitCool = 0
+
+-- RETRIED, NOT ATTEMPTED ONCE. Audio resolves its slots on a background thread
+-- and hands back nil until one lands, so the frame the car appears is usually
+-- too early -- see the note at the top of Shared/Audio. This keeps asking until
+-- it gets a sound or until Audio says the slot is definitively silent.
+local function attachSound(m: Model): boolean
+	local body = m.PrimaryPart
+	if not body then
+		return true -- nothing to attach to; do not keep trying
+	end
+	if Audio.state("engine") == "unknown" then
+		return false
+	end
+	engine = Audio.make("engine", body)
+	if engine then
+		local e = engine :: Sound
+		e.Name = "Engine"
+		e.Looped = true
+		e.Volume = 0
+		e.PlaybackSpeed = IDLE_PITCH
+		e.RollOffMaxDistance = 260
+		e:Play()
+	end
+	scrub = Audio.make("impact", body)
+	if scrub then
+		local t = scrub :: Sound
+		t.Name = "Scrub"
+		t.Looped = true
+		t.Volume = 0
+		t.PlaybackSpeed = 0.45
+		t.RollOffMaxDistance = 160
+		t:Play()
+	end
+	return true
+end
+
+-- `lat` is how hard the car is sliding sideways: that, and not speed, is what a
+-- tyre actually complains about.
+local function updateSound(dt: number, lat: number)
+	local spd = math.sqrt(car.vx * car.vx + car.vy * car.vy)
+	if engine then
+		local e = engine :: Sound
+		-- Pitch follows speed with a floor, so a stationary car still idles.
+		local want = IDLE_PITCH + (REV_PITCH - IDLE_PITCH) * math.min(spd / VehicleModel.TOP_SPEED, 1) ^ 0.55
+		e.PlaybackSpeed += (want - e.PlaybackSpeed) * VehicleModel.decay(9, dt)
+		-- And volume follows the THROTTLE more than the speed, so lifting off at
+		-- eighty is audible. gasT is the lagged throttle the model already keeps.
+		local target = 0.18 + 0.32 * car.gasT + 0.12 * math.min(spd / 40, 1)
+		e.Volume += (target - e.Volume) * VehicleModel.decay(6, dt)
+	end
+	if scrub then
+		local t = scrub :: Sound
+		local slide = math.min(math.abs(lat) / 9, 1)
+		local target = if spd > 4 then slide * 0.5 else 0
+		t.Volume += (target - t.Volume) * VehicleModel.decay(10, dt)
+	end
+end
+
 -- ---------------------------------------------------------------- the loop
 
 local STEP = 1 / 60
@@ -206,6 +284,22 @@ RunService.RenderStepped:Connect(function(dt)
 		if not model then
 			return
 		end
+		soundReady = attachSound(model :: Model)
+	end
+	if not soundReady then
+		soundReady = attachSound(model :: Model)
+	end
+
+	-- HELD WHILE THE LOADING SCREEN IS UP. The car is spawned by the server as
+	-- soon as you join -- long before the collision boxes are down or the city
+	-- is built -- so without this the car is driveable behind an opaque panel:
+	-- you arrive somewhere other than where you spawned because you were leaning
+	-- on W, and two scripts fight over the camera the whole time.
+	--
+	-- A missing attribute reads as false, so a build without the loading screen
+	-- behaves exactly as it did before.
+	if workspace:GetAttribute("Loading") == true then
+		return
 	end
 
 	if dt > 0.25 then
@@ -244,15 +338,40 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 
 	local guard = 0
+	local lateral = 0
+	local wall = 0
 	while acc >= STEP and guard < 5 do
 		local px, py = car.x, car.y
-		VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
+		local _, vl = VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
+		lateral = vl
 		if #nearBoxes > 0 then
-			BuildingCollide.resolve(car, nearBoxes, px, py)
+			-- The return is the speed lost INTO the wall, which is exactly what a
+			-- bang should be scaled by. It was already being thrown away.
+			local hit = BuildingCollide.resolve(car, nearBoxes, px, py)
+			if hit > wall then
+				wall = hit
+			end
 		end
 		acc -= STEP
 		guard += 1
 	end
+
+	-- ONE BANG PER COLLISION, NOT ONE PER FRAME OF IT. Leaning on a wall at an
+	-- angle resolves every single step, and without a cooldown that is sixty
+	-- impacts a second. The browser caps building damage at one hit per 0.45 s
+	-- for the same reason and this borrows the number.
+	hitCool = math.max(0, hitCool - dt)
+	if wall > 6 and hitCool <= 0 then
+		hitCool = 0.45
+		Audio.shot(
+			"impact",
+			Vector3.new(car.x * S, 1.5 * S, car.y * S),
+			math.clamp(wall / 30, 0.15, 0.9),
+			0.7 + math.random() * 0.5
+		)
+	end
+
+	updateSound(dt, lateral)
 
 	if camera.CameraType ~= Enum.CameraType.Scriptable then
 		camera.CameraType = Enum.CameraType.Scriptable

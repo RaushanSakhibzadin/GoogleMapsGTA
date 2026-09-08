@@ -39,6 +39,7 @@ local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
 local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local PersonBuild = require(Shared:WaitForChild("PersonBuild"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
+local Audio = require(Shared:WaitForChild("Audio"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local S = Meta.studsPerMetre
@@ -146,6 +147,15 @@ end
 local STEP = 1 / 30
 local acc = 0
 local started = 0
+local hitCool = 0
+
+-- KNOCKING SOMEBODY DOWN MAKES A NOISE and does nothing else, which is the
+-- whole of what this client is allowed to do about it: see the note at the top
+-- of this file. It is not scored, not reported and not an infraction, because a
+-- client saying "I ran somebody over" is a client saying anything it likes.
+local function onKnock(p)
+	Audio.shot("impact", Vector3.new(p.x * S, 1.0 * S, p.y * S), 0.45, 1.35)
+end
 
 RunService.Heartbeat:Connect(function(dt)
 	local pcar = PlayerCar.get()
@@ -186,8 +196,22 @@ RunService.Heartbeat:Connect(function(dt)
 		here.x, here.y = c.x, c.y
 		Traffic.step(cars, STEP, c, c.x, c.y, wallStop)
 
-		Traffic.hitPlayer(cars, c, PlayerCar.MASS)
-		Pedestrians.step(crowd, STEP, c.x, c.y, c, nil)
+		-- The return is the hardest closing speed of the tick. Same cooldown rule
+		-- as the wall bang in VehicleController: nose to tail in traffic resolves
+		-- on every step, and without it a queue is a machine gun.
+		local shunt = Traffic.hitPlayer(cars, c, PlayerCar.MASS)
+		hitCool = math.max(0, hitCool - STEP)
+		if shunt > 7 and hitCool <= 0 then
+			hitCool = 0.6
+			Audio.shot(
+				"impact",
+				Vector3.new(c.x * S, 1.5 * S, c.y * S),
+				math.clamp(shunt / 26, 0.2, 0.95),
+				0.8 + math.random() * 0.4
+			)
+		end
+
+		Pedestrians.step(crowd, STEP, c.x, c.y, c, onKnock)
 
 		-- INSIDE THE SUBSTEP LOOP, not after it. Both sims clear their `gone`
 		-- list at the top of every step, so draining it once a frame throws away

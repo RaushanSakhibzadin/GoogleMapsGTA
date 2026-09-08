@@ -1,7 +1,7 @@
 # Porting VICE MAPS to Roblox — plan document
 
 Status: M0–M2 built; M3 part-built — a 2.4 × 2.4 km streamed district with traffic,
-pedestrians and trees in it.
+pedestrians, trees, fires that burn, a loading screen and a placeholder sound layer.
 The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
 the remaining four roles and the radio are still a plan.
 Source read at commit `af6e9a7`.
@@ -944,8 +944,8 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | R11 | **The wanted-star system** | Must fix | Replaced wholesale by Service Record + Dispatch Status (§4.7). No stars, no "wanted", no shared vocabulary. |
 | R12 | **`turf.js` — casino coin-flip gambling** | **Do not port** | Roblox restricts simulated gambling with in-experience currency. Betting a tenth of your money on a coin flip is squarely in that territory. Drop the whole mechanic; the territory-painting idea could return later as something earned rather than wagered. |
 | R13 | **Pedestrian harm** | Low, watch it | Source already knocks down and gets up — no deaths, no gore (`PED_DOWN_SECS = 22`). Keep it that way: no blood, no ragdoll persistence, no kill counter, no scoring for hits (only penalties). |
-| R14 | **Uploaded audio rejected** | Medium | All original; upload the bank in M0; have a silent-fallback path so a rejected asset never breaks the radio (the source game's radio already has that discipline — copy the philosophy). |
-| R15 | **OpenStreetMap ODbL** | Must handle | A voxel city derived from OSM is a Derivative Database. **Attribution is mandatory and must be visible inside the experience** — a credits panel with "Map data © OpenStreetMap contributors (ODbL)". A Roblox place file is not distributed as a database, so the share-alike trigger is arguable, but attribution is not. Put it in the pause menu and the description. |
+| R14 | **Uploaded audio rejected** | Medium, deferred | Nothing is uploaded yet. `Shared/Audio` plays `rbxasset://` content — files shipped inside the Roblox client, needing no upload, id or moderation — through a **probe**: each slot is a list of candidate paths, tried in order, first one that loads wins, and a slot where nothing loads goes silent with a warning naming it. Every call site copes with nil. That is the silent-fallback discipline this row asked for, built before the bank exists rather than after; when the real audio is uploaded it goes at the front of the same lists and nothing else changes. |
+| R15 | **OpenStreetMap ODbL** | **Attribution done** | A city derived from OSM is a Derivative Database and attribution is mandatory and must be visible inside the experience. "Map data © OpenStreetMap contributors, ODbL" is on the loading screen (`ReplicatedFirst/Loading`) for the whole of every load — the one screen every player sees. Share-alike is arguable for a place file and is not triggered by this. Still to do: repeat it in the store description. |
 | R16 | **Real street names / real places** | Low | Real Belgrade street names are facts and fine. Do not put real business names on shopfronts even though OSM has 2,311 of them — that is the one place this crosses from geography into naming private entities. |
 | R17 | **Cyrillic rendering** | Low | Street name labels are Serbian Cyrillic. Verify font coverage on the Roblox fonts you pick, on mobile, early — a row of tofu boxes is a bad surprise in M3. |
 
@@ -1012,6 +1012,35 @@ from being a hole where the next chunk has not arrived.
 **Not done:** no LOD. A chunk is either fully built or absent, so the far edge of the load
 radius pops rather than fades. Distance fog or a coarse silhouette pass would hide it; neither
 is written.
+
+### 7.5 The join sequence, and why it needed a screen
+
+Reported as "the car does not exist at the beginning". Correct, and it is three
+waits rather than one:
+
+| | who | roughly |
+|---|---|---|
+| ~57,000 collision boxes | server, on a frame budget | seconds |
+| the first ring of city chunks | this client, ~42,000 parts | seconds |
+| your car spawned and replicated | server, on `PlayerAdded` | immediate |
+
+They finish out of order — the car is usually **first** — and until the city is up there
+is nothing to look at either: `VehicleController` returns early with no model, so it
+never takes the camera and Roblox leaves you looking at whatever the default found.
+
+`ReplicatedFirst/Loading` covers it. In `ReplicatedFirst` because scripts there run
+before the rest of ReplicatedStorage replicates — anywhere else and the loading screen
+is itself one of the things being waited for. It orbits the district centre while the
+chunks land, so the bar has the real thing happening behind it.
+
+Two details that are not decoration:
+
+- **It holds the car.** `workspace.Loading` is an attribute the controller reads; without
+  it the car is driveable behind an opaque panel and you arrive somewhere other than
+  where you spawned because you were leaning on W.
+- **It cannot hang.** A 60-second ceiling lets the player in regardless, with a warning
+  naming which of the three never arrived. A loading screen that can wait for ever is
+  the worst failure this could have.
 
 ---
 
