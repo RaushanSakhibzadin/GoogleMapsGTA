@@ -159,7 +159,7 @@ local function updateSiren(want: boolean, t: number)
 	local snd = siren :: Sound
 	sirenOn = want
 	-- Eased rather than switched, so it winds up and down instead of clicking on.
-	local target = if want then 0.32 else 0
+	local target = if want then 0.28 else 0
 	snd.Volume += (target - snd.Volume) * 0.08
 	snd.PlaybackSpeed = if math.sin(t * 6.2) > 0 then 1.35 else 1.0
 end
@@ -187,7 +187,7 @@ Board.OnClientEvent:Connect(function(list)
 	-- RESOLVED IS ALSO WORTH A NOISE, and a different one: the job you were on
 	-- disappearing off the board is the only signal that it finished.
 	if mine and not fresh[mine] then
-		Audio.shot("ping", nil, 0.5, 1.5)
+		Audio.shot("ping", nil, 0.45, 1.5)
 	end
 	if anyNew and next(known) ~= nil then
 		-- Not on the first board of the session, which arrives with four jobs on
@@ -280,7 +280,7 @@ RunService.RenderStepped:Connect(function()
 			if s then
 				local snd = s :: Sound
 				snd.Looped = true
-				snd.Volume = 0.35
+				snd.Volume = 0.3
 				snd.PlaybackSpeed = 0.35
 				snd.RollOffMaxDistance = 420
 				snd.RollOffMinDistance = 40
@@ -305,7 +305,7 @@ RunService.RenderStepped:Connect(function()
 		if typeof(snd) == "Instance" then
 			-- The fire quietens as it goes out, which is the same information the
 			-- flame is carrying, arriving through the other ear.
-			(snd :: Sound).Volume = 0.35 * math.clamp(1 - (e.progress or 0), 0.05, 1)
+			(snd :: Sound).Volume = 0.3 * math.clamp(1 - (e.progress or 0), 0.05, 1)
 		end
 	end
 

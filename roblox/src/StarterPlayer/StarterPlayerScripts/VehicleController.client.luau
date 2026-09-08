@@ -205,7 +205,17 @@ local function attachSound(m: Model): boolean
 		e.Looped = true
 		e.Volume = 0
 		e.PlaybackSpeed = IDLE_PITCH
-		e.RollOffMaxDistance = 260
+		-- THE ROLLOFF WAS WHY IT WAS QUIET, more than the volume was. A Sound on
+		-- a part is 3D, and Roblox attenuates it past RollOffMinDistance --
+		-- which defaults to about ten studs. The chase camera sits NINE METRES
+		-- behind the car, which at three studs a metre is twenty-seven: your own
+		-- engine was being faded out for being too far away from you.
+		--
+		-- So the near field is made big enough to contain the camera. It is
+		-- still 3D, so another player's car still fades with distance; it is
+		-- only yours that is always in the front row.
+		e.RollOffMinDistance = 90
+		e.RollOffMaxDistance = 500
 		e:Play()
 	end
 	scrub = Audio.make("impact", body)
@@ -215,7 +225,8 @@ local function attachSound(m: Model): boolean
 		t.Looped = true
 		t.Volume = 0
 		t.PlaybackSpeed = 0.45
-		t.RollOffMaxDistance = 160
+		t.RollOffMinDistance = 60
+		t.RollOffMaxDistance = 300
 		t:Play()
 	end
 	return true
@@ -232,13 +243,17 @@ local function updateSound(dt: number, lat: number)
 		e.PlaybackSpeed += (want - e.PlaybackSpeed) * VehicleModel.decay(9, dt)
 		-- And volume follows the THROTTLE more than the speed, so lifting off at
 		-- eighty is audible. gasT is the lagged throttle the model already keeps.
-		local target = 0.18 + 0.32 * car.gasT + 0.12 * math.min(spd / 40, 1)
+		-- Louder across the board, and weighted to the throttle: idling should be
+		-- present, and flooring it should be the loudest thing on screen. The
+		-- Engine mixer group scales all of it, so this is the shape rather than
+		-- the level -- see the settings panel.
+		local target = 0.45 + 0.40 * car.gasT + 0.15 * math.min(spd / 40, 1)
 		e.Volume += (target - e.Volume) * VehicleModel.decay(6, dt)
 	end
 	if scrub then
 		local t = scrub :: Sound
 		local slide = math.min(math.abs(lat) / 9, 1)
-		local target = if spd > 4 then slide * 0.5 else 0
+		local target = if spd > 4 then slide * 0.35 else 0
 		t.Volume += (target - t.Volume) * VehicleModel.decay(10, dt)
 	end
 end
@@ -392,12 +407,17 @@ RunService.RenderStepped:Connect(function(dt)
 	-- impacts a second. The browser caps building damage at one hit per 0.45 s
 	-- for the same reason and this borrows the number.
 	hitCool = math.max(0, hitCool - dt)
-	if wall > 6 and hitCool <= 0 then
+	-- QUIETER, AND FROM A HIGHER FLOOR. Reported as "for hits it is too loud":
+	-- a bang topped out at 0.9 where the engine topped out at 0.62, so every
+	-- scrape was the loudest thing in the game. The ceiling is a third of what
+	-- it was, and the threshold is up from 6 to 9 m/s so a kerb is not a crash.
+	-- The Effects group halves it again on top.
+	if wall > 9 and hitCool <= 0 then
 		hitCool = 0.45
 		Audio.shot(
 			"impact",
 			Vector3.new(car.x * S, 1.5 * S, car.y * S),
-			math.clamp(wall / 30, 0.15, 0.9),
+			math.clamp(wall / 60, 0.05, 0.30),
 			0.7 + math.random() * 0.5
 		)
 	end

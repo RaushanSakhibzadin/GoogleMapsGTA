@@ -1,13 +1,12 @@
 --!strict
--- The minimap: a hexagon of the district, turning with the car.
+-- The minimap: a circle of the district, turning with the car.
 --
 -- PAINTED, NOT UPLOADED. Roblox cannot ship an image without it being an
 -- uploaded asset, which means Open Cloud and a moderation pass for something
 -- regenerated every time the district changes. So the bake rasterises the whole
--- district to two bits a pixel -- 64 kB for 512 squared, against 786 kB as RGB
--- -- and this samples out of it into an EditableImage. Same trick as the hex
--- prism mesh, and the same principle as proctex.js: nothing in this project is
--- a file somebody drew.
+-- district to two bits a pixel -- 256 kB for 1024 squared, against 3 MB as RGB
+-- -- and this samples out of it into an EditableImage. Same principle as
+-- proctex.js: nothing in this project is a file somebody drew.
 --
 -- AND SAMPLED PER FRAME RATHER THAN SLID ABOUT, which is the decision that
 -- makes both of the things asked for possible at once.
@@ -15,13 +14,20 @@
 -- The obvious build is an ImageLabel of the whole district inside a clipping
 -- frame, moved so the player is centred -- cheap, and what this did first. But
 -- ClipsDescendants is RECTANGULAR and there is no other clip in Roblox, so a
--- hexagonal panel is not expressible that way; and rotating the sheet leaves
--- the corners swinging in and out of a square hole.
+-- round panel is not expressible that way; and rotating the sheet leaves the
+-- corners swinging in and out of a square hole.
 --
 -- Generating the visible image instead solves both at once and adds a third
--- thing for nothing: the hexagon is just which pixels get an alpha, the
--- rotation is just what the sample offsets are rotated by, and the result is
--- chunky in a way that suits a voxel city.
+-- thing for nothing: the outline is just which pixels get an alpha, the
+-- rotation is just what the sample offsets are rotated by, and the shape can
+-- change by editing one comparison.
+--
+-- IT WAS A HEXAGON, and the hexagon was for the voxel city that this no longer
+-- draws: a pointy-top panel over a pointy-top lattice read as the same shape
+-- twice. The lattice went when the buildings became extruded footprints (§5.4)
+-- and the hexagon outlived the reason for it. A circle is also the honest shape
+-- for what this shows -- the sample window is a radius about the car, and a
+-- hexagon was drawing the corners of a circle it did not have.
 --
 -- THE COST IS THE RESOLUTION, so it is small on purpose: 96 squared is 9,216
 -- samples an update at 20 Hz, which is a fifth of what 60 Hz at panel
@@ -84,7 +90,7 @@ sheet.Size = UDim2.fromScale(1, 1)
 sheet.BackgroundTransparency = 1
 sheet.ScaleType = Enum.ScaleType.Stretch
 -- No smoothing: at 96 across a 196 pixel panel the samples ARE the look, and
--- bilinear would turn a crisp hex grid into porridge.
+-- bilinear would blur the street edges into porridge.
 sheet.ResampleMode = Enum.ResamplerMode.Pixelated
 sheet.Parent = panel
 
@@ -106,27 +112,26 @@ local function classAt(x: number, z: number): number
 	return (buffer.readu8(SRC_BITS, at // 4) // (2 ^ ((at % 4) * 2))) % 4
 end
 
--- ---------------------------------------------------------------- the hexagon
+-- ---------------------------------------------------------------- the circle
 
--- Which output pixels are inside the panel's hexagon, worked out once.
+-- Which output pixels are inside the panel, worked out once. One comparison,
+-- because the shape is a circle.
 --
--- POINTY-TOP, matching the lattice the city is built on (see
--- tools/roblox/lattice.mjs) -- a flat-top minimap over a pointy-top city reads
--- as a different shape rather than as the same one.
---
--- For circumradius R the hexagon is |x| <= R*sqrt(3)/2 and |y| <= R - |x|/sqrt(3):
--- at x = 0 that is |y| <= R, the top and bottom points, and at the full width it
--- is |y| <= R/2, the flat sides.
-local INSIDE = table.create(RES * RES, false)
+-- ALPHA IS FEATHERED OVER THE LAST PIXEL rather than cut hard. At 96 across, a
+-- hard threshold gives a visibly stepped rim -- the shape is only 96 samples
+-- wide and the staircase is a couple of pixels deep at the diagonals. Roblox
+-- has no anti-aliasing to lean on here because this IS the image; a one-pixel
+-- ramp costs nothing and is the difference between a circle and a cog.
+local EDGE: { number } = table.create(RES * RES, 0)
 do
 	local c = (RES - 1) / 2
-	local R = c
-	local w = R * math.sqrt(3) / 2
+	local R = c - 0.5
 	for j = 0, RES - 1 do
 		for i = 0, RES - 1 do
 			local dx, dy = i - c, j - c
-			INSIDE[j * RES + i + 1] = math.abs(dx) <= w
-				and math.abs(dy) <= R - math.abs(dx) / math.sqrt(3)
+			local d = math.sqrt(dx * dx + dy * dy)
+			-- 1 well inside, 0 outside, a linear ramp across the last pixel
+			EDGE[j * RES + i + 1] = math.clamp(R - d, 0, 1)
 		end
 	end
 end
@@ -221,7 +226,8 @@ RunService.RenderStepped:Connect(function(dt)
 		for j = 0, RES - 1 do
 			local dy = (j - c) * STUDS_PER_PX
 			for i = 0, RES - 1 do
-				if INSIDE[j * RES + i + 1] then
+				local edge = EDGE[j * RES + i + 1]
+				if edge > 0 then
 					local dx = (i - c) * STUDS_PER_PX
 					local wx = p.X + dx * rx + dy * bx
 					local wz = p.Z + dx * rz + dy * bz
@@ -229,11 +235,12 @@ RunService.RenderStepped:Connect(function(dt)
 					buffer.writeu8(rgba, at, col[1])
 					buffer.writeu8(rgba, at + 1, col[2])
 					buffer.writeu8(rgba, at + 2, col[3])
-					buffer.writeu8(rgba, at + 3, 235)
+					-- The rim's own alpha, so the last pixel fades instead of
+					-- stepping. Outside is fully transparent, which is what
+					-- makes the panel round at all -- there is no clipping in
+					-- Roblox that would do it.
+					buffer.writeu8(rgba, at + 3, math.floor(235 * edge))
 				else
-					-- Outside the hexagon is fully transparent, which is what
-					-- makes the panel a hexagon at all -- there is no clipping
-					-- in Roblox that would do it.
 					buffer.writeu8(rgba, at + 3, 0)
 				end
 				at += 4
@@ -262,14 +269,13 @@ RunService.RenderStepped:Connect(function(dt)
 		local sx = (wx * rx + wz * rz) * scale
 		local sy = (wx * bx + wz * bz) * scale
 
-		-- CLAMPED TO THE HEXAGON'S EDGE rather than hidden, so an incident off
-		-- the map still says which way to drive. Scaled down the ray to the
-		-- boundary, so it lands on the flat sides as well as the points.
+		-- CLAMPED TO THE RIM rather than hidden, so an incident off the map still
+		-- says which way to drive. On a circle that is one division: scale the
+		-- ray down to the radius if it is longer than it.
 		local R = VIEW / 2 - 7
-		local w = R * math.sqrt(3) / 2
-		local k = math.max(math.abs(sx) / w, (math.abs(sy) + math.abs(sx) / math.sqrt(3)) / R)
-		if k > 1 then
-			sx, sy = sx / k, sy / k
+		local d = math.sqrt(sx * sx + sy * sy)
+		if d > R then
+			sx, sy = sx / d * R, sy / d * R
 		end
 		f.Position = UDim2.fromOffset(VIEW / 2 + sx, VIEW / 2 + sy)
 	end

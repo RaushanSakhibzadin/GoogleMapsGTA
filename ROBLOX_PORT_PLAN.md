@@ -1,7 +1,8 @@
 # Porting VICE MAPS to Roblox — plan document
 
 Status: M0–M2 built; M3 part-built — a 2.4 × 2.4 km streamed district with traffic,
-pedestrians, trees, fires that burn, a loading screen and a placeholder sound layer.
+pedestrians, trees, fires that burn, a loading screen, a round minimap, and a
+placeholder sound layer with a mixer.
 The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
 the remaining four roles and the radio are still a plan.
 Source read at commit `af6e9a7`.
@@ -944,7 +945,7 @@ the sample bank in M0, not M5, so it has cleared long before you need it.
 | R11 | **The wanted-star system** | Must fix | Replaced wholesale by Service Record + Dispatch Status (§4.7). No stars, no "wanted", no shared vocabulary. |
 | R12 | **`turf.js` — casino coin-flip gambling** | **Do not port** | Roblox restricts simulated gambling with in-experience currency. Betting a tenth of your money on a coin flip is squarely in that territory. Drop the whole mechanic; the territory-painting idea could return later as something earned rather than wagered. |
 | R13 | **Pedestrian harm** | Low, watch it | Source already knocks down and gets up — no deaths, no gore (`PED_DOWN_SECS = 22`). Keep it that way: no blood, no ragdoll persistence, no kill counter, no scoring for hits (only penalties). |
-| R14 | **Uploaded audio rejected** | Medium, deferred | Nothing is uploaded yet. `Shared/Audio` plays `rbxasset://` content — files shipped inside the Roblox client, needing no upload, id or moderation — through a **probe**: each slot is a list of candidate paths, tried in order, first one that loads wins, and a slot where nothing loads goes silent with a warning naming it. Every call site copes with nil. That is the silent-fallback discipline this row asked for, built before the bank exists rather than after; when the real audio is uploaded it goes at the front of the same lists and nothing else changes. |
+| R14 | **Uploaded audio rejected** | Medium, deferred | Nothing is uploaded yet. `Shared/Audio` plays `rbxasset://` content — files shipped inside the Roblox client, needing no upload, id or moderation. It does **not** gate on whether a path loads: an earlier version probed each candidate through `ContentProvider:PreloadAsync` and checked `IsLoaded`, which is not a valid test for client-local content, and every one of the six slots reported itself silent. The check that replaced it is a **report**, not a gate — `warm()` plays each candidate once, silently, and prints what actually loaded. Uploading the real bank means putting ids at the front of those lists and changing nothing else. |
 | R15 | **OpenStreetMap ODbL** | **Attribution done** | A city derived from OSM is a Derivative Database and attribution is mandatory and must be visible inside the experience. "Map data © OpenStreetMap contributors, ODbL" is on the loading screen (`ReplicatedFirst/Loading`) for the whole of every load — the one screen every player sees. Share-alike is arguable for a place file and is not triggered by this. Still to do: repeat it in the store description. |
 | R16 | **Real street names / real places** | Low | Real Belgrade street names are facts and fine. Do not put real business names on shopfronts even though OSM has 2,311 of them — that is the one place this crosses from geography into naming private entities. |
 | R17 | **Cyrillic rendering** | Low | Street name labels are Serbian Cyrillic. Verify font coverage on the Roblox fonts you pick, on mobile, early — a row of tofu boxes is a bad surprise in M3. |
@@ -1012,6 +1013,27 @@ from being a hole where the next chunk has not arrived.
 **Not done:** no LOD. A chunk is either fully built or absent, so the far edge of the load
 radius pops rather than fades. Distance fog or a coarse silhouette pass would hide it; neither
 is written.
+
+### 7.4a Sound, and the mixer that came with it
+
+`Shared/Audio` is a placeholder layer over `rbxasset://` content — the files inside
+the Roblox client, which need no upload and no moderation (R14). What is worth
+recording is the shape rather than the paths:
+
+- **SoundGroups, not a multiplier per sound.** Roblox already has a mixer: a Sound
+  in a group is scaled by that group's Volume, and groups nest. Four sliders in the
+  settings panel therefore reach every sound in the game, including ones already
+  playing and ones made later, with no bookkeeping anywhere.
+- **The first balance was wrong in a way worth naming.** Reported as "for hits it is
+  too loud and for engine it is too silent". Hits topped out at 0.9 and the engine
+  at 0.62, so a scrape was the loudest thing in the game — but the engine's real
+  problem was not its volume, it was `RollOffMinDistance`. A Sound on a part is 3D
+  and fades past about ten studs; the chase camera sits nine metres behind the car,
+  which is twenty-seven. **Your own engine was being faded out for being too far
+  away from you.** The near field is now 90 studs, so the camera is always inside it.
+- **Settings do not persist.** Roblox has no client-side storage, so it needs a
+  DataStore write, and this place has no DataStore access (ProfileService says so on
+  every boot). Four numbers into the profile when it does.
 
 ### 7.5a StreamingEnabled needs a replication focus, and had none
 

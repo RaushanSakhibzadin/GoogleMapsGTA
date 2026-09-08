@@ -154,7 +154,7 @@ local hitCool = 0
 -- of this file. It is not scored, not reported and not an infraction, because a
 -- client saying "I ran somebody over" is a client saying anything it likes.
 local function onKnock(p)
-	Audio.shot("impact", Vector3.new(p.x * S, 1.0 * S, p.y * S), 0.45, 1.35)
+	Audio.shot("impact", Vector3.new(p.x * S, 1.0 * S, p.y * S), 0.18, 1.35)
 end
 
 RunService.Heartbeat:Connect(function(dt)
@@ -201,12 +201,15 @@ RunService.Heartbeat:Connect(function(dt)
 		-- on every step, and without it a queue is a machine gun.
 		local shunt = Traffic.hitPlayer(cars, c, PlayerCar.MASS)
 		hitCool = math.max(0, hitCool - STEP)
-		if shunt > 7 and hitCool <= 0 then
+		if shunt > 9 and hitCool <= 0 then
 			hitCool = 0.6
+			-- Same retune as the wall bang in VehicleController: a third of the
+			-- old ceiling, and a higher threshold so nose-to-tail in a queue is
+			-- not a collision.
 			Audio.shot(
 				"impact",
 				Vector3.new(c.x * S, 1.5 * S, c.y * S),
-				math.clamp(shunt / 26, 0.2, 0.95),
+				math.clamp(shunt / 55, 0.05, 0.32),
 				0.8 + math.random() * 0.4
 			)
 		end

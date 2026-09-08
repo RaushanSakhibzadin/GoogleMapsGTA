@@ -100,6 +100,62 @@ local SLOTS: { [string]: { string } } = {
 	},
 }
 
+-- Which slot belongs to which mixer group. Anything not listed goes to effects.
+local CATEGORY: { [string]: string } = {
+	engine = "Engine",
+	impact = "Effects",
+	fire = "Effects",
+	siren = "Effects",
+	ping = "Interface",
+	click = "Interface",
+}
+
+-- ---------------------------------------------------------------- the mixer
+
+-- SOUNDGROUPS, NOT A MULTIPLIER PER SOUND. Roblox already has a mixer: a Sound
+-- in a SoundGroup is scaled by that group's Volume, and a group nested in
+-- another is scaled by both. So the settings panel sets three numbers and every
+-- sound in the game -- including ones already playing, and ones made later --
+-- follows, with no bookkeeping here and nothing to keep in step.
+--
+-- The defaults are the balance, and they are the answer to "for hits it is too
+-- loud and for engine it is too silent": effects sit under the engine rather
+-- than over it.
+local groups: { [string]: SoundGroup } = {}
+do
+	local master = Instance.new("SoundGroup")
+	master.Name = "Master"
+	master.Volume = 1
+	master.Parent = SoundService
+	groups.Master = master
+
+	for name, vol in { Engine = 1.0, Effects = 0.5, Interface = 0.6 } do
+		local g = Instance.new("SoundGroup")
+		g.Name = name
+		g.Volume = vol
+		g.SoundGroup = master
+		g.Parent = SoundService
+		groups[name] = g
+	end
+end
+
+-- 0..1 in, applied to the named group. Unknown names are ignored rather than
+-- thrown, because this is driven by a UI and a typo there should not stop the
+-- game.
+function Audio.setVolume(group: string, v: number)
+	local g = groups[group]
+	if g then
+		g.Volume = math.clamp(v, 0, 1)
+	end
+end
+
+function Audio.getVolume(group: string): number
+	local g = groups[group]
+	return if g then g.Volume else 0
+end
+
+Audio.GROUPS = { "Master", "Engine", "Effects", "Interface" }
+
 -- Which candidate is KNOWN to work, once anything has established it. Empty is
 -- not a failure state: it just means nothing has confirmed one yet, and the
 -- first candidate is used meanwhile.
@@ -134,6 +190,7 @@ function Audio.make(slot: string, parent: Instance?): Sound?
 	end
 	local s = Instance.new("Sound")
 	s.SoundId = id
+	s.SoundGroup = groups[CATEGORY[slot] or "Effects"]
 	s.Parent = parent or SoundService
 	return s
 end
@@ -146,6 +203,7 @@ function Audio.shot(slot: string, at: Vector3?, volume: number?, speed: number?)
 	end
 	local s = Instance.new("Sound")
 	s.SoundId = id
+	s.SoundGroup = groups[CATEGORY[slot] or "Effects"]
 	s.Volume = volume or 0.5
 	s.PlaybackSpeed = speed or 1
 
@@ -197,6 +255,9 @@ function Audio.warm()
 	task.spawn(function()
 		local probe = Instance.new("Sound")
 		probe.Volume = 0
+		-- NO SOUNDGROUP on the probe. Volume 0 is already silent, but a group is
+		-- a multiplier and somebody will eventually wonder why turning Master up
+		-- makes the loading screen click.
 		probe.Parent = SoundService
 
 		local lines: { string } = {}
