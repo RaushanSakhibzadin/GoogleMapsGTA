@@ -400,7 +400,7 @@ function Pedestrians.step(
 	px: number,
 	py: number,
 	car: { x: number, y: number, vx: number, vy: number }?,
-	onHit: ((Ped) -> ())?
+	onHit: ((Ped, number) -> ())?
 )
 	table.clear(state.gone)
 
@@ -448,7 +448,7 @@ function Pedestrians.step(
 			-- still against somebody is not running them over.
 			if (p.x - c.x) ^ 2 + (p.y - c.y) ^ 2 < 5 and spd > 4 then
 				if Pedestrians.knock(p, c.vx, c.vy, spd) and onHit then
-					(onHit :: (Ped) -> ())(p)
+					(onHit :: (Ped, number) -> ())(p, spd)
 				end
 			end
 		end

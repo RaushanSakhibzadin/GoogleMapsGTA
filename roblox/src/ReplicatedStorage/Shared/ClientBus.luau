@@ -56,4 +56,15 @@ ClientBus.myIncident = nil :: { x: number, z: number }?
 -- reverses.
 ClientBus.revSteer = false
 
+-- DOWN, the same idea as js/game.js's P.dead: true for the 2.2 s hold between
+-- going down (Services/WantedService.luau's beginDown, on a bust or on
+-- running out of hp) and waking up wherever the server sent the car.
+-- VehicleController reads it to feed the drive model a zeroed input the same
+-- way js/game.js's own update() does (`P.dead ? {...zero} : readInput()`) --
+-- a car should not answer the wheel while its driver is being carried in,
+-- and the server is about to move it out from under whatever the player was
+-- doing anyway. Written by WantedUI, which is the one script that hears
+-- Remotes.WantedState.
+ClientBus.down = false
+
 return ClientBus

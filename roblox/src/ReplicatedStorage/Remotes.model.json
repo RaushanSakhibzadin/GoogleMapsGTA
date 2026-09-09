@@ -8,6 +8,10 @@
     { "name": "Wallet", "className": "RemoteEvent" },
     { "name": "SignOn", "className": "RemoteFunction" },
     { "name": "RoleState", "className": "RemoteEvent" },
-    { "name": "Settings", "className": "RemoteEvent" }
+    { "name": "Settings", "className": "RemoteEvent" },
+    { "name": "Hurt", "className": "RemoteEvent" },
+    { "name": "PedHit", "className": "RemoteEvent" },
+    { "name": "WantedState", "className": "RemoteEvent" },
+    { "name": "CopState", "className": "RemoteEvent" }
   ]
 }

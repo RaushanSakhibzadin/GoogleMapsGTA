@@ -10,10 +10,14 @@
 -- the difference between a good driving game and an unshippable one.
 --
 -- What the server IS authoritative over is everything that can be exploited for
--- reward: incident claims, money, arrests, the service record. None of that
--- exists yet. What exists now is the position check below, which is what stops
--- a client teleporting across the district later when there is a fare to race
--- another player to.
+-- reward: incident claims, money, arrests, the service record. Incident claims
+-- and money are Services/IncidentService.luau and Services/ProfileService.luau;
+-- an arrest is Services/WantedService.luau, which is also why THIS file has to
+-- know about it -- being "down" (busted or run out of health) means the server
+-- is about to relocate the car on its own, and a position report accepted in
+-- the middle of that would simply overwrite the relocation with wherever the
+-- client's own last, unrelated position was. See WantedService.isDown's own
+-- note; this was found by testing, not designed in from the start.
 --
 -- NO CHARACTERS. The design says the player is always in a vehicle, so
 -- CharacterAutoLoads is off -- no animation, no ragdoll rigs, no on-foot state
@@ -28,6 +32,7 @@ local CarCorrection = Remotes:WaitForChild("CarCorrection") :: RemoteEvent
 
 local CarBuild = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarBuild"))
 local VehicleModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("VehicleModel"))
+local WantedService = require(script.Parent:WaitForChild("Services"):WaitForChild("WantedService"))
 
 Players.CharacterAutoLoads = false
 
@@ -151,9 +156,32 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 end)
 
+-- RESYNCED WHEN WantedService MOVES THE CAR ON ITS OWN.
+--
+-- Found paired with the isDown check below, by the same test: isDown alone
+-- stopped a report from fighting the relocation WHILE it was in progress, but
+-- the very next report AFTER "down" cleared was still measured against this
+-- table's OLD position -- a report from the new, distant, entirely legitimate
+-- position looked exactly like the teleport this file exists to catch, and
+-- was rejected, which snapped the car straight back to where it had been
+-- before WantedService ever moved it. This table is the only place that
+-- knowledge lives, so the moment has to update it, not just permit it.
+WantedService.respawned.Event:Connect(function(player: Player, x: number, y: number, h: number)
+	local s = state[player]
+	if s then
+		s.x, s.y, s.h, s.t = x, y, h, os.clock()
+	end
+end)
+
 CarState.OnServerEvent:Connect(function(player, x, y, h, dtReported)
 	local s = state[player]
 	if not s then
+		return
+	end
+	-- IGNORED WHILE DOWN. WantedService is about to move (or has just moved)
+	-- this car on its own -- see this file's own header and
+	-- WantedService.isDown's for why accepting a report here would fight it.
+	if WantedService.isDown(player) then
 		return
 	end
 	-- Anything a client sends is suspect, including its type. A NaN here would

@@ -14,9 +14,15 @@
 --     street do not see the same bus. In a city that is meant to be shared,
 --     that is wrong, and it is the first thing that has to change if traffic
 --     ever needs to matter to more than one person at a time.
---   · nothing here is authoritative. Knocking somebody down is not scored, does
---     not raise an infraction and is not reported to the server, because a
---     client saying "I ran somebody over" is a client saying anything it likes.
+--   · nothing here is authoritative. A traffic shunt or a pedestrian knock is
+--     SELF-REPORTED to Services/WantedService.luau over Remotes.Hurt/PedHit
+--     for a star and a dent, sanity-checked and rate-limited there but not
+--     otherwise doubted -- a client saying "I ran somebody over" is still a
+--     client saying anything it likes, and the service's own header is plain
+--     about why that is an accepted trade here rather than a hole: the two
+--     things this game actually protects, a police pursuit and the money it
+--     costs to lose one, are simulated server-side precisely because they
+--     cannot be.
 --
 -- WHAT IT BUYS is the whole feature at no server cost and no replication: a
 -- hundred and ten moving models a frame that the server never sees, in a game
@@ -40,6 +46,10 @@ local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local PersonBuild = require(Shared:WaitForChild("PersonBuild"))
 local Roles = require(Shared:WaitForChild("Roles"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local Hurt = Remotes:WaitForChild("Hurt") :: RemoteEvent
+local PedHit = Remotes:WaitForChild("PedHit") :: RemoteEvent
 -- REQUIRED THROUGH A PCALL, WITH A SILENT STUB IF IT FAILS. Sound is
 -- optional; the traffic is not. When Shared/Audio threw at module scope --
 -- `SoundGroup` is not a property of SoundGroup -- it took this script down
@@ -181,12 +191,13 @@ local started = 0
 local hitCool = 0
 local beaconT = 0
 
--- KNOCKING SOMEBODY DOWN MAKES A NOISE and does nothing else, which is the
--- whole of what this client is allowed to do about it: see the note at the top
--- of this file. It is not scored, not reported and not an infraction, because a
--- client saying "I ran somebody over" is a client saying anything it likes.
-local function onKnock(p)
+-- KNOCKING SOMEBODY DOWN MAKES A NOISE, and now also tells the server -- see
+-- this file's own header on why that report is trusted rather than verified,
+-- the same trade VehicleController's own building-hit report already makes.
+-- Services/WantedService.luau is the one place a star actually gets added.
+local function onKnock(p, spd: number)
 	Audio.shot("impact", Vector3.new(p.x * S, 1.0 * S, p.y * S), 0.18, 1.35)
+	PedHit:FireServer(spd)
 end
 
 RunService.Heartbeat:Connect(function(dt)
@@ -235,6 +246,13 @@ RunService.Heartbeat:Connect(function(dt)
 		hitCool = math.max(0, hitCool - STEP)
 		if shunt > 9 and hitCool <= 0 then
 			hitCool = 0.6
+			-- SAME GATE, ONE MORE THING THROUGH IT -- see VehicleController's
+			-- identical building-hit report for the reasoning. js/game.js's own
+			-- traffic-hurt trigger is 6 m/s, not 9; the report rides this
+			-- retuned threshold rather than reintroducing a second, lower one,
+			-- since "not a collision" was already the deliberate call this
+			-- cooldown makes for the sound.
+			Hurt:FireServer("traffic", shunt)
 			-- Same retune as the wall bang in VehicleController: a third of the
 			-- old ceiling, and a higher threshold so nose-to-tail in a queue is
 			-- not a collision.

@@ -161,6 +161,18 @@ local EN: { [string]: string } = {
 	["settings.revSteer.stick"] = "STICK",
 	["settings.revSteer.car"] = "CAR",
 	["settings.footer"] = "O to open",
+
+	-- --------------------------------------------------------------- wanted
+
+	-- REFRAMED FROM js/game.js's WASTED/BUSTED, not renamed for its own sake:
+	-- the plan this was built against reads nobody as having died, and "down"
+	-- says that plainly rather than importing a word the plan explicitly
+	-- ruled out. "Pulled over" is what a bust actually is, described rather
+	-- than announced.
+	["wanted.down.title"] = "DOWN",
+	["wanted.down.sub"] = "cleaned out · coming round at the hospital",
+	["wanted.busted.title"] = "PULLED OVER",
+	["wanted.busted.sub"] = "−$%d · booked at the station",
 }
 
 -- Which table Loc.get reads. One value today; the second half of this file

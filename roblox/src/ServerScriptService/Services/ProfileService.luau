@@ -159,6 +159,25 @@ function ProfileService.award(player: Player, amount: number, why: string)
 	ProfileService.changed:Fire(player, p)
 end
 
+-- THE ONLY PLACE MONEY LEAVES, the same one-door reasoning as award() above.
+-- `Services/WantedService.luau` is the caller today -- half of it on a bust,
+-- all of it on going down -- but the door is generic rather than "bust" and
+-- "wasted" as two bespoke functions, the same way award() is one door for
+-- every kind of payout rather than one per incident type. Floored at 0: a
+-- player cannot owe the house.
+function ProfileService.spend(player: Player, amount: number, why: string): number
+	local p = loaded[player.UserId]
+	if not p or amount <= 0 then
+		return 0
+	end
+	local taken = math.min(p.money, amount)
+	p.money -= taken
+	p.resolved[why] = (p.resolved[why] or 0) + 1
+	dirty[player.UserId] = true
+	ProfileService.changed:Fire(player, p)
+	return taken
+end
+
 -- THE FOUR GROUPS Shared/Audio.luau MIXES, kept as a small local list rather
 -- than a require of a client-side module -- the server has no SoundGroups of
 -- its own to drive, it only needs to know which keys of a settings patch are

@@ -64,6 +64,7 @@ local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CarState = Remotes:WaitForChild("CarState") :: RemoteEvent
 local CarCorrection = Remotes:WaitForChild("CarCorrection") :: RemoteEvent
+local Hurt = Remotes:WaitForChild("Hurt") :: RemoteEvent
 
 local S = Meta.studsPerMetre
 
@@ -488,7 +489,15 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	acc += dt
 
-	local inp = readInput()
+	-- ZEROED WHILE DOWN, the same as js/game.js's own
+	-- `P.dead ? {...zero} : readInput()` -- ClientBus.down is true for the
+	-- 2.2 s between going down and the server moving the car out from under
+	-- whatever was held at the time. Brake rather than nothing so a car that
+	-- was still rolling actually stops instead of coasting into the wreck it
+	-- just caused.
+	local inp = if ClientBus.down
+		then { steer = 0, gas = 0, brake = 1, hand = 0, spinPress = false }
+		else readInput()
 
 	-- STEERING FOLLOWS THE SCREEN, NOT THE CAR.
 	--
@@ -559,6 +568,12 @@ RunService.RenderStepped:Connect(function(dt)
 	-- The Effects group halves it again on top.
 	if wall > 9 and hitCool <= 0 then
 		hitCool = 0.45
+		-- SAME GATE, ONE MORE THING THROUGH IT. 9 m/s and a 0.45 s cooldown are
+		-- js/game.js's own BLD_MIN and building-damage cooldown (game.js:907,
+		-- 2373) exactly -- this bang sound already enforces both for reasons
+		-- of its own, so the report piggybacks rather than keeping a second
+		-- timer that would have to agree with this one forever.
+		Hurt:FireServer("bld", wall)
 		Audio.shot(
 			"impact",
 			Vector3.new(car.x * S, 1.5 * S, car.y * S),
@@ -587,6 +602,14 @@ RunService.RenderStepped:Connect(function(dt)
 		-- report covers; captured before the reset below, not after.
 		local covers = sendAcc
 		sendAcc = 0
-		CarState:FireServer(car.x, car.y, car.h, covers)
+		-- NOTHING TO REPORT WHILE DOWN. The server is about to move this car
+		-- on its own (Services/WantedService.luau's beginDown) or already
+		-- has; a report sent from here in that window is the car's last real
+		-- position, not where it is being taken, and VehicleServer.server.luau
+		-- now refuses it anyway -- this is the matching half, so the refusal
+		-- is only ever a defensive backstop and not the normal path.
+		if not ClientBus.down then
+			CarState:FireServer(car.x, car.y, car.h, covers)
+		end
 	end
 end)
