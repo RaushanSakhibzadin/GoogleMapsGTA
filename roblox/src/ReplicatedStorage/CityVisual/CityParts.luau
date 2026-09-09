@@ -148,6 +148,14 @@ function CityParts.building(b, meta, parent: Instance): number
 	-- ceiling after the wall loop: cutting a hole through a hollow shell with
 	-- nothing to cap it is what "you can see the insides of buildings" was.
 	local gateOpenings: { Vector3 } = {}
+	-- AND HOW WIDE EACH ONE ACTUALLY IS. b.gate.w is one number for the
+	-- whole bake -- a generic passage-width guess, not a measurement of this
+	-- building -- and the real opening is the CUT EDGE's own length. Checked
+	-- across the bake: the widest real cut on 63 gated buildings ran up to
+	-- five times b.gate.w*2. A ceiling sized off the constant left most of
+	-- that width open at the sides, which is exactly "still see the insides"
+	-- reported back after the first ceiling fix.
+	local gateMaxOpenW = 0
 
 	-- ---- walls: one box an edge ----
 	for i = 0, n - 1 do
@@ -169,6 +177,9 @@ function CityParts.building(b, meta, parent: Instance): number
 			if math.abs(mx * -b.gate.uz + mz * b.gate.ux) <= b.gate.w then
 				bottom = math.min(b.gate.h, h - 0.5)
 				gateOpenings[#gateOpenings + 1] = Vector3.new((ax + bx) / 2, bottom, (az + bz) / 2)
+				if len > gateMaxOpenW then
+					gateMaxOpenW = len
+				end
 			end
 		end
 		local tall = top - bottom
@@ -284,8 +295,12 @@ function CityParts.building(b, meta, parent: Instance): number
 		-- hairline gap where the ceiling would otherwise butt exactly against
 		-- the wall it is capping.
 		local length = (maxProj - minProj) + 2
+		-- WIDE ENOUGH TO ACTUALLY COVER THE CUT, not just the generic
+		-- passage guess -- whichever is wider. +2 for the same lap-over
+		-- reason as the length.
+		local width = math.max(b.gate.w * 2, gateMaxOpenW + 2)
 		local ceiling = BOX:Clone()
-		ceiling.Size = Vector3.new(b.gate.w * 2, SHEET, length)
+		ceiling.Size = Vector3.new(width, SHEET, length)
 		ceiling.CFrame = CFrame.lookAt(Vector3.new(cx, gy, cz), Vector3.new(cx + gux, gy, cz + guz))
 		ceiling.Color = wallColour
 		ceiling.Material = wallMat
@@ -384,11 +399,11 @@ end
 -- (js/util.js's own PAL.neon). Same algorithm, same numbers, over the road
 -- segments this chunk already has.
 --
--- A PHYSICAL FIXTURE, not the browser's glow-only sprite. js/render3d.js
--- draws these as an additive billboard six metres up and nothing else --
--- there is no pole in a 2D/pseudo-3D world, because nothing there is ever
--- beside one. A chase camera drives under these, so each one gets a pole and
--- a head, two parts, the same budget a tree costs.
+-- A GLOW AND NOTHING ELSE, matching js/render3d.js exactly: an additive
+-- billboard six metres up, no fixture drawn under it. A pole was tried and
+-- taken back out on request -- it read as a streetlamp, which is a real
+-- object with a real base, and this is meant to be the browser's floating
+-- glow, not an upgrade on it.
 --
 -- THE PointLight IS DAY/NIGHT SWITCHED, not the fixture. Roblox's own
 -- Lighting handles day vs. dusk (DayNight.client.luau); what a lamp itself
@@ -408,7 +423,6 @@ local LIGHT_NEON = {
 	Color3.fromRGB(72, 255, 158),
 }
 local LIGHT_SODIUM = Color3.fromRGB(255, 210, 160)
-local LIGHT_POLE_COLOUR = Color3.fromRGB(40, 40, 44)
 
 function CityParts.lights(data, parent: Instance, litNow: boolean, onEach: (() -> ())?): number
 	local seg = (data :: any).road
@@ -445,15 +459,6 @@ function CityParts.lights(data, parent: Instance, litNow: boolean, onEach: (() -
 				then LIGHT_NEON[math.random(1, #LIGHT_NEON)]
 				else LIGHT_SODIUM
 
-			local pole = BOX:Clone()
-			pole.Name = "LampPole"
-			pole.Shape = Enum.PartType.Cylinder
-			pole.Size = Vector3.new(LIGHT_H, 0.5, 0.5)
-			pole.CFrame = CFrame.new(lx, LIGHT_H * 0.5, lz) * CFrame.Angles(0, 0, math.pi * 0.5)
-			pole.Color = LIGHT_POLE_COLOUR
-			pole.Material = Enum.Material.Metal
-			pole.Parent = parent
-
 			local head = BOX:Clone()
 			head.Name = "LampHead"
 			head.Shape = Enum.PartType.Ball
@@ -471,10 +476,9 @@ function CityParts.lights(data, parent: Instance, litNow: boolean, onEach: (() -
 			light.Enabled = litNow
 			light.Parent = head
 
-			made += 2
-			-- SIX INSTANCES A LAMP (two Parts, a UICorner-free Ball/Cylinder
-			-- shape change apiece, a PointLight, and every property set on
-			-- them) is real work, and this loop had NO yield point at all --
+			made += 1
+			-- A PART, A SHAPE CHANGE AND A PointLight is real work, and this
+			-- loop had NO yield point at all --
 			-- streets and buildings both call the caller's frame-budget
 			-- breathe() and this was the one street-level builder that
 			-- didn't. On a chunk with a couple of wide roads that is enough
