@@ -104,6 +104,27 @@ local function markings(
 	elseif livery == "fire" then
 		flank("Band", Color3.fromRGB(255, 236, 180), hullH * 0.1, 0.2, 0.94)
 
+		-- THE LOCKER SHUTTERS, four dark panels a side sitting just above the
+		-- pale band -- js/render3d.js's own reason for them: a blank flank
+		-- reads as a crate, and this is what stops the body reading as one.
+		-- Positioned as an hullH-relative flank detail, the same way the
+		-- band above it and the chequer/cross the other liveries wear are,
+		-- not carried through a roof-relative conversion -- these sit on the
+		-- hull's own side, not on anything's roof.
+		do
+			local shutterY, shutterH = hullH * 0.35, hullH * 0.3
+			for _, side in { -1, 1 } do
+				for i = 0, 3 do
+					local f0 = -0.94 + i * 0.30
+					local f1 = f0 + 0.24
+					local cz, sz = -(f0 + f1) * 0.25 * L, (f1 - f0) * 0.5 * L
+					local shutter = box("Shutter", W * 0.05, shutterH, sz, Color3.fromRGB(33, 26, 28))
+					shutter.CFrame = CFrame.new(side * W * 0.5, shutterY, cz)
+					shutter.Parent = model
+				end
+			end
+		end
+
 		-- THE LADDER, stowed along the roof -- ported from js/render3d.js's
 		-- pushFireEngine rather than guessed at. Two rails and nine rungs is
 		-- what the browser game draws and its own comment says why: rungs are
