@@ -31,6 +31,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Roles = require(Shared:WaitForChild("Roles"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
+local Loc = require(Shared:WaitForChild("Loc"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Audio = (function()
@@ -99,7 +100,7 @@ chipText.Font = Enum.Font.GothamMedium
 chipText.TextSize = 12
 chipText.TextColor3 = INK
 chipText.TextXAlignment = Enum.TextXAlignment.Left
-chipText.Text = "COURIER"
+chipText.Text = Loc.get(Roles.get(Roles.DEFAULT).title)
 chipText.Parent = chip
 
 -- THE PROMPT, centred low. Not in the bottom-left stack on purpose: it is
@@ -161,7 +162,7 @@ local asking = false
 
 local function paintChip()
 	local r = Roles.get(role)
-	chipText.Text = r.title
+	chipText.Text = Loc.get(r.title)
 	stripe.BackgroundColor3 = r.colour or Color3.fromRGB(255, 79, 216)
 end
 
@@ -223,7 +224,7 @@ local function ask()
 	if ok then
 		Audio.shot("click", nil, 0.5, 1.2)
 	else
-		promptSub.Text = "DEPOT: " .. tostring(why)
+		promptSub.Text = Loc.get("roleui.refused"):format(Loc.get(tostring(why)))
 		promptSub.TextColor3 = Color3.fromRGB(232, 116, 108)
 		sayUntil = os.clock() + 2.5
 		Audio.shot("click", nil, 0.35, 0.6)
@@ -357,8 +358,8 @@ RunService.Heartbeat:Connect(function(dt)
 			sayUntil = 0
 		end
 		local r = Roles.get(offer)
-		promptTitle.Text = "SIGN ON  ·  " .. r.title
-		promptSub.Text = if name ~= "" then name else r.blurb
+		promptTitle.Text = Loc.get("roleui.signOn"):format(Loc.get(r.title))
+		promptSub.Text = if name ~= "" then name else Loc.get(r.blurb)
 		promptSub.TextColor3 = DIM
 		key.BackgroundColor3 = (r.colour or Color3.fromRGB(255, 79, 216)):Lerp(Color3.new(0, 0, 0), 0.45)
 	end

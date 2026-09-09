@@ -37,6 +37,7 @@ local MapPaint = require(CityVisual:WaitForChild("MapPaint"))
 local CityMeta = require(CityVisual:WaitForChild("CityMeta"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local Depots = require(Shared:WaitForChild("Depots"))
+local Loc = require(Shared:WaitForChild("Loc"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
@@ -236,7 +237,7 @@ local NICE = { 50, 100, 200, 500, 1000, 2000 }
 
 local zoomIn = chromeButton(2, "+", 22)
 local zoomOut = chromeButton(1, "-", 22)
-local locate = chromeButton(0, "ME", 12)
+local locate = chromeButton(0, Loc.get("bigmap.locate"), 12)
 
 -- ---------------------------------------------------------------- markers
 
@@ -631,16 +632,16 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	if noImage then
-		hint.Text = "Map image unavailable on this client -- markers only"
+		hint.Text = Loc.get("bigmap.noImage")
 	else
 		-- THE SPAN, NOT THE MULTIPLIER. "1.0x" is a number about the widget;
 		-- "2.4 km across" is a number about Belgrade, and it is the one that
 		-- answers "is this the full map".
 		local across = (HALF * 2 / zoom) / S
-		hint.Text = ("%s across  ·  drag to pan  ·  + and - to zoom  ·  ME centres on you  ·  %d jobs  ·  M or X closes")
-			:format(
-				if across >= 1000 then ("%.1f km"):format(across / 1000) else ("%d m"):format(across),
-				n
-			)
+		hint.Text = Loc.get("bigmap.hint"):format(
+			if across >= 1000 then ("%.1f km"):format(across / 1000) else ("%d m"):format(across),
+			Loc.get("bigmap.locate"),
+			n
+		)
 	end
 end)

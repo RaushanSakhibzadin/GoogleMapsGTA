@@ -32,6 +32,7 @@ local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Audio = require(Shared:WaitForChild("Audio"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
+local Loc = require(Shared:WaitForChild("Loc"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local SettingsRemote = Remotes:WaitForChild("Settings") :: RemoteEvent
@@ -101,8 +102,8 @@ local function label(parent: Instance, pos: UDim2, size: UDim2, str: string, sz:
 	return t
 end
 
-label(panel, UDim2.new(0, 20, 0, 16), UDim2.new(1, -40, 0, 18), "SETTINGS", 12, ACCENT, Enum.Font.GothamMedium)
-label(panel, UDim2.new(0, 20, 0, 34), UDim2.new(1, -40, 0, 22), "Sound", 18, INK, Enum.Font.GothamBold)
+label(panel, UDim2.new(0, 20, 0, 16), UDim2.new(1, -40, 0, 18), Loc.get("settings.title"), 12, ACCENT, Enum.Font.GothamMedium)
+label(panel, UDim2.new(0, 20, 0, 34), UDim2.new(1, -40, 0, 22), Loc.get("settings.sound"), 18, INK, Enum.Font.GothamBold)
 
 local close = Instance.new("TextButton")
 close.Size = UDim2.fromOffset(28, 28)
@@ -240,16 +241,16 @@ end)
 -- setter, kept below so a settings payload from the server can move the
 -- widget without the send-to-server side effect a drag has.
 local volumeSetters: { [string]: (number) -> () } = {}
-volumeSetters.Master = slider(76, "Master", "Master", Audio.getVolume("Master"), function(v)
+volumeSetters.Master = slider(76, Loc.get("settings.master"), "Master", Audio.getVolume("Master"), function(v)
 	Audio.setVolume("Master", v)
 end)
-volumeSetters.Engine = slider(126, "Engine", "Engine", Audio.getVolume("Engine"), function(v)
+volumeSetters.Engine = slider(126, Loc.get("settings.engine"), "Engine", Audio.getVolume("Engine"), function(v)
 	Audio.setVolume("Engine", v)
 end)
-volumeSetters.Effects = slider(176, "Crashes and fire", "Effects", Audio.getVolume("Effects"), function(v)
+volumeSetters.Effects = slider(176, Loc.get("settings.effects"), "Effects", Audio.getVolume("Effects"), function(v)
 	Audio.setVolume("Effects", v)
 end)
-volumeSetters.Interface = slider(226, "Dispatch tones", "Interface", Audio.getVolume("Interface"), function(v)
+volumeSetters.Interface = slider(226, Loc.get("settings.interface"), "Interface", Audio.getVolume("Interface"), function(v)
 	Audio.setVolume("Interface", v)
 end)
 
@@ -277,7 +278,7 @@ local function toggle(y: number, name: string, initial: boolean, apply: (boolean
 	local state = initial
 	local function set(v: boolean)
 		state = v
-		btn.Text = if v then "CAR" else "STICK"
+		btn.Text = if v then Loc.get("settings.revSteer.car") else Loc.get("settings.revSteer.stick")
 		btn.BackgroundColor3 = if v then ACCENT else Color3.fromRGB(44, 48, 56)
 		apply(v)
 	end
@@ -293,8 +294,8 @@ local function toggle(y: number, name: string, initial: boolean, apply: (boolean
 	return set
 end
 
-label(panel, UDim2.new(0, 20, 0, 276), UDim2.new(1, -40, 0, 22), "Controls", 18, INK, Enum.Font.GothamBold)
-local setRevSteer = toggle(312, "Reverse steering", ClientBus.revSteer, function(v)
+label(panel, UDim2.new(0, 20, 0, 276), UDim2.new(1, -40, 0, 22), Loc.get("settings.controls"), 18, INK, Enum.Font.GothamBold)
+local setRevSteer = toggle(312, Loc.get("settings.revSteer"), ClientBus.revSteer, function(v)
 	ClientBus.revSteer = v
 end)
 
@@ -302,7 +303,7 @@ label(
 	panel,
 	UDim2.new(0, 20, 1, -22),
 	UDim2.new(1, -40, 0, 18),
-	"O to open",
+	Loc.get("settings.footer"),
 	11,
 	Color3.fromRGB(96, 102, 112),
 	Enum.Font.Gotham

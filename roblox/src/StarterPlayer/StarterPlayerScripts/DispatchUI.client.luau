@@ -44,6 +44,7 @@ end)()
 local FireFX = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("FireFX"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local Roles = require(Shared:WaitForChild("Roles"))
+local Loc = require(Shared:WaitForChild("Loc"))
 
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
 local Claim = Remotes:WaitForChild("ClaimSlot") :: RemoteFunction
@@ -86,7 +87,7 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 6)
 corner.Parent = card
 
-local kicker = label(card, UDim2.new(1, -24, 0, 16), UDim2.new(0, 12, 0, 10), "DISPATCH", 12, Color3.fromRGB(255, 176, 64))
+local kicker = label(card, UDim2.new(1, -24, 0, 16), UDim2.new(0, 12, 0, 10), Loc.get("dispatch.kicker"), 12, Color3.fromRGB(255, 176, 64))
 local title = label(card, UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, 28), "", 18, Color3.fromRGB(238, 240, 244))
 local detail = label(card, UDim2.new(1, -24, 0, 34), UDim2.new(0, 12, 0, 52), "", 13, Color3.fromRGB(150, 156, 166))
 detail.TextWrapped = true
@@ -278,13 +279,13 @@ local function needs(inc): string
 	local out = {}
 	for _, s in inc.slots or {} do
 		if s.filled < s.max then
-			out[#out + 1] = Roles.get(s.role).short
+			out[#out + 1] = Loc.get(Roles.get(s.role).short)
 		end
 	end
 	if #out == 0 then
-		return "CREWED"
+		return Loc.get("dispatch.crewed")
 	end
-	return "NEEDS " .. table.concat(out, " + ")
+	return Loc.get("dispatch.needs"):format(table.concat(out, " + "))
 end
 
 -- ---------------------------------------------------------------- the claim
@@ -323,7 +324,7 @@ local function respond(inc)
 		mine = inc.id
 		Audio.shot("click", nil, 0.5, 1)
 	else
-		say("DISPATCH: " .. tostring(why))
+		say(Loc.get("dispatch.refused"):format(Loc.get(tostring(why))))
 		Audio.shot("click", nil, 0.35, 0.6)
 	end
 	claiming = false
@@ -421,11 +422,11 @@ RunService.RenderStepped:Connect(function()
 		end
 		if elsewhere > 0 then
 			card.Visible = true
-			kicker.Text = "DISPATCH"
-			title.Text = "Nothing for this shift"
-			detail.Text = ("%d job%s on the board for other services. Sign on at a depot to take one.")
+			kicker.Text = Loc.get("dispatch.kicker")
+			title.Text = Loc.get("dispatch.nothingForShift")
+			detail.Text = Loc.get("dispatch.othersOnBoard")
 				:format(elsewhere, if elsewhere == 1 then "" else "s")
-			status.Text = "ON  ·  " .. Roles.get(ClientBus.role).title
+			status.Text = Loc.get("dispatch.onShift"):format(Loc.get(Roles.get(ClientBus.role).title))
 			status.TextColor3 = Color3.fromRGB(150, 156, 166)
 			fill.Size = UDim2.new(0, 0, 1, 0)
 		else
@@ -438,15 +439,15 @@ RunService.RenderStepped:Connect(function()
 		return
 	end
 	card.Visible = true
-	kicker.Text = inc.title or "DISPATCH"
+	kicker.Text = if inc.title then Loc.get(inc.title) else Loc.get("dispatch.kicker")
 
 	-- If the board no longer lists the one I was on, it resolved or expired.
 	if mine and inc.id ~= mine then
 		mine = nil
 	end
 
-	title.Text = inc.label
-	detail.Text = inc.detail .. (if inc.name ~= "" then "  ·  " .. inc.name else "")
+	title.Text = Loc.get(inc.label)
+	detail.Text = Loc.get(inc.detail) .. (if inc.name ~= "" then "  ·  " .. inc.name else "")
 	fill.Size = UDim2.new(math.clamp(inc.progress, 0, 1), 0, 1, 0)
 
 	local d = if from then (Vector2.new(inc.x, inc.z) - Vector2.new(from.X, from.Z)).Magnitude else 0
@@ -466,21 +467,20 @@ RunService.RenderStepped:Connect(function()
 		status.TextColor3 = Color3.fromRGB(232, 116, 108)
 	elseif mine == inc.id then
 		if d <= inc.radius then
-			status.Text = ("ON SCENE  ·  %s  ·  $%d"):format(needs(inc), inc.pay)
+			status.Text = Loc.get("dispatch.onScene"):format(needs(inc), inc.pay)
 			status.TextColor3 = Color3.fromRGB(120, 200, 150)
 		else
-			status.Text = ("RESPONDING  ·  %d m  ·  %s"):format(metres, needs(inc))
+			status.Text = Loc.get("dispatch.responding"):format(metres, needs(inc))
 			status.TextColor3 = Color3.fromRGB(255, 176, 64)
 		end
 	elseif inc.competitive then
 		-- A RACE SAYS SO. "2/8 responding" on a fare reads as a job that is
 		-- filling up, which is the opposite of the truth: every one of those is
 		-- somebody you are racing, and only the first arrival is paid.
-		status.Text = ("[E] TAKE IT  ·  %d m  ·  %d racing  ·  $%d")
-			:format(metres, inc.filled, inc.pay)
+		status.Text = Loc.get("dispatch.takeIt"):format(metres, inc.filled, inc.pay)
 		status.TextColor3 = Color3.fromRGB(242, 183, 5)
 	else
-		status.Text = ("[E] RESPOND  ·  %d m  ·  %s  ·  $%d"):format(metres, needs(inc), inc.pay)
+		status.Text = Loc.get("dispatch.respond"):format(metres, needs(inc), inc.pay)
 		status.TextColor3 = Color3.fromRGB(150, 156, 166)
 	end
 end)

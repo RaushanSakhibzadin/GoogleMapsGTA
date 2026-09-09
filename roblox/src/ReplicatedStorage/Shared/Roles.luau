@@ -3,6 +3,11 @@
 -- may sign on where and what they may claim, the client reads it to draw the
 -- depot prompt and the role chip, and CarBuild reads it to dress the car.
 --
+-- title/short/blurb ARE Shared/Loc.luau KEYS, not the English text itself --
+-- this file stays data-and-nothing-else the same way it always has, so the
+-- one place that turns a key into words on screen is Loc.get, called by
+-- whichever client script is about to set a `.Text`.
+--
 -- PORTED FROM js/game.js:1123 JOBS, which is the design already play-tested,
 -- and the notes there are the reasons for the numbers here:
 --
@@ -45,9 +50,9 @@ export type Body = {
 
 export type Role = {
 	id: string,
-	title: string, -- what the chip says
-	short: string, -- what the dispatch card says
-	blurb: string, -- the line under the sign-on prompt
+	title: string, -- Shared/Loc.luau KEY for what the chip says
+	short: string, -- Shared/Loc.luau KEY for what the dispatch card says
+	blurb: string, -- Shared/Loc.luau KEY for the line under the sign-on prompt
 	depot: { string }, -- OSM depot kinds, best first; empty means anywhere
 	colour: Color3?, -- nil keeps the player's own paint (courier drives their car)
 	livery: string, -- "none" | "police" | "fire" | "ambulance" | "taxi"
@@ -77,9 +82,9 @@ local BY_ID: { [string]: Role } = {
 	-- likely to press it.
 	courier = {
 		id = "courier",
-		title = "COURIER",
-		short = "COURIER",
-		blurb = "Your own car, your own hours. Parcels, point to point.",
+		title = "role.courier.title",
+		short = "role.courier.short",
+		blurb = "role.courier.blurb",
 		depot = {},
 		colour = nil,
 		livery = "none",
@@ -93,9 +98,9 @@ local BY_ID: { [string]: Role } = {
 
 	taxi = {
 		id = "taxi",
-		title = "PRIVATE HIRE",
-		short = "TAXI",
-		blurb = "Fares waiting. First car to the pickup takes it.",
+		title = "role.taxi.title",
+		short = "role.taxi.short",
+		blurb = "role.taxi.blurb",
 		depot = { "taxi", "fuel" },
 		colour = Color3.fromRGB(242, 183, 5),
 		livery = "taxi",
@@ -109,9 +114,9 @@ local BY_ID: { [string]: Role } = {
 
 	police = {
 		id = "police",
-		title = "POLICE",
-		short = "POLICE",
-		blurb = "Patrol, cordon and response. Signed for at the counter.",
+		title = "role.police.title",
+		short = "role.police.short",
+		blurb = "role.police.blurb",
 		depot = { "police" },
 		colour = Color3.fromRGB(238, 241, 246),
 		livery = "police",
@@ -128,9 +133,9 @@ local BY_ID: { [string]: Role } = {
 
 	fire = {
 		id = "fire",
-		title = "FIRE & RESCUE",
-		short = "FIRE",
-		blurb = "Pump, ladder and water. Slow away, first in.",
+		title = "role.fire.title",
+		short = "role.fire.short",
+		blurb = "role.fire.blurb",
 		depot = { "fire" },
 		colour = Color3.fromRGB(224, 48, 31),
 		livery = "fire",
@@ -148,9 +153,9 @@ local BY_ID: { [string]: Role } = {
 
 	ambulance = {
 		id = "ambulance",
-		title = "AMBULANCE",
-		short = "MEDICAL",
-		blurb = "A box body on a cab. Casualties, and the drive back.",
+		title = "role.ambulance.title",
+		short = "role.ambulance.short",
+		blurb = "role.ambulance.blurb",
 		depot = { "hospital", "clinic" },
 		colour = Color3.fromRGB(244, 246, 250),
 		livery = "ambulance",

@@ -89,7 +89,7 @@ end)
 -- inside RoleService, so there is exactly one place to read.
 SignOn.OnServerInvoke = function(player: Player, roleId)
 	if type(roleId) ~= "string" or #roleId > 32 then
-		return false, "bad request"
+		return false, "refuse.badRequest"
 	end
 	return RoleService.signOn(player, roleId)
 end

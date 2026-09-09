@@ -242,10 +242,10 @@ end)
 -- place to read to know whether claiming is safe.
 Claim.OnServerInvoke = function(player: Player, incidentId, role, token)
 	if type(incidentId) ~= "string" or type(role) ~= "string" or type(token) ~= "string" then
-		return false, "bad request"
+		return false, "refuse.badRequest"
 	end
 	if #token > 64 or #incidentId > 64 then
-		return false, "bad request"
+		return false, "refuse.badRequest"
 	end
 	return IncidentService.tryClaim(player, incidentId, role, token)
 end

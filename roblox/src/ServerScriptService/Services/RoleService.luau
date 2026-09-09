@@ -154,23 +154,28 @@ end
 -- the instant you stop and a round trip is not instant. This is the only place
 -- that decides anything, and it re-derives the position from the model the
 -- server itself moves rather than believing a word of the request.
+--
+-- EVERY REFUSAL STRING BELOW IS A Shared/Loc.luau KEY -- see
+-- Services/IncidentService.luau's tryClaim for the same convention and the
+-- same reason the two success-path strings ("already yours", "signed on")
+-- are not keys: RoleUI only reads `why` when this returns false.
 function RoleService.signOn(player: Player, roleId: string): (boolean, string)
 	local userId = player.UserId
 
 	local now = os.clock()
 	if now - (lastSignAt[userId] or -1) < SIGN_RATE then
-		return false, "too fast"
+		return false, "refuse.tooFast"
 	end
 	lastSignAt[userId] = now
 
 	if not Roles.exists(roleId) then
-		return false, "no such shift"
+		return false, "refuse.noSuchShift"
 	end
 	if RoleService.roleOf(userId) == roleId then
 		return true, "already yours"
 	end
 	if not RoleService.available(roleId) then
-		return false, "no depot for that shift in this district"
+		return false, "refuse.noDepotForShift"
 	end
 
 	-- The default shift needs no depot -- it is what signing OFF means, and it
@@ -178,10 +183,10 @@ function RoleService.signOn(player: Player, roleId: string): (boolean, string)
 	if RoleService.backing[roleId] ~= "" then
 		local at = carPos(userId)
 		if not at then
-			return false, "no vehicle"
+			return false, "refuse.noVehicle"
 		end
 		if not depotFor(roleId, at) then
-			return false, "not at a depot"
+			return false, "refuse.notAtDepot"
 		end
 	end
 

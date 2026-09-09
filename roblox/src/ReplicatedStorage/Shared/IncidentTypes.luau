@@ -24,8 +24,8 @@ export type Slot = {
 
 export type Tier = {
 	need: number, -- responders this tier wants; the best one that fits is used
-	label: string, -- what dispatch calls it
-	detail: string, -- the line under it on the card
+	label: string, -- Shared/Loc.luau KEY for what dispatch calls it
+	detail: string, -- Shared/Loc.luau KEY for the line under it on the card
 	work: number, -- seconds of on-scene work at full strength
 	pay: number, -- to each responder, on resolution
 	radius: number, -- studs you must be within to count as on scene
@@ -33,7 +33,10 @@ export type Tier = {
 
 export type Kind = {
 	id: string,
-	title: string,
+	title: string, -- Shared/Loc.luau KEY, not the English text -- the server
+	-- sends it straight to the client over Remotes.IncidentBoard exactly as
+	-- it was going to send the English before this, so nothing there has to
+	-- change; only the card that displays it now calls Loc.get first.
 	slots: { Slot },
 	tiers: { Tier }, -- ordered, smallest first
 	life: number, -- seconds before an unclaimed incident expires
@@ -61,7 +64,7 @@ local IncidentTypes: { [string]: Kind } = {
 	fire = {
 		id = "fire",
 		colour = Color3.fromRGB(255, 140, 40),
-		title = "STRUCTURE FIRE",
+		title = "incident.fire.title",
 		-- POLICE ARE PART OF THE BIG ONE, not decoration on it. The third tier
 		-- says "hold the cordon" and until now there was nobody who could: the
 		-- kind declared one role, so three firefighters were the only way to
@@ -73,24 +76,24 @@ local IncidentTypes: { [string]: Kind } = {
 		tiers = {
 			{
 				need = 1,
-				label = "Refuse fire",
-				detail = "Bin alight against the forecourt wall. One hose point.",
+				label = "incident.fire.tier1.label",
+				detail = "incident.fire.tier1.detail",
 				work = 22,
 				pay = 120,
 				radius = 90,
 			},
 			{
 				need = 2,
-				label = "Flat fire, second floor",
-				detail = "Smoke showing. Two crews, one in and one on the main.",
+				label = "incident.fire.tier2.label",
+				detail = "incident.fire.tier2.detail",
 				work = 38,
 				pay = 220,
 				radius = 90,
 			},
 			{
 				need = 3,
-				label = "Flat fire with persons reported",
-				detail = "Third floor, one unaccounted. Search, suppress, hold the cordon.",
+				label = "incident.fire.tier3.label",
+				detail = "incident.fire.tier3.detail",
 				work = 52,
 				pay = 380,
 				radius = 90,
@@ -101,30 +104,30 @@ local IncidentTypes: { [string]: Kind } = {
 	medical = {
 		id = "medical",
 		colour = Color3.fromRGB(46, 190, 120),
-		title = "MEDICAL CALL",
+		title = "incident.medical.title",
 		slots = { { role = "ambulance", max = 2 }, { role = "police", max = 1 } },
 		life = 200,
 		tiers = {
 			{
 				need = 1,
-				label = "Collapse in the street",
-				detail = "Conscious, breathing. One crew, assess and convey.",
+				label = "incident.medical.tier1.label",
+				detail = "incident.medical.tier1.detail",
 				work = 20,
 				pay = 130,
 				radius = 70,
 			},
 			{
 				need = 2,
-				label = "Cardiac arrest",
-				detail = "CPR in progress by a bystander. Two crews, one on the airway.",
+				label = "incident.medical.tier2.label",
+				detail = "incident.medical.tier2.detail",
 				work = 34,
 				pay = 230,
 				radius = 70,
 			},
 			{
 				need = 3,
-				label = "Fall from height",
-				detail = "Spinal precautions and a scene that needs holding while you work.",
+				label = "incident.medical.tier3.label",
+				detail = "incident.medical.tier3.detail",
 				work = 46,
 				pay = 370,
 				radius = 70,
@@ -141,7 +144,7 @@ local IncidentTypes: { [string]: Kind } = {
 	collision = {
 		id = "collision",
 		colour = Color3.fromRGB(58, 132, 255),
-		title = "ROAD COLLISION",
+		title = "incident.collision.title",
 		slots = {
 			{ role = "police", max = 2 },
 			{ role = "ambulance", max = 1 },
@@ -151,24 +154,24 @@ local IncidentTypes: { [string]: Kind } = {
 		tiers = {
 			{
 				need = 1,
-				label = "Shunt, no injuries",
-				detail = "Two cars in the junction and a queue behind them. Clear the road.",
+				label = "incident.collision.tier1.label",
+				detail = "incident.collision.tier1.detail",
 				work = 22,
 				pay = 120,
 				radius = 80,
 			},
 			{
 				need = 2,
-				label = "Collision with injuries",
-				detail = "One walking wounded. Scene protection and a crew to treat.",
+				label = "incident.collision.tier2.label",
+				detail = "incident.collision.tier2.detail",
 				work = 36,
 				pay = 240,
 				radius = 80,
 			},
 			{
 				need = 3,
-				label = "Persons trapped",
-				detail = "Driver's side caved in. Cut them out, treat, and hold the road.",
+				label = "incident.collision.tier3.label",
+				detail = "incident.collision.tier3.detail",
 				work = 54,
 				pay = 400,
 				radius = 80,
@@ -184,15 +187,15 @@ local IncidentTypes: { [string]: Kind } = {
 	fare = {
 		id = "fare",
 		colour = Color3.fromRGB(242, 183, 5),
-		title = "FARE WAITING",
+		title = "incident.fare.title",
 		slots = { { role = "taxi", max = 8 } },
 		competitive = true,
 		life = 110,
 		tiers = {
 			{
 				need = 1,
-				label = "Pickup",
-				detail = "Passenger on the pavement with a hand up. First car takes it.",
+				label = "incident.fare.tier1.label",
+				detail = "incident.fare.tier1.detail",
 				work = 3,
 				pay = 90,
 				radius = 60,
@@ -203,15 +206,15 @@ local IncidentTypes: { [string]: Kind } = {
 	parcel = {
 		id = "parcel",
 		colour = Color3.fromRGB(255, 79, 216),
-		title = "PARCEL",
+		title = "incident.parcel.title",
 		slots = { { role = "courier", max = 8 } },
 		competitive = true,
 		life = 130,
 		tiers = {
 			{
 				need = 1,
-				label = "Collection",
-				detail = "Signed for at the door. Whoever gets there is who carries it.",
+				label = "incident.parcel.tier1.label",
+				detail = "incident.parcel.tier1.detail",
 				work = 3,
 				pay = 70,
 				radius = 60,

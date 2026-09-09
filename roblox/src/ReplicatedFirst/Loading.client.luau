@@ -36,6 +36,37 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
+-- A MINIATURE OF Shared/Loc.luau, NOT A REQUIRE OF IT. This script's whole
+-- reason to exist is running before ReplicatedStorage has replicated (see
+-- the header above) -- `require`ing anything under it here would mean the
+-- first thing this screen shows is whatever WaitForChild takes to resolve,
+-- which is exactly the wait this screen exists to cover for. So the same
+-- shape (a keyed table, a getter that falls back to the key itself) is
+-- reproduced locally rather than shared, kept small on purpose: everything
+-- this screen says, and nothing anything else does.
+local EN: { [string]: string } = {
+	["loading.connecting"] = "Connecting…",
+	["loading.credit"] = "Map data © OpenStreetMap contributors, ODbL",
+	["loading.status.collision"] = "Laying out the city…",
+	["loading.status.city"] = "Building %s…  %d%%",
+	["loading.status.car"] = "Bringing your vehicle round…",
+	["loading.status.ready"] = "Ready",
+	["loading.status.incomplete"] = "Something did not finish loading — see the log",
+	["loading.tip.controls"] = "W A S D to drive  ·  SPACE for the handbrake",
+	["loading.tip.respond"] = "E responds to the nearest job on the board",
+	["loading.tip.settings"] = "O opens settings — the sound mixer lives there",
+	["loading.tip.map"] = "M opens the big map, or just tap the minimap",
+	["loading.tip.minimap"] = "The map in the corner turns with you — north is wherever you are pointing",
+	["loading.tip.offroad"] = "Off the tarmac you crawl. The roads are the real roads.",
+	["loading.tip.fire"] = "A fire blinks while you are working it",
+	["loading.tip.osm"] = "Every street here is where OpenStreetMap says it is",
+	["loading.tip.buildings"] = "Buildings are their real footprints at their real heights",
+	["loading.tip.streaming"] = "The city loads around you as you drive",
+}
+local function t(key: string): string
+	return EN[key] or key
+end
+
 -- PCALLED because it throws if the default screen has already gone -- which it
 -- has, if this script is re-run in Studio without a fresh play session.
 pcall(function()
@@ -144,7 +175,7 @@ local status = text(
 	back,
 	UDim2.new(0, 480, 0, 20),
 	UDim2.new(0, 50, 0.5, 30),
-	"Connecting…",
+	t("loading.connecting"),
 	14,
 	Enum.Font.Gotham,
 	Color3.fromRGB(150, 156, 166)
@@ -175,7 +206,7 @@ local credit = text(
 	back,
 	UDim2.new(1, -96, 0, 18),
 	UDim2.new(0, 48, 1, -40),
-	"Map data © OpenStreetMap contributors, ODbL",
+	t("loading.credit"),
 	12,
 	Enum.Font.Gotham,
 	Color3.fromRGB(84, 90, 100)
@@ -185,16 +216,16 @@ local credit = text(
 -- control or a real fact about this build -- a loading screen is the only place
 -- anybody reads instructions.
 local TIPS = {
-	"W A S D to drive  ·  SPACE for the handbrake",
-	"E responds to the nearest job on the board",
-	"O opens settings — the sound mixer lives there",
-	"M opens the big map, or just tap the minimap",
-	"The map in the corner turns with you — north is wherever you are pointing",
-	"Off the tarmac you crawl. The roads are the real roads.",
-	"A fire blinks while you are working it",
-	"Every street here is where OpenStreetMap says it is",
-	"Buildings are their real footprints at their real heights",
-	"The city loads around you as you drive",
+	t("loading.tip.controls"),
+	t("loading.tip.respond"),
+	t("loading.tip.settings"),
+	t("loading.tip.map"),
+	t("loading.tip.minimap"),
+	t("loading.tip.offroad"),
+	t("loading.tip.fire"),
+	t("loading.tip.osm"),
+	t("loading.tip.buildings"),
+	t("loading.tip.streaming"),
 }
 local tipAt = math.random(1, #TIPS)
 tip.Text = TIPS[tipAt]
@@ -297,13 +328,15 @@ RunService.RenderStepped:Connect(function(dt)
 	pct.Text = ("%d%%"):format(math.floor(shown * 100 + 0.5))
 
 	if col < 1 then
-		status.Text = "Laying out the city…"
+		status.Text = t("loading.status.collision")
 	elseif city < 1 then
-		status.Text = ("Building Palilula…  %d%%"):format(math.floor(city * 100 + 0.5))
+		-- "Palilula" stays a literal, the same as the title/subtitle above --
+		-- a real place's name is not this file's to translate.
+		status.Text = t("loading.status.city"):format("Palilula", math.floor(city * 100 + 0.5))
 	elseif car < 1 then
-		status.Text = "Bringing your vehicle round…"
+		status.Text = t("loading.status.car")
 	else
-		status.Text = "Ready"
+		status.Text = t("loading.status.ready")
 	end
 end)
 
@@ -335,7 +368,7 @@ task.spawn(function()
 					tostring(carHere())
 				) .. "Letting the player in anyway; something above did not finish."
 			)
-			status.Text = "Something did not finish loading — see the log"
+			status.Text = t("loading.status.incomplete")
 			break
 		end
 		task.wait(0.1)

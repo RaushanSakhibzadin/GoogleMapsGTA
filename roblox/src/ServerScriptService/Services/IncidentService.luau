@@ -147,6 +147,13 @@ end
 -- THE CRITICAL SECTION. Read, validate, mutate, return. No task.wait, no
 -- remote round trip, no DataStore, nothing that yields, anywhere between the
 -- check and the write.
+--
+-- EVERY REFUSAL STRING BELOW IS A Shared/Loc.luau KEY, not English -- it
+-- crosses Remotes.ClaimSlot to DispatchUI exactly as it always did, and only
+-- the card that shows it now calls Loc.get first. The two on a successful
+-- claim ("duplicate", "already yours", "claimed") are NOT keys and never
+-- will be: DispatchUI only reads `why` on the false branch, so nothing ever
+-- displays them and there is nothing to translate.
 function IncidentService.tryClaim(
 	player: Player,
 	incidentId: string,
@@ -163,22 +170,22 @@ function IncidentService.tryClaim(
 
 	local now = os.clock()
 	if now - (lastClaimAt[userId] or -1) < CLAIM_RATE then
-		return false, "too fast"
+		return false, "refuse.tooFast"
 	end
 	lastClaimAt[userId] = now
 
 	local inc = incidents[incidentId]
 	if not inc then
-		return false, "no such incident"
+		return false, "refuse.noSuchIncident"
 	end
 	if inc.state ~= "open" and inc.state ~= "engaged" then
-		return false, "closed"
+		return false, "refuse.closed"
 	end
 
 	local kind = IncidentTypes[inc.kind]
 	local slot = IncidentTypes.slotFor(kind, role)
 	if not slot then
-		return false, "no such role here"
+		return false, "refuse.noSuchRoleHere"
 	end
 
 	-- YOU MAY ONLY CLAIM THE SHIFT YOU ARE ON, and this is the check that makes
@@ -188,7 +195,7 @@ function IncidentService.tryClaim(
 	--
 	-- A table lookup, so it costs the section nothing and cannot yield.
 	if RoleService.roleOf(userId) ~= role then
-		return false, "not on that shift"
+		return false, "refuse.notOnThatShift"
 	end
 
 	if inc.claims[userId] then
@@ -199,7 +206,7 @@ function IncidentService.tryClaim(
 	-- board still says: it lingers for the three seconds of its own work and a
 	-- claim landing in that window would be a claim on a fare already taken.
 	if inc.winner ~= nil then
-		return false, "already taken"
+		return false, "refuse.alreadyTaken"
 	end
 
 	local inRole = 0
@@ -209,7 +216,7 @@ function IncidentService.tryClaim(
 		end
 	end
 	if inRole >= (slot :: IncidentTypes.Slot).max then
-		return false, "role full"
+		return false, "refuse.roleFull"
 	end
 
 	-- ONE SLOT AT A TIME, released in the same section so there is no instant
