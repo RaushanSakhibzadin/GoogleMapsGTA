@@ -39,4 +39,11 @@ ClientBus.roleChanged = Instance.new("BindableEvent")
 -- there is nothing to react to -- only a value to look at.
 ClientBus.responding = false
 
+-- WHERE THE THING YOU ARE RESPONDING TO IS, in world studs -- nil whenever
+-- `responding` is false. Written alongside it by DispatchUI for the same
+-- reason: the screen-edge objective arrow (Minimap.client.luau) needs a
+-- position to point at and has no other way to ask what the dispatch card
+-- already knows.
+ClientBus.myIncident = nil :: { x: number, z: number }?
+
 return ClientBus

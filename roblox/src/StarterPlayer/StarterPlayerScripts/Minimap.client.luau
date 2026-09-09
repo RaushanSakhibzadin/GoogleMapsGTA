@@ -39,6 +39,7 @@ local RunService = game:GetService("RunService")
 local AssetService = game:GetService("AssetService")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 
@@ -162,6 +163,51 @@ local meCorner = Instance.new("UICorner")
 meCorner.CornerRadius = UDim.new(1, 0)
 meCorner.Parent = me
 
+-- AN INCIDENT BLIP IS THREE PIECES: the dot itself, a distance readout that
+-- only shows once the incident is off the radar's own radius (a rim pointer
+-- that says nothing about how far is not much of a pointer), and a pulse
+-- ring that grows and fades on the ones this shift can actually take -- the
+-- same "which of these is mine to do" question the big map answers with a
+-- dimmed dot, answered here with motion instead, because at 9 px a dimming
+-- is not something a glance at the corner of the screen reads.
+local function incidentBlip(): Frame
+	local f = dot(9, Color3.fromRGB(255, 140, 40), 8)
+
+	local dist = Instance.new("TextLabel")
+	dist.Name = "Dist"
+	dist.AnchorPoint = Vector2.new(0.5, 0)
+	dist.Position = UDim2.fromOffset(0, 8)
+	dist.Size = UDim2.fromOffset(44, 12)
+	dist.BackgroundTransparency = 1
+	dist.Font = Enum.Font.GothamBold
+	dist.TextSize = 10
+	dist.TextColor3 = Color3.fromRGB(255, 255, 255)
+	dist.TextStrokeTransparency = 0.4
+	dist.Text = ""
+	dist.Visible = false
+	dist.ZIndex = 9
+	dist.Parent = f
+
+	local ring = Instance.new("Frame")
+	ring.Name = "Pulse"
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.5)
+	ring.BackgroundTransparency = 1
+	ring.BorderSizePixel = 0
+	ring.ZIndex = 6
+	ring.Visible = false
+	local ringCorner = Instance.new("UICorner")
+	ringCorner.CornerRadius = UDim.new(1, 0)
+	ringCorner.Parent = ring
+	local ringStroke = Instance.new("UIStroke")
+	ringStroke.Thickness = 2
+	ringStroke.Color = Color3.fromRGB(255, 196, 96)
+	ringStroke.Parent = ring
+	ring.Parent = f
+
+	return f
+end
+
 local blips: { Frame } = {}
 local board: { any } = {}
 Board.OnClientEvent:Connect(function(list)
@@ -189,9 +235,71 @@ local DEPOT_COLOUR: { [string]: Color3 } = {
 	taxi = Color3.fromRGB(242, 183, 5),
 	fuel = Color3.fromRGB(229, 207, 122),
 }
+-- Same letters BigMap wears on its own twenty-seven -- one glance says which
+-- service this is without already knowing the palette. The fallbacks read as
+-- the real thing they stand in for, matching DEPOT_COLOUR's own choice.
+local DEPOT_GLYPH: { [string]: string } = {
+	fire = "F",
+	police = "P",
+	hospital = "H",
+	clinic = "H",
+	taxi = "T",
+	fuel = "T",
+}
 local depotDot = dot(7, Color3.fromRGB(150, 156, 166), 7)
 depotDot.BackgroundTransparency = 0.25
 depotDot.Visible = false
+local depotGlyph = Instance.new("TextLabel")
+depotGlyph.Size = UDim2.fromScale(1, 1)
+depotGlyph.BackgroundTransparency = 1
+depotGlyph.Font = Enum.Font.GothamBold
+depotGlyph.TextSize = 6
+depotGlyph.TextColor3 = Color3.fromRGB(20, 20, 24)
+depotGlyph.Text = ""
+depotGlyph.ZIndex = 8
+depotGlyph.Parent = depotDot
+
+-- ---------------------------------------------------------------- the objective arrow
+
+-- WHERE THE MINIMAP CANNOT REACH. The radar is a 300 m window; a job you are
+-- actually driving to is routinely further off than that, and the one thing
+-- worth knowing about it every second -- which way -- is exactly what a dot
+-- clamped to a tiny rim across the screen stops being able to say clearly.
+-- js/render.js:drawArrow did this in 2D with its own screen-space geometry;
+-- Roblox's Camera:WorldToViewportPoint is the same question already answered
+-- by the engine, projection matrix and all.
+local arrow = Instance.new("TextLabel")
+arrow.Name = "ObjectiveArrow"
+arrow.AnchorPoint = Vector2.new(0.5, 0.5)
+arrow.Size = UDim2.fromOffset(28, 28)
+arrow.BackgroundTransparency = 1
+arrow.Font = Enum.Font.GothamBold
+arrow.TextSize = 22
+arrow.TextColor3 = Color3.fromRGB(255, 176, 64)
+arrow.TextStrokeTransparency = 0.2
+arrow.Text = "▲"
+arrow.Visible = false
+arrow.ZIndex = 15
+arrow.Parent = gui
+
+local arrowDist = Instance.new("TextLabel")
+arrowDist.Name = "Dist"
+arrowDist.AnchorPoint = Vector2.new(0.5, 0)
+arrowDist.Position = UDim2.new(0.5, 0, 1, 2)
+arrowDist.Size = UDim2.fromOffset(60, 14)
+arrowDist.BackgroundTransparency = 1
+arrowDist.Font = Enum.Font.GothamBold
+arrowDist.TextSize = 12
+arrowDist.TextColor3 = Color3.fromRGB(255, 255, 255)
+arrowDist.TextStrokeTransparency = 0.3
+arrowDist.Text = ""
+arrowDist.ZIndex = 15
+arrowDist.Parent = arrow
+
+-- Kept off the screen's own edge, so the arrow's glyph and its distance
+-- label both stay fully on screen at every angle rather than being clipped
+-- by whichever side they are pointing towards.
+local ARROW_MARGIN = 70
 
 -- ---------------------------------------------------------------- the frame
 
@@ -206,6 +314,13 @@ end
 
 local STUDS_PER_PX = SPAN / RES
 local acc = 1 / HZ
+
+-- One pulse a second and a bit, growing from the dot's own size out to
+-- about twice the panel's blip spacing while it fades -- fast enough to
+-- catch the eye in the corner of the screen, slow enough that it reads as a
+-- pulse and not a flicker.
+local PULSE_CYCLE = 1.15
+local pulseT = 0
 
 RunService.RenderStepped:Connect(function(dt)
 	local pivot = carPivot()
@@ -296,17 +411,23 @@ RunService.RenderStepped:Connect(function(dt)
 				sx, sy = sx / d * R, sy / d * R
 			end
 			depotDot.BackgroundColor3 = DEPOT_COLOUR[bestKind] or Color3.fromRGB(150, 156, 166)
+			depotGlyph.Text = DEPOT_GLYPH[bestKind] or ""
 			depotDot.Position = UDim2.fromOffset(VIEW / 2 + sx, VIEW / 2 + sy)
 			depotDot.Visible = true
 		else
 			depotDot.Visible = false
 		end
 	end
+	pulseT = (pulseT + dt) % PULSE_CYCLE
+	local pulseU = pulseT / PULSE_CYCLE
+	local pulseSize = 9 + pulseU * 18
+	local pulseTrans = 0.15 + pulseU * 0.85 -- opaque-ish at birth, gone by the end
+
 	for _, inc in board do
 		n += 1
 		local f = blips[n]
 		if not f then
-			f = dot(9, Color3.fromRGB(255, 140, 40), 8)
+			f = incidentBlip()
 			blips[n] = f
 		end
 		f.Visible = true
@@ -323,6 +444,15 @@ RunService.RenderStepped:Connect(function(dt)
 		f.BackgroundColor3 = inc.colour or Color3.fromRGB(255, 140, 40)
 		f.BackgroundTransparency = if canTake then 0 else 0.55
 
+		local ring = f:FindFirstChild("Pulse") :: Frame
+		ring.Visible = canTake
+		if canTake then
+			ring.Size = UDim2.fromOffset(pulseSize, pulseSize)
+			local stroke = ring:FindFirstChildOfClass("UIStroke") :: UIStroke
+			stroke.Transparency = pulseTrans
+			stroke.Color = inc.colour or Color3.fromRGB(255, 140, 40)
+		end
+
 		local wx, wz = inc.x - p.X, inc.z - p.Z
 		local sx = (wx * rx + wz * rz) * scale
 		local sy = (wx * bx + wz * bz) * scale
@@ -332,12 +462,64 @@ RunService.RenderStepped:Connect(function(dt)
 		-- ray down to the radius if it is longer than it.
 		local R = VIEW / 2 - 7
 		local d = math.sqrt(sx * sx + sy * sy)
-		if d > R then
+		local clamped = d > R
+		if clamped then
 			sx, sy = sx / d * R, sy / d * R
 		end
 		f.Position = UDim2.fromOffset(VIEW / 2 + sx, VIEW / 2 + sy)
+
+		-- THE DISTANCE, and only once the dot itself has stopped saying it --
+		-- a pointer clamped to the rim has thrown away how far off the edge
+		-- the real thing is, which is exactly the number worth putting back.
+		local distLabel = f:FindFirstChild("Dist") :: TextLabel
+		distLabel.Visible = clamped
+		if clamped then
+			local trueD = math.sqrt(wx * wx + wz * wz)
+			distLabel.Text = ("%d m"):format(math.floor(trueD / 3))
+		end
 	end
 	for i = n + 1, #blips do
 		blips[i].Visible = false
+	end
+
+	-- ---- the objective arrow ----
+	local target = ClientBus.myIncident
+	if not target then
+		arrow.Visible = false
+	else
+		local worldPos = Vector3.new(target.x, p.Y + 6 * 3, target.z)
+		local screenPos, onScreen = camera:WorldToViewportPoint(worldPos)
+		local viewport = camera.ViewportSize
+		local cx, cy = viewport.X / 2, viewport.Y / 2
+		local ax, ay = screenPos.X - cx, screenPos.Y - cy
+		-- BEHIND THE CAMERA, WorldToViewportPoint still gives a screen
+		-- position, but it is the MIRROR of where the point actually is --
+		-- the projection does not know "behind" from "in front" on its own,
+		-- only Z tells you that. Flip the offset back the right way round so
+		-- the arrow still points at the real thing rather than its own
+		-- reflection through the screen's centre.
+		if screenPos.Z < 0 then
+			ax, ay = -ax, -ay
+		end
+		if onScreen and screenPos.Z > 0 then
+			-- Already on screen: the thing itself is the pointer.
+			arrow.Visible = false
+		else
+			arrow.Visible = true
+			local mx, my = cx - ARROW_MARGIN, cy - ARROW_MARGIN
+			local scale = math.min(
+				if math.abs(ax) > 1e-3 then mx / math.abs(ax) else math.huge,
+				if math.abs(ay) > 1e-3 then my / math.abs(ay) else math.huge
+			)
+			if scale < 1 then
+				ax, ay = ax * scale, ay * scale
+			end
+			arrow.Position = UDim2.fromOffset(cx + ax, cy + ay)
+			-- The glyph points up at Rotation 0; this is the clockwise angle
+			-- from up to the direction the arrow is actually sitting at.
+			arrow.Rotation = math.deg(math.atan2(ax, -ay))
+			local trueD = (Vector2.new(target.x, target.z) - Vector2.new(p.X, p.Z)).Magnitude
+			arrowDist.Text = ("%d m"):format(math.floor(trueD / 3))
+		end
 	end
 end)

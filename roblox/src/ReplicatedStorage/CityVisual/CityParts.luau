@@ -376,6 +376,121 @@ function CityParts.streets(data, meta, parent: Instance): number
 	return made
 end
 
+-- ---------------------------------------------------------------- lights
+
+-- STREET LIGHTS, ported from js/world.js:addLights -- every 32 m along a
+-- carriageway 9 m or wider, alternating sides of the road, 1.4 m clear of the
+-- kerb, a one-in-six chance of neon instead of the ordinary sodium orange
+-- (js/util.js's own PAL.neon). Same algorithm, same numbers, over the road
+-- segments this chunk already has.
+--
+-- A PHYSICAL FIXTURE, not the browser's glow-only sprite. js/render3d.js
+-- draws these as an additive billboard six metres up and nothing else --
+-- there is no pole in a 2D/pseudo-3D world, because nothing there is ever
+-- beside one. A chase camera drives under these, so each one gets a pole and
+-- a head, two parts, the same budget a tree costs.
+--
+-- THE PointLight IS DAY/NIGHT SWITCHED, not the fixture. Roblox's own
+-- Lighting handles day vs. dusk (DayNight.client.luau); what a lamp itself
+-- controls is only whether IT is lit, which is a strictly cheaper question
+-- than whether the whole sky is. `litNow` is what a freshly streamed-in
+-- chunk should start as, read from the same attribute DayNight toggles.
+local LIGHT_MIN_W = 9 * 3 -- studs: only real streets, not a service lane
+local LIGHT_SPACING = 32 * 3
+local LIGHT_OFFSET = 1.4 * 3 -- studs clear of the kerb, beyond the half-width
+local LIGHT_H = 6 * 3 -- studs: where the head sits
+local LIGHT_NEON_CHANCE = 1 / 6
+local LIGHT_NEON = {
+	Color3.fromRGB(255, 79, 216),
+	Color3.fromRGB(51, 230, 255),
+	Color3.fromRGB(255, 227, 106),
+	Color3.fromRGB(138, 92, 255),
+	Color3.fromRGB(72, 255, 158),
+}
+local LIGHT_SODIUM = Color3.fromRGB(255, 210, 160)
+local LIGHT_POLE_COLOUR = Color3.fromRGB(40, 40, 44)
+
+function CityParts.lights(data, parent: Instance, litNow: boolean, onEach: (() -> ())?): number
+	local seg = (data :: any).road
+	if not seg then
+		return 0
+	end
+	local made = 0
+	local side = 1
+	local i = 1
+	while i + 4 <= #seg do
+		local ax, az, bx, bz, w = seg[i], seg[i + 1], seg[i + 2], seg[i + 3], seg[i + 4]
+		i += 5
+		if w < LIGHT_MIN_W then
+			continue
+		end
+		local dx, dz = bx - ax, bz - az
+		local len = math.sqrt(dx * dx + dz * dz)
+		if len < 0.05 then
+			continue
+		end
+		-- The perpendicular, for which side of the carriageway a lamp stands
+		-- on -- (-dz, dx) turned unit length, exactly the offset direction the
+		-- browser's own -(b.y-a.y), (b.x-a.x) is.
+		local nx, nz = -dz / len, dx / len
+		local off = w * 0.5 + LIGHT_OFFSET
+		local n = math.floor(len / LIGHT_SPACING)
+		for s = 1, n do
+			local t = s / (n + 1)
+			local lx = ax + dx * t + nx * off * side
+			local lz = az + dz * t + nz * off * side
+			side = -side
+
+			local colour = if math.random() < LIGHT_NEON_CHANCE
+				then LIGHT_NEON[math.random(1, #LIGHT_NEON)]
+				else LIGHT_SODIUM
+
+			local pole = BOX:Clone()
+			pole.Name = "LampPole"
+			pole.Shape = Enum.PartType.Cylinder
+			pole.Size = Vector3.new(LIGHT_H, 0.5, 0.5)
+			pole.CFrame = CFrame.new(lx, LIGHT_H * 0.5, lz) * CFrame.Angles(0, 0, math.pi * 0.5)
+			pole.Color = LIGHT_POLE_COLOUR
+			pole.Material = Enum.Material.Metal
+			pole.Parent = parent
+
+			local head = BOX:Clone()
+			head.Name = "LampHead"
+			head.Shape = Enum.PartType.Ball
+			head.Size = Vector3.new(1.4, 1.4, 1.4)
+			head.CFrame = CFrame.new(lx, LIGHT_H, lz)
+			head.Color = colour
+			head.Material = Enum.Material.Neon
+			head.Parent = parent
+
+			local light = Instance.new("PointLight")
+			light.Name = "LampLight"
+			light.Color = colour
+			light.Range = 24
+			light.Brightness = 1.4
+			light.Enabled = litNow
+			light.Parent = head
+
+			made += 2
+			-- SIX INSTANCES A LAMP (two Parts, a UICorner-free Ball/Cylinder
+			-- shape change apiece, a PointLight, and every property set on
+			-- them) is real work, and this loop had NO yield point at all --
+			-- streets and buildings both call the caller's frame-budget
+			-- breathe() and this was the one street-level builder that
+			-- didn't. On a chunk with a couple of wide roads that is enough
+			-- lamps, run fully synchronously, to stall the client a visible
+			-- amount; across the many chunks one streaming rescan can queue,
+			-- long enough to make every OTHER script's RenderStepped work
+			-- (the dispatch card, the camera) look like it had stopped
+			-- firing entirely, because for that stretch it had.
+			if onEach then
+				onEach()
+			end
+		end
+	end
+	return made
+end
+
 -- ---------------------------------------------------------------- the trees
 
 -- TWO PARTS A TREE, and no mesh: a cylinder for the trunk and an ellipsoid for

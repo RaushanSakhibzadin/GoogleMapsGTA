@@ -287,10 +287,33 @@ local DEPOT_COLOUR: { [string]: Color3 } = {
 	taxi = Color3.fromRGB(242, 183, 5),
 	fuel = Color3.fromRGB(229, 207, 122),
 }
+-- ONE LETTER, so a colour-blind glance -- or a screenshot -- still says which
+-- service a dot is without having to already know the palette. The fallback
+-- depots read as the real thing they stand in for, matching the colour
+-- choice above: clinic wears hospital's letter, fuel wears taxi's.
+local DEPOT_GLYPH: { [string]: string } = {
+	fire = "F",
+	police = "P",
+	repair = "R",
+	hospital = "H",
+	clinic = "H",
+	taxi = "T",
+	fuel = "T",
+}
+
 local depotDots: { { f: Frame, x: number, z: number } } = {}
 for _, d in Depots :: { any } do
 	local f = dot(8, DEPOT_COLOUR[d.kind] or DIM, 6)
 	f.BackgroundTransparency = 0.15
+	local glyph = Instance.new("TextLabel")
+	glyph.Size = UDim2.fromScale(1, 1)
+	glyph.BackgroundTransparency = 1
+	glyph.Font = Enum.Font.GothamBold
+	glyph.TextSize = 7
+	glyph.TextColor3 = Color3.fromRGB(20, 20, 24)
+	glyph.Text = DEPOT_GLYPH[d.kind] or ""
+	glyph.ZIndex = 7
+	glyph.Parent = f
 	-- THE GATE IS THE ONE YOU DRIVE TO. The building's own point is a centroid
 	-- that can sit fifty metres inside a block -- on this district's fire
 	-- station, 51 m from the nearest road -- and a map dot you cannot reach is

@@ -433,6 +433,7 @@ RunService.RenderStepped:Connect(function()
 		end
 		updateSiren(false, now)
 		ClientBus.responding = false
+		ClientBus.myIncident = nil
 		mine = nil
 		return
 	end
@@ -456,6 +457,7 @@ RunService.RenderStepped:Connect(function()
 	local responding = mine == inc.id and d > inc.radius
 	updateSiren(responding, now)
 	ClientBus.responding = responding
+	ClientBus.myIncident = if responding then { x = inc.x, z = inc.z } else nil
 
 	if now < sayUntil then
 		-- A refusal wins the line for as long as it is up. It is the only thing

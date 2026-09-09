@@ -170,8 +170,10 @@ local function buildChunk(c: Chunk)
 
 	local street = FlatData:FindFirstChild(("Street_%d_%d"):format(c.cx, c.cz))
 	if street then
-		built.streets += CityParts.streets(require(street) :: any, StreetMeta, folder)
+		local data = require(street) :: any
+		built.streets += CityParts.streets(data, StreetMeta, folder)
 		breathe()
+		CityParts.lights(data, folder, workspace:GetAttribute("Dusk") == true, breathe)
 	end
 
 	local flat = FlatData:FindFirstChild(("Flat_%d_%d"):format(c.cx, c.cz))
