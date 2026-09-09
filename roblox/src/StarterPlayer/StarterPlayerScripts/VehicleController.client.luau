@@ -33,6 +33,7 @@ local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local Tarmac = require(Shared:WaitForChild("Tarmac"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
+local ClientBus = require(Shared:WaitForChild("ClientBus"))
 -- REQUIRED THROUGH A PCALL, WITH A SILENT STUB IF IT FAILS. Sound is
 -- optional; driving is not. When Shared/Audio threw at module scope --
 -- `SoundGroup` is not a property of SoundGroup -- it took this script down
@@ -67,11 +68,6 @@ local CarCorrection = Remotes:WaitForChild("CarCorrection") :: RemoteEvent
 local S = Meta.studsPerMetre
 
 -- ---------------------------------------------------------------- settings
-
--- Reversing steering. False takes the stick literally -- back-and-left reverses
--- to the left -- which is what was asked for in the browser game and is the
--- default there too. True gives a real car's behaviour.
-local REV_REAL = false
 
 local SEND_HZ = 15 -- position reports a second; the server only validates
 
@@ -501,8 +497,8 @@ RunService.RenderStepped:Connect(function(dt)
 	-- -- and from there the car's own left is on the right of the screen. Steer
 	-- right and the car visibly went left.
 	--
-	-- The browser has REV_REAL for the related question of whether reversing
-	-- should steer like a real car, and the answer there was no: a thumb on a
+	-- ClientBus.revSteer answers the related question of whether reversing
+	-- should steer like a real car, and the default there is no: a thumb on a
 	-- stick is not a pair of hands on a wheel. This is the same principle taken
 	-- one step further, because the camera moved too -- the input should mean
 	-- what it looks like it means, and what it looks like depends on where the
@@ -527,7 +523,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local wall = 0
 	while acc >= STEP and guard < 5 do
 		local px, py = car.x, car.y
-		local _, vl, marking = VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
+		local _, vl, marking = VehicleModel.step(car, inp, STEP, onTarmac, ClientBus.revSteer)
 		lateral = vl
 
 		markAcc += STEP

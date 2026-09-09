@@ -46,4 +46,14 @@ ClientBus.responding = false
 -- already knows.
 ClientBus.myIncident = nil :: { x: number, z: number }?
 
+-- REVERSE STEERING, the same preference js/entities.js's own REV_REAL is.
+-- False takes the stick literally -- back-and-left reverses to the left --
+-- which is the default in both games. Read every frame by
+-- VehicleController, written by SettingsUI the moment the panel's toggle
+-- changes and again once the persisted value comes back from the server on
+-- join -- a plain field for the same reason `responding` above is one: there
+-- is nothing to react to, only a value to look at whenever the car next
+-- reverses.
+ClientBus.revSteer = false
+
 return ClientBus

@@ -1,23 +1,27 @@
 --!strict
--- SETTINGS: the sound mixer, and somewhere for the next setting to go.
+-- SETTINGS: the sound mixer and reverse steering, both persisted.
 --
 -- Four sliders over Shared/Audio's SoundGroups. Roblox already has a mixer --
 -- a Sound in a SoundGroup is scaled by that group's Volume, and groups nest --
 -- so a slider here is one number, and every sound in the game follows it,
 -- including the ones already playing and the ones made later. Nothing in this
--- file knows what a Sound is.
+-- file knows what a Sound is. Below it, one toggle over ClientBus.revSteer,
+-- the same preference js/entities.js's own REV_REAL is.
 --
 -- WHY A SLIDER AND NOT A ROBLOX ONE. There is no built-in slider widget: a
 -- slider in Roblox is a frame, a fill, a knob and the three input events below.
 -- It is about forty lines and every one of them is here rather than in a
 -- library that would have to be uploaded.
 --
--- SESSION-ONLY, and worth saying plainly rather than letting it be discovered:
--- these do not persist across a rejoin. Roblox has no client-side storage, so
--- persisting them means a DataStore write, and this place has no DataStore
--- access at all right now -- ProfileService says so in its own log line on
--- every boot. When it does, four numbers go in the profile alongside the money
--- and this file gains a load and a save.
+-- PERSISTED THROUGH THE PROFILE, not local storage -- Roblox has none on the
+-- client. ServerScriptService/SettingsServer.server.luau is the other half:
+-- it pushes Remotes.Settings once a profile is loaded (this file's first
+-- OnClientEvent, arriving after this UI has already built itself with
+-- Audio's session defaults) and again on anything that changes it, and it
+-- takes a patch back the same way. THE TWO DIRECTIONS MUST NOT LOOP: a value
+-- arriving from the server updates the widget through its raw setter, never
+-- through the same path a drag or a click uses, or an echoed update would
+-- read as a new user edit and send straight back out.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,7 +29,12 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
-local Audio = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Audio"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Audio = require(Shared:WaitForChild("Audio"))
+local ClientBus = require(Shared:WaitForChild("ClientBus"))
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local SettingsRemote = Remotes:WaitForChild("Settings") :: RemoteEvent
 
 local INK = Color3.fromRGB(238, 240, 244)
 local DIM = Color3.fromRGB(150, 156, 166)
@@ -67,8 +76,8 @@ bCorner.Parent = button
 
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
-panel.Size = UDim2.fromOffset(320, 300)
-panel.Position = UDim2.new(0.5, -160, 0.5, -150)
+panel.Size = UDim2.fromOffset(320, 380)
+panel.Position = UDim2.new(0.5, -160, 0.5, -190)
 panel.BackgroundColor3 = PANEL
 panel.BackgroundTransparency = 0.06
 panel.BorderSizePixel = 0
@@ -117,7 +126,12 @@ close.Parent = panel
 local dragging: Frame? = nil
 local onDrag: { [Frame]: (number) -> () } = {}
 
-local function slider(y: number, name: string, initial: number, apply: (number) -> ())
+-- `groupKey` is the Remotes.Settings volume key this slider persists under;
+-- `apply` is the LOCAL effect only (Audio.setVolume) and must never itself
+-- reach the network -- the raw `set` this returns is what a server-driven
+-- update calls, and a `set` that sent a patch would echo every load straight
+-- back out. Dragging is the only path that does; see onDrag below.
+local function slider(y: number, name: string, groupKey: string, initial: number, apply: (number) -> ()): (number) -> ()
 	label(panel, UDim2.new(0, 20, 0, y), UDim2.new(0, 150, 0, 18), name, 14, INK, Enum.Font.Gotham)
 
 	local readout = label(
@@ -171,8 +185,15 @@ local function slider(y: number, name: string, initial: number, apply: (number) 
 	end
 	set(initial)
 
+	-- THE ONLY PATH THAT SENDS. A drag is the user changing their mind, so
+	-- every point along it -- not just the release -- goes out: dragging is a
+	-- few seconds at most, and ProfileService's own write cadence (every
+	-- SAVE_EVERY seconds if dirty) is what stands between this and a
+	-- DataStore throttle, not anything sent from here.
 	onDrag[track] = function(px: number)
-		set((px - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1))
+		local v = math.clamp((px - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+		set(v)
+		SettingsRemote:FireServer({ volume = { [groupKey] = v } })
 	end
 
 	track.InputBegan:Connect(function(input)
@@ -184,6 +205,8 @@ local function slider(y: number, name: string, initial: number, apply: (number) 
 			onDrag[track](input.Position.X)
 		end
 	end)
+
+	return set
 end
 
 UserInputService.InputChanged:Connect(function(input)
@@ -213,29 +236,102 @@ end)
 -- ---------------------------------------------------------------- the mixer
 
 -- The order is the order you reach for them. Master first because it is the one
--- that means "quieter, please"; the rest are for balance.
-slider(76, "Master", Audio.getVolume("Master"), function(v)
+-- that means "quieter, please"; the rest are for balance. Each returns its raw
+-- setter, kept below so a settings payload from the server can move the
+-- widget without the send-to-server side effect a drag has.
+local volumeSetters: { [string]: (number) -> () } = {}
+volumeSetters.Master = slider(76, "Master", "Master", Audio.getVolume("Master"), function(v)
 	Audio.setVolume("Master", v)
 end)
-slider(126, "Engine", Audio.getVolume("Engine"), function(v)
+volumeSetters.Engine = slider(126, "Engine", "Engine", Audio.getVolume("Engine"), function(v)
 	Audio.setVolume("Engine", v)
 end)
-slider(176, "Crashes and fire", Audio.getVolume("Effects"), function(v)
+volumeSetters.Effects = slider(176, "Crashes and fire", "Effects", Audio.getVolume("Effects"), function(v)
 	Audio.setVolume("Effects", v)
 end)
-slider(226, "Dispatch tones", Audio.getVolume("Interface"), function(v)
+volumeSetters.Interface = slider(226, "Dispatch tones", "Interface", Audio.getVolume("Interface"), function(v)
 	Audio.setVolume("Interface", v)
+end)
+
+-- --------------------------------------------------------------- a toggle
+
+-- A two-state button rather than a slider: STICK or CAR, the same choice
+-- js/io.js's revBtn offers, and the same reason a slider would be wrong for
+-- it -- there is no in-between amount of reverse steering.
+local function toggle(y: number, name: string, initial: boolean, apply: (boolean) -> ()): (boolean) -> ()
+	label(panel, UDim2.new(0, 20, 0, y), UDim2.new(0, 180, 0, 18), name, 14, INK, Enum.Font.Gotham)
+
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(84, 26)
+	btn.Position = UDim2.new(1, -104, 0, y - 4)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamMedium
+	btn.TextSize = 12
+	btn.TextColor3 = INK
+	btn.AutoButtonColor = true
+	btn.Parent = panel
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = UDim.new(1, 0)
+	bc.Parent = btn
+
+	local state = initial
+	local function set(v: boolean)
+		state = v
+		btn.Text = if v then "CAR" else "STICK"
+		btn.BackgroundColor3 = if v then ACCENT else Color3.fromRGB(44, 48, 56)
+		apply(v)
+	end
+	set(initial)
+
+	-- SAME RULE AS THE SLIDER'S onDrag: this is the only path that sends,
+	-- because it is the only path a person actually clicked.
+	btn.Activated:Connect(function()
+		set(not state)
+		SettingsRemote:FireServer({ revSteer = not state })
+	end)
+
+	return set
+end
+
+label(panel, UDim2.new(0, 20, 0, 276), UDim2.new(1, -40, 0, 22), "Controls", 18, INK, Enum.Font.GothamBold)
+local setRevSteer = toggle(312, "Reverse steering", ClientBus.revSteer, function(v)
+	ClientBus.revSteer = v
 end)
 
 label(
 	panel,
-	UDim2.new(0, 20, 1, -30),
+	UDim2.new(0, 20, 1, -22),
 	UDim2.new(1, -40, 0, 18),
-	"O to open  ·  settings last for this session",
+	"O to open",
 	11,
 	Color3.fromRGB(96, 102, 112),
 	Enum.Font.Gotham
 )
+
+-- ------------------------------------------------------------ persistence
+
+-- THE OTHER DIRECTION. ServerScriptService/SettingsServer.server.luau sends
+-- this once the profile has loaded (after this UI already built itself with
+-- Audio's session defaults above, hence the snap the first time it arrives)
+-- and again on anything that changes the same document -- so every payload
+-- is applied, not just the first, and always through the raw setters, never
+-- through a path that would send it straight back.
+SettingsRemote.OnClientEvent:Connect(function(settings)
+	if typeof(settings) ~= "table" then
+		return
+	end
+	if typeof(settings.volume) == "table" then
+		for group, v in settings.volume :: { [string]: number } do
+			local set = volumeSetters[group]
+			if set and typeof(v) == "number" then
+				set(v)
+			end
+		end
+	end
+	if typeof(settings.revSteer) == "boolean" then
+		setRevSteer(settings.revSteer)
+	end
+end)
 
 -- ---------------------------------------------------------------- open, shut
 

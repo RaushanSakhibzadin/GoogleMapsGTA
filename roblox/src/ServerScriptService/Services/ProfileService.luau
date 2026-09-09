@@ -30,16 +30,33 @@ local SAVE_EVERY = 60
 local LOCK_REFRESH = 30
 local STEAL_AFTER = 120
 
+export type Settings = {
+	volume: { [string]: number },
+	revSteer: boolean,
+}
+
 export type Profile = {
 	version: number,
 	money: number,
 	resolved: { [string]: number },
+	settings: Settings,
 	lock: string?,
 	lockAt: number?,
 }
 
+-- SAME DEFAULTS Shared/Audio.luau BOOTS WITH, and the same default the browser
+-- game's own REV_REAL has (js/entities.js) -- a fresh profile should sound and
+-- steer exactly like a client that has never opened the settings panel, not
+-- like one that opened it and picked these.
+local function blankSettings(): Settings
+	return {
+		volume = { Master = 1, Engine = 1, Effects = 0.5, Interface = 0.6 },
+		revSteer = false,
+	}
+end
+
 local function blank(): Profile
-	return { version = VERSION, money = 0, resolved = {} }
+	return { version = VERSION, money = 0, resolved = {}, settings = blankSettings() }
 end
 
 -- STUDIO WITHOUT API ACCESS HAS NO DATASTORE, and that is the normal case while
@@ -68,6 +85,28 @@ local function keyFor(userId: number): string
 	return KEY .. "_" .. userId
 end
 
+-- SAME BACKWARD-COMPATIBLE SHAPE as money/resolved below: a profile written
+-- before settings existed comes back without the field, and one written after
+-- only three volume groups existed comes back missing the fourth -- either
+-- way, fill the gap from blankSettings() rather than error on it or silently
+-- drop whatever the profile did have.
+local function withDefaultSettings(saved: Settings?): Settings
+	local defaults = blankSettings()
+	if not saved then
+		return defaults
+	end
+	local volume = table.clone(defaults.volume)
+	if saved.volume then
+		for group, v in saved.volume do
+			volume[group] = v
+		end
+	end
+	return {
+		volume = volume,
+		revSteer = if saved.revSteer ~= nil then saved.revSteer else defaults.revSteer,
+	}
+end
+
 function ProfileService.load(player: Player)
 	local userId = player.UserId
 	if not persistent or not store then
@@ -90,6 +129,7 @@ function ProfileService.load(player: Player)
 			p.version = VERSION
 			p.money = p.money or 0
 			p.resolved = p.resolved or {}
+			p.settings = withDefaultSettings(p.settings)
 			loaded[userId] = p
 			return p
 		end)
@@ -115,6 +155,35 @@ function ProfileService.award(player: Player, amount: number, why: string)
 	end
 	p.money += amount
 	p.resolved[why] = (p.resolved[why] or 0) + 1
+	dirty[player.UserId] = true
+	ProfileService.changed:Fire(player, p)
+end
+
+-- THE FOUR GROUPS Shared/Audio.luau MIXES, kept as a small local list rather
+-- than a require of a client-side module -- the server has no SoundGroups of
+-- its own to drive, it only needs to know which keys of a settings patch are
+-- real so a stray or malicious FireServer cannot grow the table forever.
+local VOLUME_GROUPS = { Master = true, Engine = true, Effects = true, Interface = true }
+
+-- WHATEVER THE SETTINGS PANEL CHANGED, applied and marked dirty the same way
+-- award() marks money dirty -- picked up by the same periodic save, not
+-- written per-toggle, for the same six-second-throttle reason the header
+-- above explains.
+function ProfileService.setSettings(player: Player, patch: { volume: { [string]: number }?, revSteer: boolean? })
+	local p = loaded[player.UserId]
+	if not p then
+		return
+	end
+	if patch.volume then
+		for group, v in patch.volume do
+			if VOLUME_GROUPS[group] and type(v) == "number" then
+				p.settings.volume[group] = math.clamp(v, 0, 1)
+			end
+		end
+	end
+	if patch.revSteer ~= nil then
+		p.settings.revSteer = patch.revSteer == true
+	end
 	dirty[player.UserId] = true
 	ProfileService.changed:Fire(player, p)
 end
