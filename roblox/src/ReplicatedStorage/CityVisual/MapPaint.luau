@@ -123,7 +123,21 @@ function MapPaint.sheet(budget: number, yieldFn: (() -> ())?): EditableImage?
 		end
 	end
 
-	;(image :: EditableImage):WritePixelsBuffer(Vector2.zero, Vector2.new(SRC, SRC), rgba)
+	-- GUARDED, LIKE THE CREATE ABOVE -- and for the identical reason
+	-- Minimap.client.luau's own write already needed the same fix for:
+	-- CreateEditableImage can succeed while the API is still unusable, and
+	-- that only surfaces here, on the write. Unguarded, the whole row-decode
+	-- loop above runs for nothing and then throws anyway; the caller already
+	-- has a documented "unavailable" path (nil) for exactly this, so failing
+	-- into it is the honest response, not new behaviour to add.
+	local ok2, err2 = pcall(function()
+		local img = image :: EditableImage
+		img:WritePixelsBuffer(Vector2.zero, Vector2.new(SRC, SRC), rgba)
+	end)
+	if not ok2 then
+		warn("[map] EditableImage unusable (" .. tostring(err2) .. ") -- no big map")
+		return nil
+	end
 	return image
 end
 

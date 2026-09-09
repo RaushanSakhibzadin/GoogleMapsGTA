@@ -85,6 +85,23 @@ panel.Activated:Connect(function()
 	ClientBus.toggleMap:Fire()
 end)
 
+-- A BACKING CIRCLE, always present, not only when EditableImage fails. The
+-- sheet ImageLabel is itself BackgroundTransparency 1 -- it is a picture with
+-- nothing behind it -- and when EditableImage is unavailable that picture
+-- never arrives at all (image stays nil, sheet.ImageContent is never set),
+-- which is what "blips only" actually looked like: the blips, floating on
+-- whatever the player's own view happened to be behind the panel, not a
+-- radar. This is the radar's own dark ground, drawn once, so a panel with no
+-- rasterised city on it still reads as an instrument rather than a hole.
+local backdrop = Instance.new("Frame")
+backdrop.Size = UDim2.fromScale(1, 1)
+backdrop.BackgroundColor3 = Color3.fromRGB(14, 15, 19)
+backdrop.BorderSizePixel = 0
+backdrop.Parent = panel
+local backdropCorner = Instance.new("UICorner")
+backdropCorner.CornerRadius = UDim.new(1, 0)
+backdropCorner.Parent = backdrop
+
 local sheet = Instance.new("ImageLabel")
 sheet.Size = UDim2.fromScale(1, 1)
 sheet.BackgroundTransparency = 1
