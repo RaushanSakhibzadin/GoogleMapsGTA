@@ -151,7 +151,7 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 end)
 
-CarState.OnServerEvent:Connect(function(player, x, y, h)
+CarState.OnServerEvent:Connect(function(player, x, y, h, dtReported)
 	local s = state[player]
 	if not s then
 		return
@@ -163,15 +163,53 @@ CarState.OnServerEvent:Connect(function(player, x, y, h)
 		type(x) ~= "number"
 		or type(y) ~= "number"
 		or type(h) ~= "number"
+		or type(dtReported) ~= "number"
 		or x ~= x
 		or y ~= y
 		or h ~= h
+		or dtReported ~= dtReported
 	then
 		return
 	end
 
+	-- DROPPED, NOT CORRECTED, IF IT ARRIVED SUSPICIOUSLY SOON. The client
+	-- sends every 1/SEND_HZ = 1/15 s (VehicleController.client.luau); nothing
+	-- legitimate delivers two reports much faster than that, so one that does
+	-- is either a duplicate the network re-delivered or a client sending
+	-- faster than the real one ever does. Silently ignoring it costs nothing
+	-- -- the next on-schedule report carries the car forward fine -- and it
+	-- is what keeps the ceiling below from being an exploit: a wide per-report
+	-- allowance is only safe if a report cannot simply be sent more often to
+	-- multiply it.
 	local now = os.clock()
-	local dt = math.max(now - s.t, 1 / 60)
+	if now - s.t < 1 / 30 then
+		return
+	end
+
+	-- THE CLIENT'S OWN CLOCK, not this server's receipt time.
+	--
+	-- This used to be `now - s.t` itself standing in for how much time the
+	-- move covers. That is not the same number: a server hitch, a GC pause,
+	-- or plain network jitter can deliver a report late, and the NEXT
+	-- on-schedule one then measures a falsely tiny gap against it for a car
+	-- that had been moving at an entirely normal speed throughout. `moved /
+	-- dt` on a falsely tiny dt reads as a teleport, and the car snaps to a
+	-- dead stop through CarCorrection below (it zeroes velocity on the
+	-- client) for no reason a player watching the road could see -- reported
+	-- as "the car sometimes stops without a reason".
+	--
+	-- VehicleController now sends how much of ITS OWN clock this report
+	-- covers (`sendAcc`, captured right before the reset that follows it),
+	-- which is the number this check actually needs -- how far the car could
+	-- plausibly have travelled, not how busy the server happened to be
+	-- between two events. Still clamped, not trusted outright: a floor
+	-- against division by ~0, and a ceiling of three send intervals -- room
+	-- for a couple of genuinely dropped or delayed reports, not room for a
+	-- client to buy a bigger jump by simply claiming a bigger dt. The drop
+	-- above is what makes a tight ceiling here safe: without it, a client
+	-- free to send as often as it liked could claim the ceiling on every one
+	-- of an unlimited number of reports a second.
+	local dt = math.clamp(dtReported, 1 / 60, 3 / 15)
 	local moved = math.sqrt((x - s.x) ^ 2 + (y - s.y) ^ 2)
 
 	if moved / dt > MAX_SPEED then

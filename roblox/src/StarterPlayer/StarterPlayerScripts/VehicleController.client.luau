@@ -581,7 +581,12 @@ RunService.RenderStepped:Connect(function(dt)
 
 	sendAcc += dt
 	if sendAcc >= 1 / SEND_HZ then
+		-- THE CLIENT'S OWN CLOCK, sent alongside the position -- see
+		-- VehicleServer.server.luau's own note on why the server no longer
+		-- times this itself. sendAcc IS how much of the client's clock this
+		-- report covers; captured before the reset below, not after.
+		local covers = sendAcc
 		sendAcc = 0
-		CarState:FireServer(car.x, car.y, car.h)
+		CarState:FireServer(car.x, car.y, car.h, covers)
 	end
 end)
