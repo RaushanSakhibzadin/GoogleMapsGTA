@@ -38,6 +38,7 @@ local Pedestrians = require(Shared:WaitForChild("Pedestrians"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
 local CarBuild = require(Shared:WaitForChild("CarBuild"))
 local PersonBuild = require(Shared:WaitForChild("PersonBuild"))
+local Roles = require(Shared:WaitForChild("Roles"))
 local BuildingCollide = require(Shared:WaitForChild("BuildingCollide"))
 -- REQUIRED THROUGH A PCALL, WITH A SILENT STUB IF IT FAILS. Sound is
 -- optional; the traffic is not. When Shared/Audio threw at module scope --
@@ -139,7 +140,14 @@ end
 local function bodyFor(n: Traffic.Npc): Model
 	local m = n.model :: Model?
 	if not m then
-		m = CarBuild.npc(n.colour, n.car.l, n.car.w, n.bh, n.boxy)
+		-- A LIVERY STRING AND A ROLE ID ARE THE SAME WORD, for the four kinds that
+		-- carry a lightbar (fire/police/ambulance/taxi -- taxi's is nil, which is
+		-- correct: it wears a sign, not a lightbar). `lorry`/`bus` are liveries
+		-- Roles does not know, so this falls back to the default role and no
+		-- beacon -- the same "draw nothing extra" result markings() already gives
+		-- an unrecognised livery.
+		local beacon = if n.livery then Roles.get(n.livery).beacon else nil
+		m = CarBuild.npc(n.colour, n.car.l, n.car.w, n.bh, n.boxy, n.livery, beacon)
 		;(m :: Model).Parent = trafficFolder
 		n.model = m
 	end
@@ -171,6 +179,7 @@ local STEP = 1 / 30
 local acc = 0
 local started = 0
 local hitCool = 0
+local beaconT = 0
 
 -- KNOCKING SOMEBODY DOWN MAKES A NOISE and does nothing else, which is the
 -- whole of what this client is allowed to do about it: see the note at the top
@@ -258,18 +267,41 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 
 	-- ---- and draw the rest ----
+
+	-- THE STROBE, ambient rather than gated. RoleUI blinks the PLAYER's own
+	-- beacon only while ClientBus.responding is true, because that light means
+	-- "this unit is on a call"; a background fire engine or police car has no
+	-- such state to report and simply looks like a fire engine or police car,
+	-- lit or not, the way js/render3d.js's pushFireBar/pushPolice always are.
+	-- Same double-flash phase as RoleUI's, so a background unit and the
+	-- player's own read as the same kind of light.
+	beaconT += dt
+	local ph = (beaconT * 2.4) % 1
+	local lit = ph < 0.09 or (ph > 0.16 and ph < 0.25)
+
 	for _, n in cars.cars do
 		local m = bodyFor(n)
 		CarBuild.place(m, n.car.x, n.car.y, n.car.h, m:GetAttribute("BodyY") :: number)
+
+		local bar = m:FindFirstChild("Beacon")
+		if bar and bar:IsA("BasePart") then
+			bar.Transparency = if lit then 0 else 0.62
+			local light = bar:FindFirstChildOfClass("PointLight")
+			if light then
+				light.Brightness = if lit then 2.4 else 0
+			end
+		end
 	end
 
 	for _, p in crowd.peds do
 		local m = personFor(p)
-		-- The stride, as a bounce. There are no joints in a three-box person, so
-		-- the walk cycle is one number: half a stride's worth of rise and fall,
-		-- which at two paces a second is what the eye actually reads as walking.
+		-- The stride: a bounce (twice a stride, so both feet's contact reads)
+		-- plus the leg/arm swing PersonBuild.place derives from the same p.step.
+		-- Both zero out together when struck, so a downed body's limbs hold
+		-- still rather than swimming while it lies there.
 		local bob = if p.struck then 0 else math.abs(math.sin(p.step)) * 0.045
-		PersonBuild.place(m, p.x, p.y, p.h, p.lie, p.pz, bob)
+		local step = if p.struck then 0 else p.step
+		PersonBuild.place(m, p.x, p.y, p.h, p.lie, p.pz, bob, step)
 	end
 end)
 

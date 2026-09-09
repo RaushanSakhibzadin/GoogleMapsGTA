@@ -23,9 +23,16 @@
 -- and the police in the original.
 --
 -- WHAT IS DELIBERATELY NOT HERE YET: the terrain grade (there are no hills in
--- the bake), the committed 180 (`c.spin`), tyre marks, smoke, the airborne and
--- flipped cases from body3d.js. Each is a self-contained block in the original
--- and can come across when there is something to hang it on.
+-- the bake), the airborne and flipped cases from body3d.js. Each is a
+-- self-contained block in the original and can come across when there is
+-- something to hang it on.
+--
+-- THE COMMITTED 180 AND TYRE MARKS ARE HERE, though, ported from
+-- js/entities.js:730-740,766-788. The spin is data the caller has to hang a
+-- press-edge on (see Input.spinPress); marking is a boolean this returns
+-- rather than a list this keeps, because this file is instance-free by
+-- design (line 19 above) and laying an actual mark is the caller's job, same
+-- as building the car is CarBuild's.
 
 local VehicleModel = {}
 
@@ -58,6 +65,17 @@ VehicleModel.STRAY_TOP = 4.5 -- m/s off the tarmac, about 16 km/h
 VehicleModel.STRAY_DRAG = 9.5
 VehicleModel.STRAY_TOL = 10 -- metres of slack before the crawl applies
 
+-- How long a committed 180 takes at a full half-turn, eased in and out;
+-- shorter turns scale down from this (entities.js:106, game.js:2251-2257).
+local SPIN_SECS = 0.85
+-- The old threshold wanted 5.5 m/s of lateral slip to lay a mark -- more than
+-- the old handbrake could produce, so a drift laid no rubber at all. The
+-- player's own car marks at 2.6; everyone else keeps the old, higher number,
+-- because a five-star scrum laying rubber from thirty cars at once is a lot
+-- of decals for a slide only one of them is actually doing (entities.js:775).
+local SLIP_MARK_PLAYER = 2.6
+local SLIP_MARK_OTHER = 5.5
+
 -- The mask is 8 m cells stamped along centrelines and the roads are DRAWN from
 -- their own widths; the two do not agree to the metre. STRAY_TOL is a bit over
 -- one cell for exactly that reason -- a false negative here costs nothing and a
@@ -86,6 +104,18 @@ export type Car = {
 	-- hospital and once at a fire, and fixed there with the same flag.
 	-- Optional so every other car in the game stays exactly as it was.
 	offroad: boolean?,
+	-- THE COMMITTED 180, mid-turn. nil the rest of the time -- "is c.spin set"
+	-- IS "is a spin in progress", the same truthy/falsy test entities.js reads.
+	spin: {
+		t: number, -- seconds into the turn
+		secs: number, -- total duration, scaled to how far it has to turn
+		from: number, -- heading when it was armed
+		rad: number, -- how far it turns, radians, always positive
+		dir: number, -- signed: which way, and by how much of `rad` (see step())
+	}?,
+	-- Remembered so a second press with the stick centred repeats the last
+	-- direction instead of defaulting to the same way every time.
+	lastSpinDir: number?,
 }
 
 export type Input = {
@@ -93,6 +123,11 @@ export type Input = {
 	brake: number,
 	steer: number,
 	hand: number,
+	-- True on the single frame the handbrake goes from up to down. Edge
+	-- detection lives with whoever reads the keys (VehicleController), not
+	-- here, so this file stays a pure function of "what is true this frame"
+	-- rather than needing to remember last frame's input itself.
+	spinPress: boolean?,
 }
 
 -- makeCar's player branch, js/entities.js:43. The accel of 40 is load-bearing
@@ -129,11 +164,36 @@ function VehicleModel.step(
 	dt: number,
 	onTarmac: ((number, number) -> boolean)?,
 	revReal: boolean?
-): (number, number)
+): (number, number, boolean)
 	local throttle = inp.gas > 0
 	local brake = inp.brake > 0
 	local hand = inp.hand > 0
 	local steerIn = inp.steer
+
+	-- ARMED ON THE PRESS, not while held -- leaning on the button would spin
+	-- you like a top otherwise. One press, one turn; press again for another.
+	-- game.js:2246-2260.
+	if inp.spinPress and not c.spin then
+		local speed = math.sqrt(c.vx * c.vx + c.vy * c.vy)
+		-- THE TURN IS HALF THE SPEED: 100 m/s (360 km/h, top speed) buys a half
+		-- turn: speed(km/h) * .5, clamped to a full circle.
+		local deg = clamp(speed * 3.6 * 0.5, 0, 360)
+		-- dir is the RAW steer value, not just its sign -- a gentle steer while
+		-- pulling the handbrake commits to a proportionally smaller turn, not a
+		-- full one. Falls back to the last spin's direction, then to +1, the
+		-- same `inp.steer || c.lastSpinDir || 1` the browser reads.
+		local dir = if steerIn ~= 0 then steerIn else (c.lastSpinDir or 1)
+		c.spin = {
+			t = 0,
+			from = c.h,
+			rad = math.rad(deg),
+			-- Longer turns take longer, at a floor so even a walking-pace flick
+			-- is a movement you can see rather than a snap.
+			secs = clamp(SPIN_SECS * deg / 180, 0.28, 1.7),
+			dir = dir,
+		}
+		c.lastSpinDir = dir
+	end
 
 	local cs, sn = math.cos(c.h), math.sin(c.h)
 
@@ -186,8 +246,9 @@ function VehicleModel.step(
 	vf = clamp(vf, -top * 0.45, top)
 
 	-- Lateral grip: the handbrake lets the back end go, which is half of a drift.
-	-- This single number is the whole drift model.
-	local lat = if hand then 1.7 else (if c.road then 9.5 else 6.5)
+	-- This single number is the whole drift model. Mid-spin it drops further
+	-- still -- a committed 180 is the back end fully gone, not half.
+	local lat = if c.spin then 0.3 elseif hand then 1.7 else (if c.road then 9.5 else 6.5)
 	vl -= vl * decay(lat, dt)
 
 	local spd = math.abs(vf)
@@ -222,6 +283,25 @@ function VehicleModel.step(
 	local flipSteer = backwards and revReal == true
 	c.h += yaw * dt * (if flipSteer then -1 else 1)
 
+	-- THE TURN. Once armed, the heading is driven straight to its target angle
+	-- on a smoothstep -- eased in, whips through the middle, eased out -- which
+	-- overrides whatever the ordinary steering integration above just did.
+	-- Driving the angle directly is what lands it on the number exactly every
+	-- time, instead of depending on how long the button happened to be held.
+	-- entities.js:735-740.
+	local marking = false
+	if c.spin then
+		local spin = c.spin
+		spin.t += dt
+		local u = clamp(spin.t / spin.secs, 0, 1)
+		local eased = u * u * (3 - 2 * u)
+		c.h = spin.from + spin.dir * spin.rad * eased
+		if u >= 1 then
+			c.spin = nil
+		end
+		marking = true
+	end
+
 	local cs2, sn2 = math.cos(c.h), math.sin(c.h)
 	c.vx = cs2 * vf - sn2 * vl
 	c.vy = sn2 * vf + cs2 * vl
@@ -229,7 +309,16 @@ function VehicleModel.step(
 	c.x += c.vx * dt
 	c.y += c.vy * dt
 
-	return vf, vl
+	-- TYRE MARKS. A committed 180 marks for its whole arc regardless -- that
+	-- arc IS the manoeuvre and it should be there on the road afterwards --
+	-- otherwise held handbrake (the player only) or enough lateral slip that
+	-- the tail is genuinely stepping out. entities.js:766-778.
+	if not marking and spd > 3 then
+		local slipMark = if c.kind == "player" then SLIP_MARK_PLAYER else SLIP_MARK_OTHER
+		marking = (hand and c.kind == "player") or math.abs(vl) > slipMark
+	end
+
+	return vf, vl, marking
 end
 
 -- ---------------------------------------------------------------- the camera

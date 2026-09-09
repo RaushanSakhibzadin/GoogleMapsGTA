@@ -22,6 +22,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -88,6 +89,13 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+-- THE SPIN'S PRESS EDGE lives here, not in VehicleModel: it is "was the
+-- handbrake up last frame and down this one", which only means anything to
+-- whoever is already tracking what the keys are doing. game.js's own
+-- P.handWas is the same idea, kept on the player-state object rather than
+-- the car for the same reason.
+local handWasDown = false
+
 -- Keyboard and gamepad are ADDED, not chosen between, the same way the browser
 -- adds its on-screen stick to the keyboard: whichever is actually being held
 -- wins, because the other reads zero. Steering takes whichever is further from
@@ -120,11 +128,16 @@ local function readInput()
 
 	local steer = if math.abs(pad) > math.abs(kSteer) then pad else kSteer
 
+	local handDown = H == true
+	local spinPress = handDown and not handWasDown
+	handWasDown = handDown
+
 	return {
 		steer = steer,
 		gas = if (U or gasPad) then 1 else 0,
 		brake = if (D or brakePad) then 1 else 0,
 		hand = if H then 1 else 0,
+		spinPress = spinPress,
 	}
 end
 
@@ -163,10 +176,21 @@ end)
 -- eye on a circle behind the car, looking at a point that leads it, with the
 -- angle easing towards viewHeading rather than snapping. viewHeading is what
 -- swings the camera round the front when you reverse.
-local CAM_BACK = 9 -- metres behind
-local CAM_UP = 3.4 -- metres above
+-- CAM_BACK and CAM_UP were fixed; js/render3d.js:2959,2966 eases both with
+-- speed -- 13.5->25m back, 3.7->5.9m up -- so a car standing still frames
+-- close and a car at speed opens out to see further down the road. Persistent
+-- locals rather than constants because the easing (decay(2.2, dt), same rate
+-- as the browser) needs somewhere to remember last frame's value.
+local camD = 13.5 -- metres behind
+local camUp = 3.7 -- metres above
 local CAM_LEAD = 7 -- metres ahead of the car to aim at
 local camH = 0
+
+-- CAMERA SHAKE, js/render3d.js:2981-2984 / js/body3d.js:287. 0..~1, decayed
+-- continuously and jolted by a hard hit; the main loop below adds to it where
+-- it already computes `wall`, the speed lost into a building this frame, for
+-- the impact sound -- the same number is exactly what a shake should scale by.
+local shakeMag = 0
 
 local function updateCamera(dt: number)
 	local face, back = VehicleModel.viewHeading(car, backView)
@@ -177,14 +201,26 @@ local function updateCamera(dt: number)
 	local spd = math.sqrt(car.vx * car.vx + car.vy * car.vy)
 	local k = VehicleModel.clamp(spd / 30, 0, 1)
 	camH += VehicleModel.angDiff(camH, face) * VehicleModel.decay(VehicleModel.lerp(5.5, 2.6, k), dt)
+	camD += (VehicleModel.lerp(13.5, 25, k) - camD) * VehicleModel.decay(2.2, dt)
+	camUp += (VehicleModel.lerp(3.7, 5.9, k) - camUp) * VehicleModel.decay(2.2, dt)
 
-	local ex = car.x - math.cos(camH) * CAM_BACK
-	local ey = car.y - math.sin(camH) * CAM_BACK
+	shakeMag = math.max(0, shakeMag - dt * 2.2)
+
+	local ex = car.x - math.cos(camH) * camD
+	local ey = car.y - math.sin(camH) * camD
 	local tx = car.x + math.cos(camH) * CAM_LEAD
 	local ty = car.y + math.sin(camH) * CAM_LEAD
+	local eup = camUp
+
+	if shakeMag > 0 then
+		local s = shakeMag * 0.9
+		ex += (math.random() * 2 - 1) * s
+		ey += (math.random() * 2 - 1) * s
+		eup += (math.random() * 2 - 1) * s
+	end
 
 	camera.CFrame = CFrame.lookAt(
-		Vector3.new(ex * S, CAM_UP * S, ey * S),
+		Vector3.new(ex * S, eup * S, ey * S),
 		Vector3.new(tx * S, 1.2 * S, ty * S)
 	)
 end
@@ -316,6 +352,84 @@ local nearBoxes: { { x: number, z: number, hx: number, hz: number } } = {}
 -- touched before the next query.
 local LOOK = 14
 
+-- ---------------------------------------------------------------- tyre marks
+
+-- FLAT DECALS, RATHER THAN THE BROWSER'S OWN STROKE LIST (entities.js:778,
+-- marks.push). Roblox already has a "make this go away after N seconds"
+-- primitive in Debris, which is the whole reason marks.length/MARK_LIFE exist
+-- in the original -- so there is nothing here to keep or cull, only parts to
+-- drop and forget.
+local MARK_LIFE = 9 -- seconds, entities.js:105
+local marksFolder = Instance.new("Folder")
+marksFolder.Name = "TyreMarks"
+marksFolder.Parent = workspace
+
+-- RATE-LIMITED TO THE EYE'S OWN RESOLUTION, not to one a physics substep.
+-- VehicleModel.step can run up to five times a frame (the catch-up cap); a
+-- mark every 50 ms is close enough together to read as a continuous streak
+-- without five-times the part count of a mark every substep.
+local MARK_GAP = 0.05
+local markAcc = 0
+
+local function dropMark()
+	local cs, sn = math.cos(car.h), math.sin(car.h)
+	-- The rear is half a car-length behind the centre, along the SAME forward
+	-- axis c.vx/c.vy already use -- (cos h, sin h) is "the way the car faces"
+	-- throughout this file, not just here.
+	local rx, ry = car.x - cs * car.l * 0.5, car.y - sn * car.l * 0.5
+	local lx, lz = -sn, cs -- the car's own left/right axis
+	for _, side in { -1, 1 } do
+		local wx = (rx + lx * side * car.w * 0.4) * S
+		local wz = (ry + lz * side * car.w * 0.4) * S
+		local mark = Instance.new("Part")
+		mark.Name = "Mark"
+		mark.Anchored = true
+		mark.CanCollide = false
+		mark.CanQuery = false
+		mark.CanTouch = false
+		mark.CastShadow = false
+		mark.Material = Enum.Material.SmoothPlastic
+		mark.Color = Color3.fromRGB(24, 24, 26)
+		mark.Transparency = 0.4
+		mark.Size = Vector3.new(0.45 * S, 0.04 * S, 1.5 * S)
+		mark.CFrame = CFrame.new(wx, 0.06 * S, wz) * CFrame.Angles(0, -car.h - math.pi * 0.5, 0)
+		mark.Parent = marksFolder
+		Debris:AddItem(mark, MARK_LIFE)
+	end
+end
+
+-- RUBBER SMOKE, one emitter reused for the life of the car rather than a Part
+-- a puff (entities.js:780-787's individual particles) -- Roblox's own
+-- ParticleEmitter is already the "many soft, fading, drifting billboards"
+-- primitive that code was hand-rolling in a canvas.
+local smokeEmitter: ParticleEmitter? = nil
+
+local function attachSmoke(m: Model)
+	local body = m.PrimaryPart
+	if not body then
+		return
+	end
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "TyreSmoke"
+	e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	e.Color = ColorSequence.new(Color3.fromRGB(205, 198, 214))
+	e.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(1, 2.2),
+	})
+	e.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.55),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	e.Lifetime = NumberRange.new(0.55, 1.15) -- entities.js:781, rand(.55, 1.15)
+	e.Rate = 0
+	e.Speed = NumberRange.new(0.5, 1.5)
+	e.SpreadAngle = Vector2.new(35, 35)
+	e.Enabled = false
+	e.Parent = body
+	smokeEmitter = e
+end
+
 camera.CameraType = Enum.CameraType.Scriptable
 
 RunService.RenderStepped:Connect(function(dt)
@@ -325,6 +439,7 @@ RunService.RenderStepped:Connect(function(dt)
 			return
 		end
 		attachSound(model :: Model)
+		attachSmoke(model :: Model)
 
 		-- SAID OUT LOUD, ONCE. "The car is invisible" is a symptom with several
 		-- possible causes -- streamed out, no parts, parked underground, camera
@@ -412,8 +527,18 @@ RunService.RenderStepped:Connect(function(dt)
 	local wall = 0
 	while acc >= STEP and guard < 5 do
 		local px, py = car.x, car.y
-		local _, vl = VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
+		local _, vl, marking = VehicleModel.step(car, inp, STEP, onTarmac, REV_REAL)
 		lateral = vl
+
+		markAcc += STEP
+		if marking and markAcc >= MARK_GAP then
+			markAcc = 0
+			dropMark()
+			if smokeEmitter then
+				smokeEmitter:Emit(math.random(1, 3))
+			end
+		end
+
 		if #nearBoxes > 0 then
 			-- The return is the speed lost INTO the wall, which is exactly what a
 			-- bang should be scaled by. It was already being thrown away.
@@ -444,6 +569,10 @@ RunService.RenderStepped:Connect(function(dt)
 			math.clamp(wall / 60, 0.05, 0.30),
 			0.7 + math.random() * 0.5
 		)
+		-- Same shape as the browser's hard-landing shake (body3d.js:287,
+		-- clamp(drop/26, 0, .7)) against the impact-speed scale this bang sound
+		-- already uses.
+		shakeMag = math.min(1, shakeMag + VehicleModel.clamp(wall / 60, 0, 0.7))
 	end
 
 	updateSound(dt, lateral)

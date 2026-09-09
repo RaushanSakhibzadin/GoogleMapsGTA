@@ -39,6 +39,97 @@ local function box(name: string, sx: number, sy: number, sz: number, colour: Col
 	return p
 end
 
+-- THE MARKINGS, shared between the player's own car (dress, below) and every
+-- NPC service vehicle (npc, further down) -- a police car reads as a police
+-- car whether it is yours or the one three cars ahead of you, and building
+-- this twice would be two places for a chequer band to drift out of step.
+--
+-- Takes the hull's own geometry rather than re-deriving it, because dress()
+-- and npc() arrive at the same numbers by slightly different routes (a
+-- resized shared hull vs. three fresh boxes) and this has no reason to care
+-- which.
+local function markings(
+	model: Model,
+	W: number,
+	H: number,
+	L: number,
+	hullH: number,
+	cabinH: number,
+	cabinY: number,
+	boxy: boolean,
+	livery: string,
+	beacon: Color3?
+)
+	-- A BAND ALONG THE FLANK is what every service vehicle on a European street
+	-- actually wears, and it is the cheapest marking that survives being seen
+	-- from a chase camera: two thin parts, one a side, at the hull's waist.
+	local function flank(name: string, bandColour: Color3, y: number, thick: number, len: number)
+		for _, side in { -1, 1 } do
+			local p = box(name, W * 0.06, hullH * thick, L * len, bandColour)
+			p.CFrame = CFrame.new(side * W * 0.5, y, 0)
+			p.Parent = model
+		end
+	end
+
+	if livery == "police" then
+		-- The chequer, reduced to what reads: a dark band with pale blocks in it.
+		flank("Band", Color3.fromRGB(30, 44, 96), 0, 0.34, 0.92)
+		for i = -2, 2 do
+			for _, side in { -1, 1 } do
+				local p = box("Check", W * 0.07, hullH * 0.34, L * 0.09, Color3.fromRGB(236, 240, 248))
+				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
+				p.Parent = model
+			end
+		end
+	elseif livery == "fire" then
+		flank("Band", Color3.fromRGB(255, 236, 180), hullH * 0.1, 0.2, 0.94)
+	elseif livery == "ambulance" then
+		flank("Band", Color3.fromRGB(46, 190, 120), 0, 0.3, 0.94)
+		-- The cross, on the flank rather than the roof: the roof is the one
+		-- surface a chase camera never shows you.
+		for _, side in { -1, 1 } do
+			local a = box("Cross", W * 0.07, hullH * 0.5, L * 0.055, Color3.fromRGB(240, 246, 250))
+			a.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
+			a.Parent = model
+			local b = box("Cross", W * 0.07, hullH * 0.18, L * 0.16, Color3.fromRGB(240, 246, 250))
+			b.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
+			b.Parent = model
+		end
+	elseif livery == "taxi" then
+		-- The chequer again, in the one place a taxi wears it, plus the sign that
+		-- is the actual silhouette of a private-hire car.
+		flank("Band", Color3.fromRGB(24, 24, 28), 0, 0.26, 0.9)
+		for i = -2, 2 do
+			for _, side in { -1, 1 } do
+				local p = box("Check", W * 0.07, hullH * 0.26, L * 0.09, Color3.fromRGB(246, 226, 120))
+				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
+				p.Parent = model
+			end
+		end
+		local sign = box("Sign", W * 0.34, H * 0.14, L * 0.1, Color3.fromRGB(28, 28, 32))
+		sign.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.07, L * 0.02)
+		sign.Parent = model
+	end
+
+	-- ONE PART AND ONE LIGHT. Dark at rest -- a beacon that is always lit says
+	-- nothing about whether anyone is responding -- and animated by whoever
+	-- owns the car rather than here: this module builds, it does not run.
+	if beacon then
+		local bar = box("Beacon", W * 0.5, H * 0.06, L * 0.09, beacon)
+		bar.Material = Enum.Material.Neon
+		bar.Transparency = 0.55
+		bar.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.045, L * (if boxy then -0.24 else 0.02))
+		bar.Parent = model
+
+		local light = Instance.new("PointLight")
+		light.Color = beacon
+		light.Range = 26
+		light.Brightness = 0
+		light.Shadows = false
+		light.Parent = bar
+	end
+end
+
 -- The model's PrimaryPart sits at the car's centre, at ground level plus half
 -- the body height, with -Z along the car's nose. Everything else is welded to
 -- it by offset, so the whole car moves with one PivotTo.
@@ -167,79 +258,7 @@ function CarBuild.dress(model: Model, colour: Color3, body: { l: number, w: numb
 	cabin.CFrame = CFrame.new(0, cabinY, L * (if boxy then 0.08 else 0.1))
 	glass.CFrame = CFrame.new(0, cabinY + cabinH * 0.12, L * (if boxy then 0.04 else 0.06))
 
-	-- ---- the markings ----
-
-	-- A BAND ALONG THE FLANK is what every service vehicle on a European street
-	-- actually wears, and it is the cheapest marking that survives being seen
-	-- from a chase camera: two thin parts, one a side, at the hull's waist.
-	local function flank(name: string, bandColour: Color3, y: number, thick: number, len: number)
-		for _, side in { -1, 1 } do
-			local p = box(name, W * 0.06, hullH * thick, L * len, bandColour)
-			p.CFrame = CFrame.new(side * W * 0.5, y, 0)
-			p.Parent = model
-		end
-	end
-
-	if livery == "police" then
-		-- The chequer, reduced to what reads: a dark band with pale blocks in it.
-		flank("Band", Color3.fromRGB(30, 44, 96), 0, 0.34, 0.92)
-		for i = -2, 2 do
-			for _, side in { -1, 1 } do
-				local p = box("Check", W * 0.07, hullH * 0.34, L * 0.09, Color3.fromRGB(236, 240, 248))
-				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
-				p.Parent = model
-			end
-		end
-	elseif livery == "fire" then
-		flank("Band", Color3.fromRGB(255, 236, 180), hullH * 0.1, 0.2, 0.94)
-	elseif livery == "ambulance" then
-		flank("Band", Color3.fromRGB(46, 190, 120), 0, 0.3, 0.94)
-		-- The cross, on the flank rather than the roof: the roof is the one
-		-- surface a chase camera never shows you.
-		for _, side in { -1, 1 } do
-			local a = box("Cross", W * 0.07, hullH * 0.5, L * 0.055, Color3.fromRGB(240, 246, 250))
-			a.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
-			a.Parent = model
-			local b = box("Cross", W * 0.07, hullH * 0.18, L * 0.16, Color3.fromRGB(240, 246, 250))
-			b.CFrame = CFrame.new(side * W * 0.5, 0, -L * 0.26)
-			b.Parent = model
-		end
-	elseif livery == "taxi" then
-		-- The chequer again, in the one place a taxi wears it, plus the sign that
-		-- is the actual silhouette of a private-hire car.
-		flank("Band", Color3.fromRGB(24, 24, 28), 0, 0.26, 0.9)
-		for i = -2, 2 do
-			for _, side in { -1, 1 } do
-				local p = box("Check", W * 0.07, hullH * 0.26, L * 0.09, Color3.fromRGB(246, 226, 120))
-				p.CFrame = CFrame.new(side * W * 0.5, 0, i * L * 0.18)
-				p.Parent = model
-			end
-		end
-		local sign = box("Sign", W * 0.34, H * 0.14, L * 0.1, Color3.fromRGB(28, 28, 32))
-		sign.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.07, L * 0.02)
-		sign.Parent = model
-	end
-
-	-- ---- the beacon ----
-
-	-- ONE PART AND ONE LIGHT, animated by whoever owns the car rather than here:
-	-- this module builds, it does not run. Named so a controller can find it,
-	-- and dark until something turns it on, because a beacon that is always lit
-	-- says nothing about whether you are responding.
-	if beacon then
-		local bar = box("Beacon", W * 0.5, H * 0.06, L * 0.09, beacon)
-		bar.Material = Enum.Material.Neon
-		bar.Transparency = 0.55
-		bar.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.045, L * (if boxy then -0.24 else 0.02))
-		bar.Parent = model
-
-		local light = Instance.new("PointLight")
-		light.Color = beacon
-		light.Range = 26
-		light.Brightness = 0
-		light.Shadows = false
-		light.Parent = bar
-	end
+	markings(model, W, H, L, hullH, cabinH, cabinY, boxy, livery, beacon)
 
 	-- WHERE THE PIVOT WANTS TO BE, so a caller that did not build the car does
 	-- not have to re-derive a hull height it was never told. It CHANGES with the
@@ -276,7 +295,21 @@ end
 -- and it is why a fleet of five service vehicles costs no modelling at all.
 --
 -- Sized in METRES; the studs conversion happens here, once, at build time.
-function CarBuild.npc(colour: Color3, lengthM: number, widthM: number, heightM: number, boxy: boolean): Model
+--
+-- `livery` and `beacon` dress a service vehicle exactly as CarBuild.dress does
+-- for the player's own car -- a fire engine three cars ahead of you should
+-- look like a fire engine, not a red box. `beacon` is nil for kinds with no
+-- lightbar (lorry, bus): pass Roles.get(livery).beacon at the call site,
+-- since a livery string and a role id are the same word for these five.
+function CarBuild.npc(
+	colour: Color3,
+	lengthM: number,
+	widthM: number,
+	heightM: number,
+	boxy: boolean,
+	livery: string?,
+	beacon: Color3?
+): Model
 	local L, W, H = lengthM * S, widthM * S, heightM * S
 
 	local model = Instance.new("Model")
@@ -295,6 +328,7 @@ function CarBuild.npc(colour: Color3, lengthM: number, widthM: number, heightM: 
 	-- the hull; a car is a cabin set back from the nose, which is what gives the
 	-- silhouette a bonnet and says which way it faces.
 	local cabinH = H * (if boxy then 0.55 else 0.5)
+	local cabinY = (hullH + cabinH) * 0.5 - H * 0.06
 	local cabin = box(
 		"Cabin",
 		W * (if boxy then 0.98 else 0.86),
@@ -302,7 +336,7 @@ function CarBuild.npc(colour: Color3, lengthM: number, widthM: number, heightM: 
 		L * (if boxy then 0.82 else 0.46),
 		colour:Lerp(Color3.new(0, 0, 0), 0.14)
 	)
-	cabin.CFrame = CFrame.new(0, (hullH + cabinH) * 0.5 - H * 0.06, L * (if boxy then 0.06 else 0.1))
+	cabin.CFrame = CFrame.new(0, cabinY, L * (if boxy then 0.06 else 0.1))
 	cabin.Parent = model
 
 	-- One dark band where the windows are. It is what makes a coloured box read
@@ -318,10 +352,15 @@ function CarBuild.npc(colour: Color3, lengthM: number, widthM: number, heightM: 
 	glass.CFrame = CFrame.new(0, hullH * 0.5 + cabinH * 0.62, L * (if boxy then 0.02 else 0.06))
 	glass.Parent = model
 
+	if livery then
+		markings(model, W, H, L, hullH, cabinH, cabinY, boxy, livery, beacon)
+	end
+
 	-- WHERE THE PIVOT WANTS TO BE, so the caller does not have to re-derive the
 	-- hull height it was never told. Half the hull, which stands the vehicle on
 	-- the road rather than in it.
 	model:SetAttribute("BodyY", hullH * 0.5)
+	model:SetAttribute("Livery", livery)
 	return model
 end
 
