@@ -246,42 +246,47 @@ function CityParts.building(b, meta, parent: Instance): number
 	-- A gate is a hole cut clean through the shell -- there is no floor, no
 	-- interior wall, nothing inside a flat-extruded building except its own
 	-- four walls and a roof way up top. Uncapped, walking under one shows
-	-- exactly that emptiness. A slab at the lintel's height, spanning
-	-- entry to exit, is what turns "a hole in a box" back into "a covered
-	-- passage" -- the one piece of interior a building this simple needs.
+	-- exactly that emptiness. A slab at the lintel's height, spanning entry
+	-- to exit, is what turns "a hole in a box" back into "a covered passage".
+	--
+	-- MOST GATES ARE NOT TWO CUTS. Checked across the bake: of 68 gated
+	-- buildings, only 12 had exactly two edges fall within b.gate.w of the
+	-- line -- 40 had three or more, one as many as nine, because the line
+	-- crosses an irregular footprint (a courtyard block, a step in the
+	-- facade) more than twice. Bridging just the first and last EDGE FOUND,
+	-- in wall-loop order, is not the same as bridging the nearest and
+	-- furthest cut along the passage -- edge order runs round the polygon,
+	-- not along the gate's line -- so on any building with a middle cut it
+	-- silently left part of the passage open. Projecting every opening onto
+	-- the gate's own direction and spanning min to max is exact regardless
+	-- of how many edges it crosses or what order the loop found them in.
 	if b.gate and #gateOpenings >= 1 then
 		local gy = b.gate.h
-		local cx, cz, dirX, dirZ, length
-		if #gateOpenings >= 2 then
-			-- Between the two real cuts, which is exact regardless of how
-			-- thick the building is at this point.
-			local p1, p2 = gateOpenings[1], gateOpenings[#gateOpenings]
-			cx, cz = (p1.X + p2.X) / 2, (p1.Z + p2.Z) / 2
-			local ddx, ddz = p2.X - p1.X, p2.Z - p1.Z
-			length = math.sqrt(ddx * ddx + ddz * ddz)
-			if length > 0.1 then
-				dirX, dirZ = ddx / length, ddz / length
-			else
-				dirX, dirZ = b.gate.ux, b.gate.uz
-			end
-		else
-			-- Only one wall on the gate's line was thin enough to open (a
-			-- passage cut into a corner, say). No far edge to measure to, so
-			-- a generous fixed depth stands in for "as deep as a passage
-			-- actually runs" -- long enough to read as covered from the
-			-- street, short of guessing wrong in a way that pokes out the
-			-- building's own far side.
-			local p1 = gateOpenings[1]
-			cx, cz = p1.X, p1.Z
-			dirX, dirZ = b.gate.ux, b.gate.uz
-			length = 12
+		local gux, guz = b.gate.ux, b.gate.uz
+		local gx, gz = b.ox + b.gate.x, b.oz + b.gate.z
+		local minProj, maxProj = math.huge, -math.huge
+		for _, p in gateOpenings do
+			local proj = (p.X - gx) * gux + (p.Z - gz) * guz
+			minProj = math.min(minProj, proj)
+			maxProj = math.max(maxProj, proj)
 		end
-		local ceiling = BOX:Clone()
+		-- A single cut (a passage into a corner, with no far wall on the same
+		-- line to measure to) or several cuts bunched close together still
+		-- gets a real depth of ceiling, not a slab with none.
+		local MIN_DEPTH = 12
+		if maxProj - minProj < MIN_DEPTH then
+			local mid = (minProj + maxProj) / 2
+			minProj, maxProj = mid - MIN_DEPTH / 2, mid + MIN_DEPTH / 2
+		end
+		local mid = (minProj + maxProj) / 2
+		local cx, cz = gx + gux * mid, gz + guz * mid
 		-- +2 so it laps the lintels on both ends rather than leaving a
 		-- hairline gap where the ceiling would otherwise butt exactly against
 		-- the wall it is capping.
-		ceiling.Size = Vector3.new(b.gate.w * 2, SHEET, length + 2)
-		ceiling.CFrame = CFrame.lookAt(Vector3.new(cx, gy, cz), Vector3.new(cx + dirX, gy, cz + dirZ))
+		local length = (maxProj - minProj) + 2
+		local ceiling = BOX:Clone()
+		ceiling.Size = Vector3.new(b.gate.w * 2, SHEET, length)
+		ceiling.CFrame = CFrame.lookAt(Vector3.new(cx, gy, cz), Vector3.new(cx + gux, gy, cz + guz))
 		ceiling.Color = wallColour
 		ceiling.Material = wallMat
 		ceiling.Parent = parent
