@@ -59,6 +59,17 @@ local GLASS_T = 1.0
 local COURSE = 1.4 * 3 -- a window course is about 1.4 m tall
 local PIER = 1.2 -- studs of solid wall left at each corner
 
+-- A COURSE WAS ONE BOX THE FULL LENGTH OF THE WALL RUN, which is exact and
+-- cheap and, on anything longer than about six metres, reads as a single
+-- ribbon rather than as windows -- reported as "windows look like lines".
+-- Chopping it into segments this wide, with a pier-width gap between them,
+-- turns the ribbon into what it is standing in for: a row of window bays.
+-- Still one glass box a bay rather than one a pane, so the part cost stays a
+-- small, bounded multiple of what a single band already cost, not a jump to
+-- one-box-per-real-window.
+local WIN_SEG = 6 -- studs, one bay's own width
+local WIN_GAP = 1.4 -- studs, the pier between bays
+
 -- Deterministic 0..1, the same sin-based mix the bake uses for heights and the
 -- browser uses for its own per-building choices -- so which windows are lit is
 -- stable across a rejoin instead of flickering on every build.
@@ -130,6 +141,14 @@ function CityParts.building(b, meta, parent: Instance): number
 	local wallColour = palette[b.wall]
 	local wallMat = materials[b.wmat] or Enum.Material.Concrete
 
+	-- WHERE THE PASSAGE ACTUALLY OPENED. Every edge within b.gate.w of the
+	-- gate's line gets its bottom cut -- normally exactly two, the near wall
+	-- and the far one, since a line through a roughly convex footprint
+	-- crosses its boundary twice. Recorded so the passage can be given a
+	-- ceiling after the wall loop: cutting a hole through a hollow shell with
+	-- nothing to cap it is what "you can see the insides of buildings" was.
+	local gateOpenings: { Vector3 } = {}
+
 	-- ---- walls: one box an edge ----
 	for i = 0, n - 1 do
 		local j = (i + 1) % n
@@ -149,6 +168,7 @@ function CityParts.building(b, meta, parent: Instance): number
 			local mz = (az + bz) * 0.5 - (b.oz + b.gate.z)
 			if math.abs(mx * -b.gate.uz + mz * b.gate.ux) <= b.gate.w then
 				bottom = math.min(b.gate.h, h - 0.5)
+				gateOpenings[#gateOpenings + 1] = Vector3.new((ax + bx) / 2, bottom, (az + bz) / 2)
 			end
 		end
 		local tall = top - bottom
@@ -189,21 +209,83 @@ function CityParts.building(b, meta, parent: Instance): number
 			local bandLen = math.max(1, len - PIER)
 			local dirX, dirZ = dx / len, dz / len
 			local mx, mz = (ax + bx) / 2, (az + bz) / 2
+
+			-- BAYS, not one ribbon. `pitch` is bandLen shared out evenly over
+			-- segCount bays so the run divides exactly -- no giant leftover
+			-- gap parked at one end -- and `segLen` is what is left of each
+			-- pitch once its own trailing gap is taken out.
+			local segStep = WIN_SEG + WIN_GAP
+			local segCount = math.max(1, math.floor((bandLen + WIN_GAP) / segStep))
+			local pitch = bandLen / segCount
+			local segLen = math.max(1, pitch - WIN_GAP)
+			local startX, startZ = mx - dirX * bandLen * 0.5, mz - dirZ * bandLen * 0.5
+
 			for k = 1, courses do
 				local y = k * storeyStuds
 				if y + COURSE * 0.5 > h then
 					break
 				end
-				local lit = hash01(math.floor(ax * 7 + az * 13) + i * 31, k) < litFrac
-				local g = BOX:Clone()
-				g.Size = Vector3.new(GLASS_T, COURSE, bandLen)
-				g.CFrame = CFrame.lookAt(Vector3.new(mx, y, mz), Vector3.new(mx + dirX, y, mz + dirZ))
-				g.Color = if lit then litColour else glassColour
-				g.Material = if lit then Enum.Material.Neon else Enum.Material.Glass
-				g.Parent = parent
-				made += 1
+				for s = 0, segCount - 1 do
+					local d = (s + 0.5) * pitch
+					local sx, sz = startX + dirX * d, startZ + dirZ * d
+					local lit = hash01(math.floor(sx * 7 + sz * 13) + i * 31, k * 97 + s) < litFrac
+					local g = BOX:Clone()
+					g.Size = Vector3.new(GLASS_T, COURSE, segLen)
+					g.CFrame = CFrame.lookAt(Vector3.new(sx, y, sz), Vector3.new(sx + dirX, y, sz + dirZ))
+					g.Color = if lit then litColour else glassColour
+					g.Material = if lit then Enum.Material.Neon else Enum.Material.Glass
+					g.Parent = parent
+					made += 1
+				end
 			end
 		end
+	end
+
+	-- ---- the archway's own ceiling ----
+	--
+	-- A gate is a hole cut clean through the shell -- there is no floor, no
+	-- interior wall, nothing inside a flat-extruded building except its own
+	-- four walls and a roof way up top. Uncapped, walking under one shows
+	-- exactly that emptiness. A slab at the lintel's height, spanning
+	-- entry to exit, is what turns "a hole in a box" back into "a covered
+	-- passage" -- the one piece of interior a building this simple needs.
+	if b.gate and #gateOpenings >= 1 then
+		local gy = b.gate.h
+		local cx, cz, dirX, dirZ, length
+		if #gateOpenings >= 2 then
+			-- Between the two real cuts, which is exact regardless of how
+			-- thick the building is at this point.
+			local p1, p2 = gateOpenings[1], gateOpenings[#gateOpenings]
+			cx, cz = (p1.X + p2.X) / 2, (p1.Z + p2.Z) / 2
+			local ddx, ddz = p2.X - p1.X, p2.Z - p1.Z
+			length = math.sqrt(ddx * ddx + ddz * ddz)
+			if length > 0.1 then
+				dirX, dirZ = ddx / length, ddz / length
+			else
+				dirX, dirZ = b.gate.ux, b.gate.uz
+			end
+		else
+			-- Only one wall on the gate's line was thin enough to open (a
+			-- passage cut into a corner, say). No far edge to measure to, so
+			-- a generous fixed depth stands in for "as deep as a passage
+			-- actually runs" -- long enough to read as covered from the
+			-- street, short of guessing wrong in a way that pokes out the
+			-- building's own far side.
+			local p1 = gateOpenings[1]
+			cx, cz = p1.X, p1.Z
+			dirX, dirZ = b.gate.ux, b.gate.uz
+			length = 12
+		end
+		local ceiling = BOX:Clone()
+		-- +2 so it laps the lintels on both ends rather than leaving a
+		-- hairline gap where the ceiling would otherwise butt exactly against
+		-- the wall it is capping.
+		ceiling.Size = Vector3.new(b.gate.w * 2, SHEET, length + 2)
+		ceiling.CFrame = CFrame.lookAt(Vector3.new(cx, gy, cz), Vector3.new(cx + dirX, gy, cz + dirZ))
+		ceiling.Color = wallColour
+		ceiling.Material = wallMat
+		ceiling.Parent = parent
+		made += 1
 	end
 
 	-- ---- roof: two wedges a triangle ----
