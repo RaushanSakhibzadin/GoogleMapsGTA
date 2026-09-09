@@ -252,8 +252,22 @@ RunService.RenderStepped:Connect(function(dt)
 				at += 4
 			end
 		end
-		;(image :: EditableImage):WritePixelsBuffer(Vector2.zero, Vector2.new(RES, RES), rgba)
-		sheet.ImageContent = Content.fromObject(image :: EditableImage)
+		-- GUARDED, LIKE THE CREATE ABOVE. CreateEditableImage can succeed while
+		-- the API is still unusable -- the instance exists but writing to it
+		-- throws "EditableImage is not accessible" -- and that only surfaces
+		-- here, at 20 Hz. Unguarded, that is not an error, it is a flood: the
+		-- console fills with the same line every frame and evicts everything
+		-- else out of its history. One warning and the same "blips only"
+		-- fallback the constructor already has is the honest response.
+		local ok, err = pcall(function()
+			local img = image :: EditableImage
+			img:WritePixelsBuffer(Vector2.zero, Vector2.new(RES, RES), rgba)
+			sheet.ImageContent = Content.fromObject(img)
+		end)
+		if not ok then
+			warn("[minimap] EditableImage unusable (" .. tostring(err) .. ") -- blips only")
+			image = nil
+		end
 	end
 
 	-- Blips, in the same rotated basis as the pixels.
