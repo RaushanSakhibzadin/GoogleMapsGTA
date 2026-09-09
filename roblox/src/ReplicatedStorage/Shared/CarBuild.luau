@@ -39,6 +39,26 @@ local function box(name: string, sx: number, sy: number, sz: number, colour: Col
 	return p
 end
 
+-- A WedgePart's slope runs flat-bottomed, full Size.Y tall at local +Z, down
+-- to a zero-height edge at local -Z -- confirmed empirically (a test wedge,
+-- screenshotted) rather than assumed, since getting this backwards mirrors
+-- the taper into a ramp up to the bumper instead of a nose down to it.
+local function wedge(name: string, sx: number, sy: number, sz: number, colour: Color3): WedgePart
+	local p = Instance.new("WedgePart")
+	p.Name = name
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.SmoothPlastic
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = Vector3.new(sx, sy, sz)
+	p.Color = colour
+	return p
+end
+
 -- THE MARKINGS, shared between the player's own car (dress, below) and every
 -- NPC service vehicle (npc, further down) -- a police car reads as a police
 -- car whether it is yours or the one three cars ahead of you, and building
@@ -128,6 +148,61 @@ local function markings(
 		light.Shadows = false
 		light.Parent = bar
 	end
+end
+
+-- THE TAPER, ported from js/carmesh.js's CAR_STATIONS -- a hatchback's roof
+-- rises to its full height over the cabin and drops away at both ends, low
+-- at the bonnet and lower still at the tailgate, which a flat-ended box has
+-- never had any of. Extends the silhouette forward and back from the hull's
+-- own flat ends rather than replacing them, so hullH/cabinY/wheel-drop/
+-- markings -- everything already measured off the hull -- stay exactly what
+-- they were; only two more parts appear, outside the hull's own footprint.
+--
+-- A VAN DOES NOT GET ONE. js/render3d.js draws the appliance and the box
+-- body as their own flat-fronted shapes, never through carMeshBuild at all
+-- -- boxy is already this file's own name for that distinction (CarBuild.dress
+-- and CarBuild.npc both compute it the same way) and this reads it rather
+-- than adding a second one.
+--
+-- Returns how far the nose and tail extend past the hull, in studs, which is
+-- the only thing a caller with its own lamps (CarBuild.dress) needs back --
+-- CarBuild.npc has none to move.
+local function taper(
+	model: Model,
+	colour: Color3,
+	W: number,
+	L: number,
+	hullH: number,
+	cabinH: number,
+	cabinY: number,
+	boxy: boolean
+): (number, number)
+	if boxy then
+		return 0, 0
+	end
+	-- Asymmetric, the way a real bonnet and a real tailgate are: the front
+	-- overhang is the longer of the two in js/carmesh.js's own station table.
+	local noseLen = L * 0.16
+	local tailLen = L * 0.10
+	-- Ground to the greenhouse's own peak -- the full height a real bonnet
+	-- and tailgate taper down FROM, not just the lower hull's.
+	local peakY = cabinY + cabinH * 0.5
+	local baseY = -hullH * 0.5
+	local taperH = peakY - baseY
+	local taperCY = (peakY + baseY) * 0.5
+
+	local nose = wedge("Nose", W * 0.94, taperH, noseLen, colour)
+	nose.CFrame = CFrame.new(0, taperCY, -L * 0.5 - noseLen * 0.5)
+	nose.Parent = model
+
+	-- Tall end at +Z is wrong here -- the tail's tall end has to face the
+	-- hull, which is -Z from the tail wedge's own centre -- so this is the
+	-- one of the two that needs the turn.
+	local tail = wedge("Tail", W * 0.94, taperH, tailLen, colour)
+	tail.CFrame = CFrame.new(0, taperCY, L * 0.5 + tailLen * 0.5) * CFrame.Angles(0, math.pi, 0)
+	tail.Parent = model
+
+	return noseLen, tailLen
 end
 
 -- The model's PrimaryPart sits at the car's centre, at ground level plus half
@@ -240,13 +315,6 @@ function CarBuild.dress(model: Model, colour: Color3, body: { l: number, w: numb
 		p.CFrame = CFrame.new(x, hullH * 0.1, z)
 		p.Parent = model
 	end
-	local nose = -L * 0.5
-	local tail = L * 0.5
-	lamp("HeadL", Color3.fromRGB(255, 246, 214), -W * 0.3, nose)
-	lamp("HeadR", Color3.fromRGB(255, 246, 214), W * 0.3, nose)
-	lamp("TailL", Color3.fromRGB(226, 46, 42), -W * 0.3, tail)
-	lamp("TailR", Color3.fromRGB(226, 46, 42), W * 0.3, tail)
-
 	-- POSITIONED ONCE, HERE, relative to the hull sitting at the origin. PivotTo
 	-- moves a model's parts together and preserves what they are relative to
 	-- each other, so laying the car out once at build time is all it needs -- an
@@ -257,6 +325,18 @@ function CarBuild.dress(model: Model, colour: Color3, body: { l: number, w: numb
 	-- itself says which way it faces even with the lamps off screen.
 	cabin.CFrame = CFrame.new(0, cabinY, L * (if boxy then 0.08 else 0.1))
 	glass.CFrame = CFrame.new(0, cabinY + cabinH * 0.12, L * (if boxy then 0.04 else 0.06))
+
+	-- BEFORE THE LAMPS, so a tapered nose or tail can push where "the very
+	-- front" actually is -- the lamps have to sit on the real tip, not on
+	-- the hull's own flat end the taper now sits proud of.
+	local noseExt, tailExt = taper(model, colour, W, L, hullH, cabinH, cabinY, boxy)
+
+	local nose = -L * 0.5 - noseExt
+	local tail = L * 0.5 + tailExt
+	lamp("HeadL", Color3.fromRGB(255, 246, 214), -W * 0.3, nose)
+	lamp("HeadR", Color3.fromRGB(255, 246, 214), W * 0.3, nose)
+	lamp("TailL", Color3.fromRGB(226, 46, 42), -W * 0.3, tail)
+	lamp("TailR", Color3.fromRGB(226, 46, 42), W * 0.3, tail)
 
 	markings(model, W, H, L, hullH, cabinH, cabinY, boxy, livery, beacon)
 
@@ -351,6 +431,8 @@ function CarBuild.npc(
 	)
 	glass.CFrame = CFrame.new(0, hullH * 0.5 + cabinH * 0.62, L * (if boxy then 0.02 else 0.06))
 	glass.Parent = model
+
+	taper(model, colour, W, L, hullH, cabinH, cabinY, boxy)
 
 	if livery then
 		markings(model, W, H, L, hullH, cabinH, cabinY, boxy, livery, beacon)
