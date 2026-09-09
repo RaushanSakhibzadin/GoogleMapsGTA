@@ -103,6 +103,64 @@ local function markings(
 		end
 	elseif livery == "fire" then
 		flank("Band", Color3.fromRGB(255, 236, 180), hullH * 0.1, 0.2, 0.94)
+
+		-- THE LADDER, stowed along the roof -- ported from js/render3d.js's
+		-- pushFireEngine rather than guessed at. Two rails and nine rungs is
+		-- what the browser game draws and its own comment says why: rungs are
+		-- what make two rails read as a ladder instead of a pair of pipes,
+		-- and at this size they are the cheapest recognisable thing on the
+		-- whole vehicle.
+		--
+		-- pushFireEngine places everything in the vehicle's own normalised
+		-- box (front/lateral/up each -1..1 across the body), which is not
+		-- this file's coordinate system -- so f (front-positive) carries to
+		-- this file's z (nose-negative) and l (lateral, ±1 = the flank) to
+		-- x, both scaled by half the relevant dimension, the same way the
+		-- taper above carries CAR_STATIONS onto this hull.
+		--
+		-- HEIGHT DOES NOT CARRY THE SAME WAY. js/render3d.js draws its
+		-- ladder (u = .76-.86) just clear of a separate, shorter BODY box
+		-- that tops out at .74, with the cab a taller box beside it, not
+		-- under it. This file has no such second box for a van shape --
+		-- boxy's "cabin" IS the whole raised superstructure, running
+		-- nearly the full length at nearly the full height, which is
+		-- exactly where the ladder needs to sit. Carrying the JS u
+		-- fraction straight across put the ladder inside that box,
+		-- invisible -- caught on a screenshot, not guessed at. So the
+		-- ladder is pinned above the cabin's OWN roof instead, which is
+		-- where "stowed on the roof" actually lands once there is only
+		-- one box to put a roof on.
+		local function lX(l0: number, l1: number): (number, number)
+			return (l0 + l1) * 0.25 * W, (l1 - l0) * 0.5 * W
+		end
+		local function fZ(f0: number, f1: number): (number, number)
+			return -(f0 + f1) * 0.25 * L, (f1 - f0) * 0.5 * L
+		end
+		local roofY = cabinY + cabinH * 0.5
+		-- Thicknesses kept as JS had them: a rung is .06 of a u-range 2.0
+		-- wide against a rail's .10, i.e. six tenths as thick, and both
+		-- read here as the same fraction of this file's own H.
+		local railY, railH = roofY + H * 0.04, H * 0.05
+		local rungY, rungH = roofY + H * 0.04, H * 0.03
+
+		-- rail colour, near enough to aluminium -- FIRE_LADDER in the original
+		local ladderColour = Color3.fromRGB(201, 209, 217)
+		for _, side in { -1, 1 } do
+			local c0 = side * 0.40
+			local cx, sx = lX(c0 - 0.06, c0 + 0.06)
+			local cz, sz = fZ(-0.98, 0.30)
+			local rail = box("LadderRail", sx, railH, sz, ladderColour)
+			rail.CFrame = CFrame.new(cx, railY, cz)
+			rail.Parent = model
+		end
+		for i = 0, 8 do
+			local f0 = -0.94 + i * 0.145
+			local cx, sx = lX(-0.40, 0.40)
+			local cz, sz = fZ(f0, f0 + 0.05)
+			local rung = box("LadderRung", sx, rungH, sz, ladderColour)
+			rung.CFrame = CFrame.new(cx, rungY, cz)
+			rung.Parent = model
+		end
 	elseif livery == "ambulance" then
 		flank("Band", Color3.fromRGB(46, 190, 120), 0, 0.3, 0.94)
 		-- The cross, on the flank rather than the roof: the roof is the one
@@ -131,22 +189,44 @@ local function markings(
 		sign.Parent = model
 	end
 
-	-- ONE PART AND ONE LIGHT. Dark at rest -- a beacon that is always lit says
-	-- nothing about whether anyone is responding -- and animated by whoever
-	-- owns the car rather than here: this module builds, it does not run.
+	-- TWO LAMPS, NOT ONE. js/render3d.js's pushPolice, pushFireBar and
+	-- pushAmbulanceBar are the same function under three names: a fixed blue
+	-- lamp on one side of the bar, a fixed red lamp on the other, and BOTH
+	-- strobe on the same clock -- nothing there actually swaps which one is
+	-- lit; the two of them brighten together and dim together, and it is the
+	-- two colours sitting side by side that read as a flashing bar rather
+	-- than any left/right alternation. One box in one colour read as "this
+	-- car's beacon is blue," which is what was reported, and the role's own
+	-- colour (still `beacon`, still used for a dispatch marker elsewhere) has
+	-- no more to do with the bar's paint here than it does in the browser
+	-- game -- it now only says whether this vehicle gets a bar at all.
+	--
+	-- Dark at rest, animated by whoever owns the car rather than here: this
+	-- module builds, it does not run.
 	if beacon then
-		local bar = box("Beacon", W * 0.5, H * 0.06, L * 0.09, beacon)
-		bar.Material = Enum.Material.Neon
-		bar.Transparency = 0.55
-		bar.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.045, L * (if boxy then -0.24 else 0.02))
-		bar.Parent = model
+		local barY = cabinY + cabinH * 0.5 + H * 0.045
+		local barZ = L * (if boxy then -0.24 else 0.02)
 
-		local light = Instance.new("PointLight")
-		light.Color = beacon
-		light.Range = 26
-		light.Brightness = 0
-		light.Shadows = false
-		light.Parent = bar
+		local base = box("BeaconBase", W * 0.42, H * 0.03, L * 0.09, Color3.fromRGB(18, 20, 24))
+		base.CFrame = CFrame.new(0, barY - H * 0.03, barZ)
+		base.Parent = model
+
+		local function lampAt(name: string, lampColour: Color3, x: number)
+			local p = box(name, W * 0.2, H * 0.05, L * 0.08, lampColour)
+			p.Material = Enum.Material.Neon
+			p.Transparency = 0.55
+			p.CFrame = CFrame.new(x, barY, barZ)
+			p.Parent = model
+
+			local light = Instance.new("PointLight")
+			light.Color = lampColour
+			light.Range = 26
+			light.Brightness = 0
+			light.Shadows = false
+			light.Parent = p
+		end
+		lampAt("BeaconL", Color3.fromRGB(77, 158, 255), -W * 0.14)
+		lampAt("BeaconR", Color3.fromRGB(255, 56, 46), W * 0.14)
 	end
 end
 

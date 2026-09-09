@@ -283,12 +283,16 @@ RunService.Heartbeat:Connect(function(dt)
 		local m = bodyFor(n)
 		CarBuild.place(m, n.car.x, n.car.y, n.car.h, m:GetAttribute("BodyY") :: number)
 
-		local bar = m:FindFirstChild("Beacon")
-		if bar and bar:IsA("BasePart") then
-			bar.Transparency = if lit then 0 else 0.62
-			local light = bar:FindFirstChildOfClass("PointLight")
-			if light then
-				light.Brightness = if lit then 2.4 else 0
+		-- BOTH LAMPS, same clock -- see RoleUI.client.luau's own copy of this
+		-- loop for why there are two names now instead of one.
+		for _, partName in { "BeaconL", "BeaconR" } do
+			local bar = m:FindFirstChild(partName)
+			if bar and bar:IsA("BasePart") then
+				bar.Transparency = if lit then 0 else 0.62
+				local light = bar:FindFirstChildOfClass("PointLight")
+				if light then
+					light.Brightness = if lit then 2.4 else 0
+				end
 			end
 		end
 	end

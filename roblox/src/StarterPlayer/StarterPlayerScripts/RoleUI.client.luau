@@ -305,20 +305,24 @@ task.spawn(function()
 	-- for. DispatchUI owns "am I responding" and publishes it on the bus.
 	local t = 0
 	RunService.Heartbeat:Connect(function(dt)
-		local bar = model:FindFirstChild("Beacon")
-		if not (bar and bar:IsA("BasePart")) then
-			return
-		end
-		local light = bar:FindFirstChildOfClass("PointLight")
 		t += dt
 		local on = ClientBus.responding == true
 		-- Two flashes and a gap, which is what a strobe actually does and what
 		-- makes it read as one rather than as a blinking bulb.
 		local ph = (t * 2.4) % 1
 		local lit = on and (ph < 0.09 or (ph > 0.16 and ph < 0.25))
-		bar.Transparency = if lit then 0 else 0.62
-		if light then
-			light.Brightness = if lit then 2.4 else 0
+		-- BOTH LAMPS, same clock -- CarBuild now builds a blue one and a red
+		-- one (see its own comment on markings()) rather than one part in a
+		-- single fixed colour, so both get toggled here rather than one.
+		for _, partName in { "BeaconL", "BeaconR" } do
+			local bar = model:FindFirstChild(partName)
+			if bar and bar:IsA("BasePart") then
+				bar.Transparency = if lit then 0 else 0.62
+				local light = bar:FindFirstChildOfClass("PointLight")
+				if light then
+					light.Brightness = if lit then 2.4 else 0
+				end
+			end
 		end
 	end)
 end)
