@@ -272,7 +272,16 @@ function CityParts.building(b, meta, parent: Instance): number
 	-- the gate's own direction and spanning min to max is exact regardless
 	-- of how many edges it crosses or what order the loop found them in.
 	if b.gate and #gateOpenings >= 1 then
-		local gy = b.gate.h
+		-- THE SAME HEIGHT THE WALLS WERE ACTUALLY CUT TO, not the raw archway
+		-- constant -- b.gate.h is 4.2 m for every building, but the wall cut
+		-- above clamps to h - 0.5 on anything shorter than that. Using the raw
+		-- constant here floated the ceiling above a short building's own roof,
+		-- capping nothing: the wall opened almost to the top and the slab meant
+		-- to cover it sat over the roofline instead, which is what "still see
+		-- the insides passing through the archway" was. gateOpenings already
+		-- carries the clamped height in its own Y -- one of them, any of them,
+		-- since every opening on this building was cut to the same bottom.
+		local gy = gateOpenings[1].Y
 		local gux, guz = b.gate.ux, b.gate.uz
 		local gx, gz = b.ox + b.gate.x, b.oz + b.gate.z
 		local minProj, maxProj = math.huge, -math.huge
