@@ -315,31 +315,37 @@ body.perked .perk .keyRow{display:none}
    thumb lands rather than living in a corner, and a control in the top centre is
    a reach across the whole screen from either grip — which is what was reported.
 
-   ONE CAN, HARD AGAINST THE LEFT. It was one in the top centre, then two — one
-   in each bottom corner, then both pulled in towards the middle — and it is one
-   again now, on the left, asked for each time by somebody actually holding the
-   phone. The pair existed because either hand could reach one; the report is
-   that two of the same button reads as two different buttons, and the left is
-   where the spare thumb is.
+   ONE CAN, ON THE LEFT. It was one in the top centre, then two — one in each
+   bottom corner, then both pulled in towards the middle — and it is one again
+   now, on the left, asked for each time by somebody actually holding the phone.
+   The pair existed because either hand could reach one; the report is that two
+   of the same button reads as two different buttons, and the left is where the
+   spare thumb is.
 
-   Round, and big: 15vw is a thumb, and a circle is what a thumb hits. It carries
-   the side you are on as its rim, so which colour you are about to spray is
-   answerable without pressing it. */
-:root{--sprayD:clamp(58px,15vw,84px)}
-.sprayCan{position:fixed;bottom:calc(var(--edgeB) + 2px);z-index:46;
+   Round, and big: a circle is what a thumb hits.
+
+   AND IT IS THE DRIFT BUTTON'S MIRROR IMAGE, asked for in those words. Same
+   diameter, same height off the bottom, same inset from its own edge — so the
+   two round glass buttons you press with a thumb sit as a pair, one under each
+   hand, instead of one hovering above the accelerator and the other jammed in
+   the opposite corner six points from the glass.
+
+   EXPRESSED IN THE DRIFT BUTTON'S OWN VARIABLES rather than copied out of it.
+   --driftUp is 14 points on a desktop and 34 on a phone; a can positioned
+   against either literal would line up on one viewport and be twenty points out
+   on the other, which is precisely the bug --driftD was made a variable to stop
+   happening to the district name.
+
+   It carries the side you are on as its rim, so which colour you are about to
+   spray is answerable without pressing it. */
+.sprayCan{position:fixed;z-index:46;
+  left:var(--edgeL);bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas));
   display:none;align-items:center;justify-content:center;pointer-events:auto;
-  width:var(--sprayD);height:var(--sprayD);border-radius:50%;
-  cursor:pointer;font-size:calc(var(--sprayD) * .44);line-height:1;padding:0;
+  width:var(--driftD);height:var(--driftD);border-radius:50%;
+  cursor:pointer;font-size:calc(var(--gas) * .3);line-height:1;padding:0;
   background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.35);
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
-/* AND ALMOST TOUCHING THE EDGE, asked for in those words. Six points is a hair
-   of glass — enough that the rim is not clipped by a rounded display corner and
-   not enough to read as an inset. It was a fifth of the width in when there were
-   two of them and they had to sit either side of centre; with one there is
-   nothing to be either side of. */
-:root{--sprayIn:6px}
-#sprayBtn{left:var(--sprayIn)}
 .sprayCan.on{display:flex}
 .sprayCan[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
 .sprayCan[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
@@ -347,10 +353,12 @@ body.perked .perk .keyRow{display:none}
 body.theme-day .sprayCan{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,.45)}
 body.theme-day .sprayCan[data-team="red"]{background:rgba(201,32,47,.4);border-color:#8f1622}
 body.theme-day .sprayCan[data-team="black"]{background:rgba(255,255,255,.5);border-color:#15151b}
-/* ON THE PADS SCHEME THE CORNERS REALLY ARE TAKEN, so there they go above the
-   pad rather than under it. The stick scheme hides the pads entirely, which is
-   the default and where these sit at the bottom as asked. */
-body.ctrl-pads .sprayCan{bottom:calc(var(--edgeB) + var(--pad) + 8px)}
+/* NO PER-SCHEME OVERRIDE ANY MORE. It used to sit at the bottom edge on the
+   stick scheme and lift above the pad row on the pads one -- two positions for
+   one button, and neither of them level with DRIFT. Mirroring the drift button
+   clears the pad row on its own (the steering pads are --pad tall and this is a
+   whole accelerator above them), so one rule now covers both schemes and the
+   can does not move when you change controls. */
 
 /* GHOST is a big change to how the car behaves, so it says so while it's on. */
 #ghostTag{position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:36;display:none;
@@ -742,7 +750,7 @@ body.theme-day #chunk{color:rgba(0,0,0,.6);text-shadow:0 2px 6px rgba(255,255,25
    already the taller of the two. */
 #zone{position:absolute;right:14px;
   bottom:max(calc(12px + var(--radioBar) + clamp(46px,10vw,74px)),
-             calc(var(--edgeB) + 24px + var(--gas) + var(--driftD)));
+             calc(var(--edgeB) + var(--driftUp) + 10px + var(--gas) + var(--driftD)));
   max-width:min(46vw,380px);text-align:right;font-size:clamp(19px,3.6vw,30px);
   color:var(--gold);opacity:0;transition:opacity .5s}
 #zone.on{opacity:.95}
@@ -981,15 +989,21 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
 /* Its diameter is a variable because the district name above it has to know:
    the button used to be a 41 point text pill and is a 67 point circle, and it
    grows UPWARDS — there is no room below, the accelerator is there. */
-:root{--driftD:calc(var(--gas) * .58)}
-#tH{right:var(--edgeR);bottom:calc(var(--edgeB) + 14px + var(--gas));
+/* AND HOW FAR ABOVE THE ACCELERATOR IT SITS IS A VARIABLE TOO, because the
+   spray can is now its mirror image on the other edge and the two have to move
+   together. This number differs by viewport -- 14 here, 34 in the phone query
+   below -- so a can positioned against a copy of it would be symmetrical on one
+   screen and not on the other. Same argument as --driftD above: the thing two
+   rules share is a name, not a number. */
+:root{--driftD:calc(var(--gas) * .58);--driftUp:14px}
+#tH{right:var(--edgeR);bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas));
   width:var(--driftD);height:var(--driftD);
   border-radius:50%;padding:0;font-size:calc(var(--gas) * .3);letter-spacing:0;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",var(--hud)}
-/* Day/night is a row in the settings panel now, not a pad — see #mix. All that
-   is left of it here is --hpH, the armor block's rendered height, which the
-   spray can hangs off. */
-:root{--hpH:31px}
+/* Day/night is a row in the settings panel now, not a pad — see #mix, and
+   nothing is left of it here: --hpH went with it. It was the armor block's
+   rendered height and the spray can was the last thing hanging off it, which
+   stopped being true when the can moved to mirror the drift button above. */
 
 /* ---------- daylight: the HUD has to survive a light background ---------- */
 body.theme-day #post{
@@ -1042,7 +1056,8 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
   /* DRIFT sits just above the accelerator — it's held mid-corner, so it has to
      fall under the same thumb rather than up the screen away from it, but with
      enough of a gap that reaching for one doesn't catch the other. */
-  #tH{right:var(--edgeR);left:auto;bottom:calc(var(--edgeB) + 34px + var(--gas))}
+  :root{--driftUp:34px}
+  #tH{right:var(--edgeR);left:auto;bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas))}
   /* The armor bar and the day/night switch used to need a phone override apiece
      to keep them off the thumb pads. They are at the top centre now, where there
      are no pads to clear and the 24vw cap already sizes them for a small screen,
@@ -1064,7 +1079,7 @@ body.theme-day .pad{background:rgba(255,255,255,.42);border-color:rgba(24,18,32,
      rather than 14, so the floor is written against that number and not against
      the other one. */
   #zone{bottom:max(calc(var(--edgeB) + 94px + var(--gas)),
-                   calc(var(--edgeB) + 44px + var(--gas) + var(--driftD)));
+                   calc(var(--edgeB) + var(--driftUp) + 10px + var(--gas) + var(--driftD)));
     max-width:44vw;font-size:clamp(17px,4.4vw,26px)}
 }
 /* Landscape phones. There is barely any height here — a top-left column, the
