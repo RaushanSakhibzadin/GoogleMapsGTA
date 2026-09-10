@@ -644,6 +644,46 @@ function mapFit(keep) {
 const MAP_FACE_M = 90, MAP_FACE_MIN = 15, MAP_FACE_MAX = 44;
 const mapFaceSize = s => clamp(MAP_FACE_M * s, MAP_FACE_MIN, MAP_FACE_MAX);
 
+/* WHICH LANDMARK FACES ARE WORTH DRAWING, given that several of them are on top
+   of each other.
+ *
+ * Reported as an unreadable pile of icons: twelve amenity=clinic entries make up
+ * Belgrade's clinical centre and they sit inside a few blocks, so the map drew
+ * twelve overlapping glyphs where one would have said the same thing better.
+ * Nothing about that is specific to clinics — it is what real data looks like
+ * wherever a service comes in campuses.
+ *
+ * SAME KIND ONLY. A hospital next to a police station is two facts and both get
+ * drawn; two hospitals forty metres apart is one fact drawn twice.
+ *
+ * IN SCREEN SPACE, via the caller's own projection, which is what makes this a
+ * function of legibility rather than of geography: the test is "would these two
+ * glyphs overlap", so zooming in separates them and all twelve appear. A
+ * world-space radius would need a distance that means "too close" at every zoom
+ * level, and there isn't one.
+ *
+ * FIRST ONE WINS rather than any cleverer choice of representative. W.pois is
+ * in a stable order, so the survivor does not flicker between neighbours as you
+ * drive — which is the failure this is most likely to be blamed for otherwise.
+ *
+ * O(n·k) against the survivors, not O(n²) against everything: k is how many
+ * distinct clusters are on screen, which is small precisely when n is large. */
+function thinFaces(pois, project, px) {
+  const near = (px * 0.86) ** 2;          // a glyph's own width, near enough
+  const keep = [], at = [];
+  for (const p of pois) {
+    const [x, y] = project(p.x, p.y);
+    let hidden = false;
+    for (let i = 0; i < keep.length; i++) {
+      if (keep[i].kind !== p.kind) continue;
+      const dx = at[i][0] - x, dy = at[i][1] - y;
+      if (dx * dx + dy * dy < near) { hidden = true; break; }
+    }
+    if (!hidden) { keep.push(p); at.push([x, y]); }
+  }
+  return keep;
+}
+
 function mapClamp() {
   const wide = Math.max(W.maxX - W.minX, 1), tall = Math.max(W.maxY - W.minY, 1);
   /* THE MAP FILLS THE SCREEN. Zooming out used to stop at
@@ -817,8 +857,18 @@ function drawBigMap() {
   for (const p of W.pois) dot(p.x, p.y, POI_COL[p.kind], dotR);
   const goal = missionGoal();
   if (goal) dot(goal.at.x, goal.at.y, goal.col, dotR * 1.4);
-  // faces over the top of every dot, so one landmark never hides another's
-  for (const p of W.pois) face(p.x, p.y, p.kind, fpx);
+  /* ONE FACE PER CLUSTER, and the dots above are deliberately not thinned.
+     Reported as an unreadable pile of icons over Vračar: Belgrade's clinical
+     centre is twelve separate amenity=clinic entries inside a few blocks, and
+     twelve overlapping glyphs are less legible than one. Real data does this
+     wherever a service comes in campuses -- hospitals, university faculties, a
+     row of garages on the same street.
+     IN SCREEN SPACE, so it is a function of what you can actually see: zoom in
+     and the same twelve separate out and all twelve draw. A world-space radius
+     would have to guess a distance that means "too close" at every zoom.
+     The DOTS still all draw, so nothing is hidden -- twelve pale pink discs
+     under one 🏥 is exactly the right reading of a hospital campus. */
+  for (const p of thinFaces(W.pois, toPx, fpx)) face(p.x, p.y, p.kind, fpx);
   if (goal) face(goal.at.x, goal.at.y, goal.kind, fpx * 1.2);
 
   /* THE CAR, POINTING WHERE IT IS POINTING — and big enough to find.
@@ -1061,7 +1111,13 @@ function drawMini() {
   mctx.beginPath(); mctx.arc(r, r, r, 0, TAU); mctx.clip();
   mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
   mctx.strokeStyle = 'rgba(0,0,0,.55)';
-  for (const p of W.pois) {
+  /* Thinned the same way and for the same reason as the big map, in the radar's
+     own screen space — 98 points across is where a pile of glyphs is worst. */
+  const radarPx = (wx, wy) => {
+    const dx = wx - P.car.x, dy = wy - P.car.y;
+    return [r + (dx * cs - dy * sn) * (r / showM), r + (dx * sn + dy * cs) * (r / showM)];
+  };
+  for (const p of thinFaces(W.pois, radarPx, facePx * DPR)) {
     if (Math.abs(p.x - P.car.x) > showM || Math.abs(p.y - P.car.y) > showM) continue;
     faceAt(p.x, p.y, p.kind, facePx);
   }

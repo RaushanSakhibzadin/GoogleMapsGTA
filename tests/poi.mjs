@@ -93,7 +93,32 @@ const out = {};
                   repair: t({ shop: 'car_repair' }) },
     coloured: POI_KINDS.every(k => !!POI_COL[k]),
     faced: POI_KINDS.every(k => !!POI_EMOJI[k]),
-    swept: POI_KINDS.slice().sort().join(',')
+    swept: POI_KINDS.slice().sort().join(','),
+    /* EVERY GLYPH THE MAP CAN DRAW IS EXPLAINED BY THE MAP KEY, which is the
+       check that was missing when this file was written and the one that would
+       have caught the bug it is being added for.
+
+       Reported as "what are these pink round symbols with hooks?" — two POI
+       kinds had been added with a colour and a face apiece, both of which the
+       existing assertions above were happy with, and neither of which appeared
+       in the key at the bottom of the map. Twelve of them landed on Belgrade's
+       clinical centre. The player had no way to find out what they were.
+
+       Compared as SETS OF GLYPHS rather than of kinds, on purpose: that is what
+       lets a fallback depot legitimately share the real service's icon (a clinic
+       draws 🏥, a filling station 🚕) without needing a key row of its own,
+       while still failing the moment something draws a picture the key has
+       never heard of. The mission markers are excluded — pickup, drop, fare and
+       the rest are drawn at the objective, not as landmarks, and they are
+       explained by the card that sets them. */
+    unkeyed: (() => {
+      const keyed = new Set([...document.querySelectorAll('#mapKey em')].map(e => e.textContent.trim()));
+      const goals = new Set(['pickup', 'drop', 'fare', 'patient', 'ward', 'blaze', 'chase']);
+      return Object.keys(POI_EMOJI)
+        .filter(k => !goals.has(k) && k !== 'casino')
+        .filter(k => !keyed.has(POI_EMOJI[k].trim()))
+        .sort().join(',');
+    })()
   };
 });
   out.kinds.errs = errs;
@@ -105,7 +130,8 @@ out.kinds.allFiveArrive =
   out.kinds.classified.police === 'police' && out.kinds.classified.hospital === 'hospital' &&
   out.kinds.classified.repair === 'repair' &&
   out.kinds.coloured && out.kinds.faced &&
-  out.kinds.swept === 'fire,hospital,police,repair,taxi';
+  out.kinds.swept === 'fire,hospital,police,repair,taxi' &&
+  out.kinds.unkeyed === '';
 
 
 // ---------- 2. busted: a cop pulls up to a stopped player and arrests them ----------

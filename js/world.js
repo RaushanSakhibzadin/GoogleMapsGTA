@@ -135,9 +135,27 @@ const POI_COL = { police: '#3fa2ff', hospital: '#ff4f6d', repair: '#48ff9e',
 
    The mission markers are here too: the package you are going to collect and the
    flag where it is going. */
+/* A FALLBACK DEPOT WEARS THE FACE OF THE SERVICE IT STANDS IN FOR.
+
+   Reported from play, as "what are these pink round symbols with hooks?" — and
+   that was the whole problem in one question. A clinic drew 🩺 and a filling
+   station ⛽, which are pictures of a clinic and a filling station, and neither
+   is a thing this game has anything for you to do at. What a clinic IS here is
+   where the ambulance shift signs on, and there is already an icon for that.
+
+   Twelve of them landed on Belgrade's clinical centre in Vračar, none of them
+   were in the map key, and a stethoscope at fourteen pixels is a pink circle
+   with a hook coming off it. The player was being asked to learn two new
+   symbols for "the lesser hospital" and "the lesser taxi rank" instead of being
+   told where the ambulance depot is.
+
+   So they share the real thing's glyph, and only the dot underneath is paler —
+   which is the level of detail the difference actually deserves. The key needs
+   no new rows for the same reason. See POI_ALSO below: the mechanics agree, so
+   this is not the map flattering the data. */
 const POI_EMOJI = {
   police: '🚓', hospital: '🏥', repair: '🔧', fire: '🚒', taxi: '🚕', casino: '🎰',
-  clinic: '🩺', fuel: '⛽',
+  clinic: '🏥', fuel: '🚕',
   /* THE GOAL LOOKS LIKE WHAT IT IS. Reported from play: on the ambulance shift
      the casualty was marked with a parcel. Every shift shared one pickup icon,
      so the taxi went to collect a box as well, and only the courier was ever
@@ -203,6 +221,18 @@ const POI_KIND = t => t.amenity === 'police' ? 'police'
                        that paid for it: Belgrade has 0 hospitals and 12 clinics. */
                     : (t.amenity === 'clinic' || t.amenity === 'doctors') ? 'clinic'
                     : t.amenity === 'fuel' ? 'fuel' : null;
+/* AND WHAT WILL DO WHEN THE REAL THING IS NOT IN THE CITY, in one place, so the
+   map and the mechanics cannot disagree about it.
+
+   This exists because drawing a clinic as 🏥 would otherwise be a lie. Getting
+   wasted wakes you at the nearest hospital — nearestPOI('hospital') — and
+   Belgrade has none, so before this you would be shown a hospital icon, drive
+   to it, and still wake up back at the start. The icon and the wake-up point
+   now read the same table, which is the only way a substitution like this is
+   honest rather than cosmetic.
+
+   Primary first: a city with a genuine amenity=hospital never sees the clinic. */
+const POI_ALSO = { hospital: 'clinic', taxi: 'fuel' };
 
 /* ------------------- the name, in a script you can read -------------------
 
@@ -1818,24 +1848,22 @@ function repairCost(hp) {
   return Math.round((REPAIR_MIN + (REPAIR_MAX - REPAIR_MIN) * missing) / 10) * 10;
 }
 
-/* The nearest landmark of a kind. Recomputed a few times a second rather than
-   every frame: there are three hundred of these in a real city, the answer only
-   changes as you drive, and a marker that re-picks its target every frame
-   flickers between two shops equidistant from you. */
-const NEAR_POI = { t: 0, of: {} };
-function nearestPOI(kind, x, y) {
-  const now = performance.now();
-  if (now - NEAR_POI.t > 250) { NEAR_POI.t = now; NEAR_POI.of = {}; }
-  if (kind in NEAR_POI.of) return NEAR_POI.of[kind];
-  let best = null, bd = Infinity;
-  for (const p of W.pois) {
-    if (p.kind !== kind) continue;
-    const d = dist2(p.x, p.y, x, y);
-    if (d < bd) { bd = d; best = p; }
-  }
-  NEAR_POI.of[kind] = best;
-  return best;
-}
+/* nearestPOI USED TO BE DECLARED TWICE IN THIS FILE, and this is where the
+   first one was: a version that memoised the answer per kind for 250 ms, with a
+   comment explaining that a marker re-picking its target every frame flickers
+   between two shops equidistant from you.
+
+   It never ran. Both were plain `function` declarations at the top level of one
+   classic script, so the later one -- the uncached scan further down -- won at
+   parse time and this was dead from the day it was written. NEAR_POI was
+   referenced nowhere else, so it went with it.
+
+   Removed rather than revived on purpose. Reviving it would switch on a cache
+   that has never been active, in a function four other files call, as part of a
+   change to the map -- and two functions of the same name that now disagree
+   about clinics is a trap worth closing today either way. If the flicker it was
+   written for is real, it is still worth having; it should come back measured,
+   on its own, and not from underneath a rename. */
 // Half-widths for the landmark sweep, tried in order. Each rung runs at most once
 // per city; when the first still turns up no station and no hospital, the next
 // one goes wider rather than giving up.
@@ -2074,14 +2102,23 @@ function addPOIs(list) {
 
 /* Nearest station / hospital / repair shop. Only a handful are ever loaded, so
    a plain scan is right — the same call zoneAt makes just above. */
+/* THE NEAREST ONE OF A KIND, OR OF WHAT STANDS IN FOR IT.
+ *
+ * Two passes rather than one comparison, because the fallback is a fallback:
+ * a city with a real hospital in it must never be sent to a clinic just because
+ * the clinic happened to be forty metres closer. Only when the primary turns up
+ * nothing at all does POI_ALSO get a look in. */
 function nearestPOI(kind, x, y) {
-  let best = null, bd = Infinity;
-  for (const p of W.pois) {
-    if (p.kind !== kind) continue;
-    const d = dist2(p.x, p.y, x, y);
-    if (d < bd) { bd = d; best = p; }
+  for (const k of (POI_ALSO[kind] ? [kind, POI_ALSO[kind]] : [kind])) {
+    let best = null, bd = Infinity;
+    for (const p of W.pois) {
+      if (p.kind !== k) continue;
+      const d = dist2(p.x, p.y, x, y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (best) return best;
   }
-  return best;
+  return null;
 }
 /* Where you wake up afterwards. A 1.8 km slice of a real city often has neither
    a station nor a hospital in it, so falling back to the start is the common
