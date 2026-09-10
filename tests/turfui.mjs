@@ -58,14 +58,29 @@ out.geo = await p.evaluate(ids => {
   TURF.team = 'red'; TURF.bets = 2; TURF.picks.red = 2;
   syncTurfUI();
   const vw = innerWidth, vh = innerHeight;
-  return { vw, vh, cans: ids.map(id => {
-    const el = document.getElementById(id);
+  const rect = el => {
     const b = el.getBoundingClientRect(), cs = getComputedStyle(el);
-    return { id, on: el.classList.contains('on'), team: el.dataset.team || null,
-             x: Math.round(b.left), y: Math.round(b.top),
+    return { x: Math.round(b.left), y: Math.round(b.top),
              w: Math.round(b.width), h: Math.round(b.height),
+             inset: Math.round(b.left), rightInset: Math.round(vw - b.right),
              radius: cs.borderRadius, display: cs.display,
              fromBottom: Math.round(vh - b.bottom) };
+  };
+  /* THE DRIFT BUTTON, measured for the mirror check below. #touch is display:none
+     without a touchscreen, so it is forced visible for the measurement and put
+     back — the pads' own placement is padedge.mjs's business, not this test's;
+     all this needs is the box DRIFT occupies when it is on screen. */
+  const touch = document.getElementById('touch');
+  const wasDisplay = touch.style.display, wasPads = document.body.className;
+  touch.style.display = 'block';
+  document.body.classList.remove('ctrl-stick');
+  document.body.classList.add('ctrl-pads');
+  const drift = rect(document.getElementById('tH'));
+  touch.style.display = wasDisplay; document.body.className = wasPads;
+  return { vw, vh, drift, cans: ids.map(id => {
+    const el = document.getElementById(id);
+    return Object.assign({ id, on: el.classList.contains('on'),
+                            team: el.dataset.team || null }, rect(el));
   }) };
 }, IDS);
 const C = out.geo.cans;
@@ -75,19 +90,29 @@ const C = out.geo.cans;
    this game is built to; this is the one pressed with a thumb while parked, and
    it was 38 points tall as a rounded rectangle in the top centre. */
 out.bothAreRoundAndBig = C.length === 1 && C.every(c =>
-  c.on && c.display !== 'none' && c.w >= 56 && Math.abs(c.w - c.h) <= 1 &&
+  c.on && c.display !== 'none' && c.w >= 44 && Math.abs(c.w - c.h) <= 1 &&
   /50%|9999px/.test(c.radius));
 /* AND THERE IS EXACTLY ONE OF IT. Counted in the DOM rather than off the list
    above, which would happily agree with itself: a second .sprayCan left in the
    markup is the specific thing being removed here. */
 out.count = await p.evaluate(() => document.querySelectorAll('.sprayCan').length);
 out.justTheOne = out.count === 1;
-/* HARD AGAINST THE LEFT, asked for as "almost touching it". Its left edge inside
-   twenty points of the glass, which is the difference between a button on the
-   edge and a button a fifth of the way in — where this one was until the ask
-   came back. Still in the bottom quarter of the screen. */
-out.onTheLeftEdge = C.length === 1 && C[0].x < 20 &&
-                    C[0].y > out.geo.vh * 0.72;
+/* THE DRIFT BUTTON'S MIRROR IMAGE, which is what replaced "hard against the
+   left". It was six points off the glass in the bottom corner and DRIFT is a
+   whole accelerator up the other edge, so the two thumb buttons did not read as
+   a pair; the ask was to make them one.
+
+   ASSERTED AGAINST DRIFT'S OWN BOX rather than against the numbers that box
+   currently produces. The offset differs by viewport — 14 points above the
+   accelerator at base, 34 in the phone query — so a test written against either
+   literal would agree with a can that is symmetrical on one screen and twenty
+   points out on the other, which is the exact failure --driftUp exists to stop.
+   Comparing the two rendered boxes cannot be fooled that way, and it fails if
+   EITHER button moves, which is the point of a pair. */
+out.mirrorsTheDrift = C.length === 1 && out.geo.drift.w > 0 &&
+  Math.abs(C[0].inset - out.geo.drift.rightInset) <= 1 &&
+  Math.abs(C[0].fromBottom - out.geo.drift.fromBottom) <= 1 &&
+  Math.abs(C[0].w - out.geo.drift.w) <= 1;
 // and it carries the side you are on, which is what the rim is for
 out.bothCarryTheTeam = C.every(c => c.team === 'red');
 
@@ -163,7 +188,7 @@ out.paintShowsOnTheMap = out.map.painted > 5 &&
 
 out.errs = errs.slice(0, 5);
 out.pass = out.hiddenUntilYouPlay && out.bothAreRoundAndBig && out.justTheOne &&
-           out.onTheLeftEdge &&
+           out.mirrorsTheDrift &&
            out.bothCarryTheTeam && out.bothSpray && out.paintShowsOnTheMap && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

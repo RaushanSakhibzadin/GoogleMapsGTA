@@ -995,7 +995,15 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
    below -- so a can positioned against a copy of it would be symmetrical on one
    screen and not on the other. Same argument as --driftD above: the thing two
    rules share is a name, not a number. */
-:root{--driftD:calc(var(--gas) * .58);--driftUp:14px}
+/* AND FLOORED AT A TAP TARGET, which fell out of making the spray can its
+   mirror. Two thirds of the accelerator is 55 points on a 390 phone and 62 on a
+   430 one, but the accelerator itself is clamped at the bottom end, so on a 320
+   point screen this came out at 42.6 and at 280 it was 37.3 — under the 44 the
+   rest of the game is built to, on the button you hold mid-corner. That was
+   already true of DRIFT and nobody had measured it; the can only made it
+   visible, because the can WAS floored (at 58) until it started following this
+   number. Flooring here rather than on the can keeps the pair identical. */
+:root{--driftD:max(44px,calc(var(--gas) * .58));--driftUp:14px}
 #tH{right:var(--edgeR);bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas));
   width:var(--driftD);height:var(--driftD);
   border-radius:50%;padding:0;font-size:calc(var(--gas) * .3);letter-spacing:0;
