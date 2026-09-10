@@ -220,8 +220,38 @@ local function markings(
 				p.Parent = model
 			end
 		end
-		local sign = box("Sign", W * 0.34, H * 0.14, L * 0.1, Color3.fromRGB(28, 28, 32))
-		sign.CFrame = CFrame.new(0, cabinY + cabinH * 0.5 + H * 0.07, L * 0.02)
+
+		-- THE ROOF SIGN, LIT -- js/render3d.js's own reason this is the part
+		-- that does the work: the chase camera looks along the car, so the
+		-- flank chequer is nearly edge-on and the roof is most of what is
+		-- actually on screen. Two boxes there, not one: a dark mounting base
+		-- (pushTaxi's own first box) and a smaller, taller box in TAXI_SIGN's
+		-- bright yellow standing on it -- this used to be a single dark box
+		-- with no sign in it at all. Neon, the same way the headlamps read as
+		-- lit without an actual PointLight each -- this is built for every
+		-- background taxi as well as the player's own, and a light per taxi
+		-- is a light count nobody asked for.
+		local signBaseColour = Color3.fromRGB(19, 22, 27)
+		local signLitColour = Color3.fromRGB(255, 214, 77)
+		local roofY = cabinY + cabinH * 0.5
+		-- f/l fractions straight from pushTaxi's own subBox calls, carried
+		-- onto this hull the same way the ladder and the wheel axles are:
+		-- f (front-positive) to z (nose-negative), l to x, both scaled by
+		-- half the relevant dimension.
+		local baseZ, baseSizeZ = -(-0.42 + 0.08) * 0.5 * (L * 0.5), (0.08 - -0.42) * (L * 0.5)
+		local baseSizeX = (0.34 - -0.34) * (W * 0.5)
+		local baseH = H * 0.05
+		local signSizeZ = (0.04 - -0.38) * (L * 0.5)
+		local signSizeX = (0.3 - -0.3) * (W * 0.5)
+		local signH = H * 0.18
+
+		local base = box("SignBase", baseSizeX, baseH, baseSizeZ, signBaseColour)
+		base.CFrame = CFrame.new(0, roofY + baseH * 0.5, baseZ)
+		base.Parent = model
+
+		local sign = box("Sign", signSizeX, signH, signSizeZ, signLitColour)
+		sign.Material = Enum.Material.Neon
+		sign.CFrame = CFrame.new(0, roofY + baseH + signH * 0.5, baseZ)
 		sign.Parent = model
 	end
 
