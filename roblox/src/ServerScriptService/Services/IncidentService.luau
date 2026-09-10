@@ -43,18 +43,27 @@ local IncidentService = {}
 export type Incident = {
 	id: string,
 	kind: string,
-	x: number,
-	z: number,
+	x: number, -- the pickup / scene location. Set once, at create, and never moved --
+	z: number, -- a twoStage kind's drop point lives in dropX/dropZ instead, precisely so
+	-- forfeitInner (a departing winner) can put the objective back where it started
+	-- without having to remember where "started" was.
 	name: string,
+	stage: string, -- "pickup" | "drop". Only ever "drop" for a Kind.twoStage incident
+	-- whose pickup leg is done; every other incident is "pickup" for its whole life.
+	dropX: number?,
+	dropZ: number?,
+	dropName: string?,
 	createdAt: number,
 	expiresAt: number,
 	state: string, -- "open" | "engaged" | "resolved" | "expired"
 	claims: { [number]: string }, -- UserId -> role
 	filled: number,
 	tier: number,
-	progress: number, -- 0..1 of the tier's work
+	progress: number, -- 0..1 of the current leg's work
 	-- Competitive kinds only: whoever reached it first. Locked the moment
-	-- somebody is on scene and never reopened, so a race is decided once.
+	-- somebody is on scene and never reopened by an ordinary release, so a race
+	-- is decided once -- see releaseInner and forfeitInner for the two different
+	-- reasons a slot can come free and why only one of them clears this.
 	winner: number?,
 }
 
@@ -89,6 +98,10 @@ function IncidentService.create(kindId: string, x: number, z: number, name: stri
 		x = x,
 		z = z,
 		name = name,
+		stage = "pickup",
+		dropX = nil,
+		dropZ = nil,
+		dropName = nil,
 		createdAt = now,
 		expiresAt = now + kind.life,
 		state = "open",
@@ -101,6 +114,16 @@ function IncidentService.create(kindId: string, x: number, z: number, name: stri
 	incidents[id] = inc
 	IncidentService.changed:Fire()
 	return inc
+end
+
+-- WHERE THE OBJECTIVE ACTUALLY IS, for the two callers that have to point a
+-- player at it: `onScene` (is anyone there yet) and `pack` (what the client
+-- draws a marker over). One function so the two can never disagree about it.
+function IncidentService.target(inc: Incident): (number, number)
+	if inc.stage == "drop" then
+		return inc.dropX :: number, inc.dropZ :: number
+	end
+	return inc.x, inc.z
 end
 
 -- Re-choose the tier for the current headcount. Called on every claim and
@@ -142,6 +165,48 @@ function IncidentService.release(userId: number)
 	if id then
 		IncidentService.changed:Fire()
 	end
+end
+
+-- A DEPARTING WINNER IS NOT COMING BACK TO FINISH IT. `winner` survives an
+-- ordinary release on purpose (above) so a driver who claims a second job by
+-- mistake does not un-award a fare they already reached -- but that guard
+-- turns into a leak the moment the winner is actually gone: the incident sits
+-- "engaged" forever, present() finds nobody, progress never moves, and it
+-- never expires (expiry is only checked in "open") or leaves the board. Ported
+-- concern is the same one that made re-tiering the design in the first place
+-- (§4.6: a slot going stale should degrade the incident, not fail it) -- this
+-- is that rule applied to the one slot re-tiering does not cover, the locked
+-- winner of a race.
+--
+-- ONLY for a genuine goodbye: PlayerRemoving, and a shift change (which is the
+-- same thing for the job they were on -- they cannot re-claim it under a role
+-- they no longer hold). NOT called from anywhere the claim path itself can
+-- reach, which is what keeps this from re-opening the "mid-payout" case
+-- releaseInner's own comment is about.
+local function forfeitInner(userId: number)
+	releaseInner(userId)
+	for _, inc in incidents do
+		if inc.winner == userId and inc.state == "engaged" then
+			inc.winner = nil
+			-- BACK TO THE PICKUP, not left sitting at the drop point a fare
+			-- nobody is driving to any more would otherwise dangle at.
+			inc.stage = "pickup"
+			inc.dropX, inc.dropZ, inc.dropName = nil, nil, nil
+			inc.progress = 0
+			if inc.filled == 0 then
+				-- Nobody else was racing for it either; back on the board.
+				inc.state = "open"
+			end
+			-- If other racers are still claimed, the incident stays "engaged"
+			-- with no winner -- exactly an incident nobody has reached yet,
+			-- which is the truth, and the next arrival crowns a new one.
+		end
+	end
+end
+
+function IncidentService.forfeit(userId: number)
+	forfeitInner(userId)
+	IncidentService.changed:Fire()
 end
 
 -- THE CRITICAL SECTION. Read, validate, mutate, return. No task.wait, no
@@ -247,7 +312,11 @@ end
 -- are standing at it, and which one of them is (any one -- for a competitive job
 -- it is the winner, because the first frame anybody is there is the frame it is
 -- decided).
-function IncidentService.step(dt: number, onScene: (Incident) -> (number, number?))
+function IncidentService.step(
+	dt: number,
+	onScene: (Incident) -> (number, number?),
+	pickDrop: (Incident) -> (number, number, string)
+)
 	local now = os.clock()
 	local dirty = false
 
@@ -284,19 +353,31 @@ function IncidentService.step(dt: number, onScene: (Incident) -> (number, number
 				inc.progress += (dt * present) / tier.work
 				dirty = true
 				if inc.progress >= 1 then
-					inc.state = "resolved"
-					incidents[id] = nil
-					for userId in inc.claims do
-						held[userId] = nil
+					if kind.twoStage and inc.stage ~= "drop" then
+						-- PICKED UP, NOT RESOLVED. The pickup leg's work is done; the
+						-- job moves to a drop point elsewhere in the district and
+						-- starts a second leg on the same claim -- the race was
+						-- already decided at the pickup, so carrying it is not raced
+						-- for again.
+						local dx, dz, dn = pickDrop(inc)
+						inc.dropX, inc.dropZ, inc.dropName = dx, dz, dn
+						inc.stage = "drop"
+						inc.progress = 0
+					else
+						inc.state = "resolved"
+						incidents[id] = nil
+						for userId in inc.claims do
+							held[userId] = nil
+						end
+						-- Paid to the winner alone on a competitive job, to everybody
+						-- who claimed on a dispatched one.
+						local paid = inc.claims
+						if kind.competitive then
+							local w = inc.winner
+							paid = if w then { [w] = inc.claims[w] } else {}
+						end
+						IncidentService.resolved:Fire(inc.id, inc.kind, inc.tier, paid, tier.pay)
 					end
-					-- Paid to the winner alone on a competitive job, to everybody
-					-- who claimed on a dispatched one.
-					local paid = inc.claims
-					if kind.competitive then
-						local w = inc.winner
-						paid = if w then { [w] = inc.claims[w] } else {}
-					end
-					IncidentService.resolved:Fire(inc.id, inc.kind, inc.tier, paid, tier.pay)
 				end
 			end
 		end
@@ -308,7 +389,7 @@ function IncidentService.step(dt: number, onScene: (Incident) -> (number, number
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	IncidentService.release(player.UserId)
+	IncidentService.forfeit(player.UserId)
 	lastClaimAt[player.UserId] = nil
 end)
 

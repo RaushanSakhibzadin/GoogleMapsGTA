@@ -188,7 +188,13 @@ for (const m of kindSrc.matchAll(/\n\t(\w+) = \{\n\t\tid = "(\w+)",/g)) {
   kinds[m[2]] = {
     slots: [...block.matchAll(/\{ role = "(\w+)", max = (\d+) \}/g)].map(s => ({ role: s[1], max: +s[2] })),
     competitive: /competitive = true/.test(block),
-    tiers: [...block.matchAll(/need = (\d+),/g)].map(t => +t[1])
+    twoStage: /twoStage = true/.test(block),
+    tiers: [...block.matchAll(/need = (\d+),/g)].map(t => +t[1]),
+    /* Every Loc key this kind's block names, title/label/detail and their
+       drop* counterparts alike -- one pass rather than one field at a time,
+       so a renamed or newly-added field is covered without this file
+       changing too. */
+    locKeys: [...block.matchAll(/"(incident\.[\w.]+)"/g)].map(k => k[1])
   };
 }
 
@@ -307,6 +313,39 @@ function tryClaim(inc, userId, role, roleOf) {
         `${maxRoad.toFixed(0)} + ${MARGIN} studs vs ${tightest[1]}`,
         `<= ${tightest[1]}`,
         maxRoad + MARGIN <= tightest[1]);
+}
+
+/* 16. EVERY KEY AN INCIDENT NAMES ACTUALLY HAS A TRANSLATION. Loc.get falls
+       back to the key itself, so a typo or a forgotten entry does not crash --
+       it ships as "incident.fare.tier1.dropdetail" on a real player's screen
+       instead, which is a worse failure for being silent. Only fare and parcel
+       have drop* keys at all; a kind with none passes trivially. */
+{
+  const locSrc = readFileSync(`${ROOT}/Loc.luau`, 'utf8');
+  const locKeys = new Set([...locSrc.matchAll(/\["([^"]+)"\] = "/g)].map(m => m[1]));
+  const missing = [];
+  for (const [id, k] of Object.entries(kinds))
+    for (const key of k.locKeys) if (!locKeys.has(key)) missing.push(`${id}: ${key}`);
+  check('every incident string has a Loc.luau entry',
+        missing.length ? missing.join(', ') : 'all present', 'all present', missing.length === 0);
+}
+
+/* 17. A twoStage KIND ACTUALLY DECLARES A SECOND LEG'S TEXT. The reverse of
+       #16 -- not a missing translation but a missing FIELD, which the regex
+       above would not notice because there would be nothing to look up. Catches
+       a twoStage kind that forgot dropLabel/dropDetail on one of its tiers and
+       would show the pickup card, unchanged, all the way to the drop point. */
+{
+  const bad = [];
+  for (const [id, k] of Object.entries(kinds)) {
+    if (!k.twoStage) continue;
+    const hasDropTitle = k.locKeys.some(key => key.endsWith('.dropTitle'));
+    const hasDropTier = k.locKeys.some(key => key.includes('.dropLabel')) &&
+                         k.locKeys.some(key => key.includes('.dropDetail'));
+    if (!hasDropTitle || !hasDropTier) bad.push(id);
+  }
+  check('every twoStage kind has drop title/label/detail keys',
+        bad.length ? bad.join(', ') : 'all present', 'all present', bad.length === 0);
 }
 
 /* ---------------- out ---------------- */

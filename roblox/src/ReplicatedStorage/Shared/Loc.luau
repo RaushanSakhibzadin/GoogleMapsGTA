@@ -97,12 +97,18 @@ local EN: { [string]: string } = {
 	["incident.collision.tier3.detail"] = "Driver's side caved in. Cut them out, treat, and hold the road.",
 
 	["incident.fare.title"] = "FARE WAITING",
+	["incident.fare.dropTitle"] = "FARE ABOARD",
 	["incident.fare.tier1.label"] = "Pickup",
 	["incident.fare.tier1.detail"] = "Passenger on the pavement with a hand up. First car takes it.",
+	["incident.fare.tier1.dropLabel"] = "Drop-off",
+	["incident.fare.tier1.dropDetail"] = "Gave you an address across town. Get them there.",
 
 	["incident.parcel.title"] = "PARCEL",
+	["incident.parcel.dropTitle"] = "PARCEL LOADED",
 	["incident.parcel.tier1.label"] = "Collection",
 	["incident.parcel.tier1.detail"] = "Signed for at the door. Whoever gets there is who carries it.",
+	["incident.parcel.tier1.dropLabel"] = "Delivery",
+	["incident.parcel.tier1.dropDetail"] = "Addressed across town. Get it there in one piece.",
 
 	-- ------------------------------------- claim / sign-on refusal reasons
 

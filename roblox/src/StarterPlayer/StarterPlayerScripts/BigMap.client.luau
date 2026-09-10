@@ -622,6 +622,11 @@ RunService.RenderStepped:Connect(function()
 				mine = true
 			end
 		end
+		-- Same fix as the minimap's canTake: a competitive job with a winner is
+		-- over for everyone else even while its slots still show room.
+		if inc.competitive and inc.taken then
+			mine = false
+		end
 		f.BackgroundColor3 = inc.colour or ACCENT
 		f.BackgroundTransparency = if mine then 0 else 0.6
 		f.Size = UDim2.fromOffset(if mine then 11 else 8, if mine then 11 else 8)

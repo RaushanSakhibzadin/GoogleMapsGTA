@@ -144,6 +144,12 @@ local burn: { [string]: (Sound | boolean)? } = {}
 -- the incident id -- so it is stable for as long as the fire is, rather than
 -- shuffling every time the board is rebroadcast.
 local phase: { [string]: number } = {}
+
+-- ONE-SHOT ON THE PICKUP -> DROP EDGE, for whichever twoStage job is mine.
+-- Keyed off the incident id, same as `phase`/`burn`, and cleaned up alongside
+-- them when the id drops off the board.
+local droppedAnnounced: { [string]: boolean } = {}
+
 local function phaseOf(id: string): number
 	local p = phase[id]
 	if not p then
@@ -261,7 +267,11 @@ local function current(from: Vector3?)
 			return inc
 		end
 		local s = slotFor(inc)
-		if from and s and s.filled < s.max and not (inc.competitive and inc.progress > 0) then
+		-- `taken`, NOT a progress check. A twoStage job resets its progress bar
+		-- to 0 for the drop leg, at which point "progress > 0" would say a fare
+		-- already won is open again -- harmless against the server (tryClaim
+		-- still refuses it) but a lie on screen, offering a race that is over.
+		if from and s and s.filled < s.max and not (inc.competitive and inc.taken) then
 			local d = (Vector2.new(inc.x, inc.z) - Vector2.new(from.X, from.Z)).Magnitude
 			if d < bestD then
 				best, bestD = inc, d
@@ -406,6 +416,7 @@ RunService.RenderStepped:Connect(function()
 			rigs[id] = nil
 			burn[id] = nil
 			phase[id] = nil
+			droppedAnnounced[id] = nil
 		end
 	end
 
@@ -449,6 +460,13 @@ RunService.RenderStepped:Connect(function()
 	title.Text = Loc.get(inc.label)
 	detail.Text = Loc.get(inc.detail) .. (if inc.name ~= "" then "  ·  " .. inc.name else "")
 	fill.Size = UDim2.new(math.clamp(inc.progress, 0, 1), 0, 1, 0)
+
+	-- PICKED UP. The card text already jumped to the drop leg above; the only
+	-- thing missing is a reason to look down at it, once, the moment it does.
+	if mine == inc.id and inc.dropping and not droppedAnnounced[inc.id] then
+		droppedAnnounced[inc.id] = true
+		Audio.shot("click", nil, 0.6, 1.3)
+	end
 
 	local d = if from then (Vector2.new(inc.x, inc.z) - Vector2.new(from.X, from.Z)).Magnitude else 0
 	local metres = math.floor(d / 3)

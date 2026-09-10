@@ -41,6 +41,14 @@ local function pack()
 	for id, inc in IncidentService.all() do
 		local kind = IncidentTypes[inc.kind]
 		local tier = kind.tiers[inc.tier]
+		-- ONCE PICKED UP, THE CARD SHOWS THE SECOND LEG, not the first --
+		-- "FARE WAITING" over a passenger already sitting in the car is a job
+		-- that reads as unclaimed when it is nearly done. Falls back to the
+		-- pickup text for anything that never sets a drop* key, which is every
+		-- kind but the two that are twoStage.
+		local dropping = inc.stage == "drop"
+		local tx, tz = IncidentService.target(inc)
+		local tname = if dropping then (inc.dropName or inc.name) else inc.name
 
 		-- PER ROLE, not a single headcount. With one kind and one role, "2/3" was
 		-- the whole truth about an incident; with three services on a collision
@@ -62,16 +70,27 @@ local function pack()
 		out[#out + 1] = {
 			id = id,
 			kind = inc.kind,
-			title = kind.title,
-			label = tier.label,
-			detail = tier.detail,
-			x = inc.x,
-			z = inc.z,
-			name = inc.name,
+			title = if dropping and kind.dropTitle then kind.dropTitle else kind.title,
+			label = if dropping and tier.dropLabel then tier.dropLabel else tier.label,
+			detail = if dropping and tier.dropDetail then tier.dropDetail else tier.detail,
+			x = tx,
+			z = tz,
+			name = tname,
 			filled = inc.filled,
 			max = total,
 			slots = slots,
 			competitive = kind.competitive == true,
+			-- Raw, not just baked into which label/title strings went out above --
+			-- DispatchUI plays a pickup cue off this edge rather than diffing text,
+			-- which would break the moment two stages ever share a translation.
+			dropping = dropping,
+			-- WHATEVER THE PROGRESS BAR SAYS, a competitive job with a winner is
+			-- over for everyone else -- and a twoStage job resets progress to 0
+			-- for its second leg, which used to be the only signal `current()`
+			-- had for "still open". Sent explicitly so a client's own list of
+			-- what it can still take does not have to guess from a number that
+			-- is about to go back to zero out from under it.
+			taken = inc.winner ~= nil,
 			marker = kind.marker,
 			colour = kind.colour,
 			progress = inc.progress,
@@ -99,6 +118,10 @@ local cars = workspace:WaitForChild("Cars")
 local function onScene(inc): (number, number?)
 	local kind = IncidentTypes[inc.kind]
 	local radius = kind.tiers[inc.tier].radius
+	-- THE TARGET, not `inc.x, inc.z` straight -- a twoStage incident's second
+	-- leg is worked at the drop point, and IncidentService.target is the one
+	-- place that knows which of the two an incident's current stage means.
+	local tx, tz = IncidentService.target(inc)
 	local n = 0
 	-- WHO, as well as how many. A competitive job is decided by which claimant
 	-- arrived, so the count alone is not enough to award one. Once a winner is
@@ -109,7 +132,7 @@ local function onScene(inc): (number, number?)
 		local model = cars:FindFirstChild("Car_" .. userId)
 		if model and model:IsA("Model") then
 			local p = model:GetPivot().Position
-			if (Vector2.new(p.X, p.Z) - Vector2.new(inc.x, inc.z)).Magnitude <= radius then
+			if (Vector2.new(p.X, p.Z) - Vector2.new(tx, tz)).Magnitude <= radius then
 				n += 1
 				if who == nil then
 					who = userId
@@ -123,7 +146,7 @@ local function onScene(inc): (number, number?)
 		local here = false
 		if model and model:IsA("Model") then
 			local p = model:GetPivot().Position
-			here = (Vector2.new(p.X, p.Z) - Vector2.new(inc.x, inc.z)).Magnitude <= radius
+			here = (Vector2.new(p.X, p.Z) - Vector2.new(tx, tz)).Magnitude <= radius
 		end
 		who = if here then inc.winner else nil
 	end
@@ -184,6 +207,28 @@ local function spawnOne()
 	end
 	local site = Sites[rng:NextInteger(1, #Sites)]
 	IncidentService.create(kindId, site.x, site.z, site.name)
+end
+
+-- SOMEWHERE ACROSS TOWN, not round the corner -- ported from js/game.js's own
+-- reason a pickup and a drop are two different points at all (MISSION.state
+-- 'pickup' -> 'deliver'): a fare who wants driving to the kerb they are
+-- already standing on is not a fare. Drawn from the same Sites list dispatch
+-- already trusts to be reachable by road (verify-roles.mjs check 15), so a
+-- drop point needs no reachability guarantee of its own -- it is a pickup
+-- point too, just for somebody else's job.
+local DROP_MIN = 900 -- studs (300 m); roughly a third of the 2,700-stud
+-- half-district crosses this from any site, so there is always a choice.
+local function pickDrop(inc): (number, number, string)
+	local candidates = {}
+	for _, s in Sites do
+		if (Vector2.new(s.x, s.z) - Vector2.new(inc.x, inc.z)).Magnitude >= DROP_MIN then
+			candidates[#candidates + 1] = s
+		end
+	end
+	local pick = if #candidates > 0
+		then candidates[rng:NextInteger(1, #candidates)]
+		else Sites[rng:NextInteger(1, #Sites)] -- a district too small to clear DROP_MIN at all
+	return pick.x, pick.z, pick.name
 end
 
 task.spawn(function()
@@ -254,7 +299,7 @@ end
 
 local acc = 0
 RunService.Heartbeat:Connect(function(dt)
-	IncidentService.step(dt, onScene)
+	IncidentService.step(dt, onScene, pickDrop)
 	-- Progress is broadcast on its own timer rather than on every change, or a
 	-- fire with three crews on it sends sixty messages a second.
 	acc += dt
@@ -270,11 +315,16 @@ end)
 -- keeping it after signing off would leave a courier holding the fire slot on a
 -- flat fire that nobody else can now take.
 --
+-- forfeit, NOT release -- signing off a fare mid-delivery is the same "not
+-- coming back" case a disconnect is: the claim path already refuses to
+-- re-claim it under a role no longer held, so a plain release would just lock
+-- the winner's win in place forever with nobody able to finish it.
+--
 -- WIRED HERE RATHER THAN INSIDE EITHER SERVICE, so the require between them
 -- stays one-way -- IncidentService reads RoleService, never the reverse. This
 -- script is the one place that knows about both.
 RoleService.changed.Event:Connect(function(player: Player)
-	IncidentService.release(player.UserId)
+	IncidentService.forfeit(player.UserId)
 end)
 
 local kinds = {}

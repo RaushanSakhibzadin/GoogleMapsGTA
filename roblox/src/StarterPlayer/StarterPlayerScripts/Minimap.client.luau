@@ -458,6 +458,13 @@ RunService.RenderStepped:Connect(function(dt)
 				canTake = true
 			end
 		end
+		-- A RACE ALREADY WON IS NOT STILL TAKEABLE, whatever its slots say --
+		-- eight taxis can claim a fare and only one arriving locks it, so
+		-- `filled < max` stays true for the seven who lost right through the
+		-- drop leg, which is the one this used to pulse for longest.
+		if inc.competitive and inc.taken then
+			canTake = false
+		end
 		f.BackgroundColor3 = inc.colour or Color3.fromRGB(255, 140, 40)
 		f.BackgroundTransparency = if canTake then 0 else 0.55
 

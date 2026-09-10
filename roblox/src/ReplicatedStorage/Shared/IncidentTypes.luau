@@ -29,6 +29,14 @@ export type Tier = {
 	work: number, -- seconds of on-scene work at full strength
 	pay: number, -- to each responder, on resolution
 	radius: number, -- studs you must be within to count as on scene
+	-- THE SECOND LEG, for a Kind.twoStage tier only -- the label/detail dispatch
+	-- shows once the pickup is done and the objective has moved to the drop
+	-- point. Reuses `work` and `radius` for that leg too: a fare's "load up" and
+	-- "let them out" are the same few seconds of standing still, and both legs
+	-- are drawn from the same reachable-by-road Sites list, so one radius covers
+	-- both without a second reachability guarantee to maintain.
+	dropLabel: string?,
+	dropDetail: string?,
 }
 
 export type Kind = {
@@ -47,6 +55,15 @@ export type Kind = {
 	-- dispatching a service and taking a job off a rank -- an emergency is
 	-- allocated, a fare is raced for.
 	competitive: boolean?,
+	-- TWO LEGS, NOT ONE. Ported from the browser's MISSION.state 'pickup' ->
+	-- 'deliver' (js/game.js) -- arriving does not resolve the incident, it
+	-- moves the objective to a drop point elsewhere in the district and starts
+	-- a second timer there. Fare and parcel only: an emergency is done where it
+	-- happened, but a fare and a parcel both want carrying somewhere.
+	twoStage: boolean?,
+	-- Loc.luau KEY for the card's kicker once the drop leg starts -- "FARE
+	-- WAITING" is wrong the moment somebody is sitting in the car.
+	dropTitle: string?,
 	-- The visual over it. "fire" is the burning building FireFX already builds;
 	-- anything else gets the plain beacon.
 	marker: string?,
@@ -188,14 +205,18 @@ local IncidentTypes: { [string]: Kind } = {
 		id = "fare",
 		colour = Color3.fromRGB(242, 183, 5),
 		title = "incident.fare.title",
+		dropTitle = "incident.fare.dropTitle",
 		slots = { { role = "taxi", max = 8 } },
 		competitive = true,
+		twoStage = true,
 		life = 110,
 		tiers = {
 			{
 				need = 1,
 				label = "incident.fare.tier1.label",
 				detail = "incident.fare.tier1.detail",
+				dropLabel = "incident.fare.tier1.dropLabel",
+				dropDetail = "incident.fare.tier1.dropDetail",
 				work = 3,
 				pay = 90,
 				radius = 60,
@@ -207,14 +228,18 @@ local IncidentTypes: { [string]: Kind } = {
 		id = "parcel",
 		colour = Color3.fromRGB(255, 79, 216),
 		title = "incident.parcel.title",
+		dropTitle = "incident.parcel.dropTitle",
 		slots = { { role = "courier", max = 8 } },
 		competitive = true,
+		twoStage = true,
 		life = 130,
 		tiers = {
 			{
 				need = 1,
 				label = "incident.parcel.tier1.label",
 				detail = "incident.parcel.tier1.detail",
+				dropLabel = "incident.parcel.tier1.dropLabel",
+				dropDetail = "incident.parcel.tier1.dropDetail",
 				work = 3,
 				pay = 70,
 				radius = 60,

@@ -1,12 +1,13 @@
 # Porting VICE MAPS to Roblox — plan document
 
-Status: M0–M3 built — a 2.4 × 2.4 km streamed district with traffic, pedestrians,
+Status: M0–M4 built — a 2.4 × 2.4 km streamed district with traffic, pedestrians,
 trees, five shifts signed on at 27 real depots, five kinds of incident including
-two that need more than one service and two that are raced for, fires that burn,
-a loading screen, a round minimap over a full-screen map, and a placeholder sound
-layer with a mixer.
-The preprocessor is in `tools/roblox/` and the place in `roblox/`. §4.7 (infractions),
-the two-stage errand missions and the radio are still a plan.
+two that need more than one service and two that are raced for and now carried
+to a second stop, fires that burn, a Service Record / Dispatch Status ladder with
+pursuits and a stop, a loading screen, a round minimap over a full-screen map, and
+a placeholder sound layer with a mixer.
+The preprocessor is in `tools/roblox/` and the place in `roblox/`. The radio (§6)
+and district two (M5) are still a plan.
 Source read at commit `af6e9a7`.
 
 ---
@@ -1280,15 +1281,32 @@ bake emits its own guarantee as `Sites.maxRoadStuds`, and the check asserts it a
 radius the game actually ships with half a car of margin. Tightening a radius now fails the check
 instead of the session.
 
-**Not built:** the missions themselves. A `fare` currently resolves by arriving at the pickup — there
-is no passenger to carry to a destination and no parcel to deliver, so both competitive kinds are a
-race to a point rather than a job with two ends. That is M3's remaining half and it needs the
-two-stage objective the browser has (`pickup` → `drop`).
+**Now built: the two-stage objective.** `Kind.twoStage` (fare, parcel only) is the browser's
+`MISSION.state` `'pickup'` → `'deliver'`: arriving at the pickup no longer resolves the incident,
+it moves the objective to a drop point drawn from the same reachable-by-road `Sites` list dispatch
+already trusts (§ verify-roles.mjs check 15), resets the on-scene timer, and swaps the card's
+title/label/detail to the drop leg's own Loc keys — "FARE ABOARD", not "FARE WAITING" over a
+passenger already in the car. The race is decided once, at the pickup; carrying it is not raced
+for again, so the winner alone drives the second leg while everyone else's claim on it is already
+over (`taken`, sent explicitly now rather than left for a client to infer from a progress bar that
+resets to 0 for the second leg — the minimap and big map had the same "still shows takeable"
+gap for the whole life of a race, not just the new second leg, and both are fixed alongside it).
 
-**Done when:** all five roles are playable and co-op incidents actually need each other. *The roles
-are; the collision needs all three. The two errands need their second leg.*
+**And a real gap it opened rather than closed first: a departing winner used to leave a ghost.**
+`winner` deliberately survives an ordinary release (a driver claiming a second job by mistake must
+not un-award a fare already reached) — but that guard already meant a winner who disconnected, or
+changed off the shift, between being crowned and finishing the on-scene work left the incident
+"engaged" forever: never resolved, never expired (expiry is only checked in `"open"`), one of the
+board's four slots gone for the rest of the server. A ~3 second window before this. The two-stage
+leg turns that into the length of a drive across the district, so it is fixed alongside it rather
+than after: `IncidentService.forfeit` (PlayerRemoving, and a shift change) clears the winner lock
+and — for a twoStage incident already on its drop leg — puts the objective back at the pickup
+rather than leaving it stranded at a drop point nobody is driving to.
 
-### M4 — Infractions
+**Done when:** all five roles are playable and co-op incidents actually need each other, and the
+two errands are a job with two ends. *All four now true.*
+
+### M4 — Infractions *(built)*
 Service Record (persistent), Dispatch Status ladder, pursuit-as-incident, the stop, fines.
 NPC police unit for the no-police-online case.
 **Done when:** a reckless driver gets escalated, pursued and stopped by another player, and the
