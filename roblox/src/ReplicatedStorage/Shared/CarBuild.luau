@@ -23,6 +23,21 @@ CarBuild.LENGTH = 4.5
 CarBuild.WIDTH = 2.0
 CarBuild.HEIGHT = 1.45
 
+-- WHEEL AXLES, ported from js/render3d.js's own per-vehicle tables (WHEELS,
+-- FIRE_AXLES, AMB_AXLES) rather than the single generic pair of corners this
+-- file used to place regardless of what was driving. Front-positive f-ranges
+-- in the vehicle's own -1..1 box, the same convention the taper further down
+-- this file already carries across: a courier's hatchback and an ambulance
+-- both still get one axle a side at each end, and the appliance's third,
+-- close-set rear pair -- fourteen tonnes of pump and water does not ride on
+-- two -- is the whole reason this is a table keyed by livery rather than the
+-- pair of corners it replaces.
+local WHEEL_AXLES: { [string]: { { number } } } = {
+	fire = { { 0.34, 0.70 }, { -0.52, -0.16 }, { -0.92, -0.56 } },
+	ambulance = { { 0.40, 0.76 }, { -0.80, -0.44 } },
+}
+local DEFAULT_AXLES = { { 0.44, 0.86 }, { -0.86, -0.44 } }
+
 local function box(name: string, sx: number, sy: number, sz: number, colour: Color3): Part
 	local p = Instance.new("Part")
 	p.Name = name
@@ -385,17 +400,18 @@ function CarBuild.dress(model: Model, colour: Color3, body: { l: number, w: numb
 	glass.Parent = model
 
 	local wheelColour = Color3.fromRGB(28, 28, 32)
-	for i, off in
-		{
-			Vector3.new(1, 0, 1),
-			Vector3.new(-1, 0, 1),
-			Vector3.new(1, 0, -1),
-			Vector3.new(-1, 0, -1),
-		}
-	do
-		local w = box("Wheel" .. i, W * 0.16, H * 0.34, L * 0.19, wheelColour)
-		w.CFrame = CFrame.new(off.X * W * 0.46, -hullH * 0.5 - H * 0.02, off.Z * L * 0.32)
-		w.Parent = model
+	local axles = WHEEL_AXLES[livery] or DEFAULT_AXLES
+	local wi = 0
+	for _, side in { -1, 1 } do
+		for _, axle in axles do
+			wi += 1
+			-- f (front-positive) to this file's z (nose-negative), the same
+			-- conversion the taper and the fire ladder both already use.
+			local z = -(axle[1] + axle[2]) * 0.5 * (L * 0.5)
+			local w = box("Wheel" .. wi, W * 0.16, H * 0.34, L * 0.19, wheelColour)
+			w.CFrame = CFrame.new(side * W * 0.46, -hullH * 0.5 - H * 0.02, z)
+			w.Parent = model
+		end
 	end
 
 	-- WHICH END IS THE FRONT.
