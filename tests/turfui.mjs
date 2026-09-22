@@ -66,18 +66,34 @@ out.geo = await p.evaluate(ids => {
              radius: cs.borderRadius, display: cs.display,
              fromBottom: Math.round(vh - b.bottom) };
   };
-  /* THE DRIFT BUTTON, measured for the mirror check below. #touch is display:none
-     without a touchscreen, so it is forced visible for the measurement and put
-     back — the pads' own placement is padedge.mjs's business, not this test's;
-     all this needs is the box DRIFT occupies when it is on screen. */
+  /* THE DRIFT BUTTON AND THE CAN, MEASURED IN THE SAME STATE, which is the part
+     this originally got wrong.
+
+     The can is DRIFT's mirror image only where DRIFT is on the screen, and that
+     takes a touchscreen (#touch is display:none without one) AND the pads
+     scheme (ctrl-stick hides every pad, because there the handbrake is a flick
+     of the joystick). Anywhere else the can belongs in its corner — reported
+     from play as the can hanging in mid-air halfway up a desktop's left edge,
+     mirroring a button that was not there.
+
+     This block forces that state, measures BOTH boxes inside it, and restores.
+     Measuring drift forced and the can unforced is comparing two different
+     layouts, which is exactly how this test came to disagree with the product.
+     The pads' own placement is padedge.mjs's business; all this needs is the
+     two boxes as they are when the pair is on screen together. */
   const touch = document.getElementById('touch');
-  const wasDisplay = touch.style.display, wasPads = document.body.className;
+  const wasDisplay = touch.style.display, wasBody = document.body.className;
   touch.style.display = 'block';
   document.body.classList.remove('ctrl-stick');
-  document.body.classList.add('ctrl-pads');
+  document.body.classList.add('ctrl-pads', 'touch-ui');
   const drift = rect(document.getElementById('tH'));
-  touch.style.display = wasDisplay; document.body.className = wasPads;
-  return { vw, vh, drift, cans: ids.map(id => {
+  const canPaired = rect(document.getElementById(ids[0]));
+  touch.style.display = wasDisplay; document.body.className = wasBody;
+  /* AND WHERE THERE IS NO DRIFT BUTTON, the corner. Measured in the page's own
+     natural state, which in headless Chromium is a desktop with no touch — the
+     same state the bug was reported from. */
+  const canAlone = rect(document.getElementById(ids[0]));
+  return { vw, vh, drift, canPaired, canAlone, cans: ids.map(id => {
     const el = document.getElementById(id);
     return Object.assign({ id, on: el.classList.contains('on'),
                             team: el.dataset.team || null }, rect(el));
@@ -110,9 +126,16 @@ out.justTheOne = out.count === 1;
    Comparing the two rendered boxes cannot be fooled that way, and it fails if
    EITHER button moves, which is the point of a pair. */
 out.mirrorsTheDrift = C.length === 1 && out.geo.drift.w > 0 &&
-  Math.abs(C[0].inset - out.geo.drift.rightInset) <= 1 &&
-  Math.abs(C[0].fromBottom - out.geo.drift.fromBottom) <= 1 &&
-  Math.abs(C[0].w - out.geo.drift.w) <= 1;
+  Math.abs(out.geo.canPaired.inset - out.geo.drift.rightInset) <= 1 &&
+  Math.abs(out.geo.canPaired.fromBottom - out.geo.drift.fromBottom) <= 1 &&
+  Math.abs(out.geo.canPaired.w - out.geo.drift.w) <= 1;
+/* THE OTHER HALF OF THE SAME RULE, and the half that was reported broken: with
+   no drift button on the screen there is nothing to mirror, so the can drops to
+   the bottom edge instead of floating where an absent accelerator would be.
+   Against DRIFT's height rather than a literal, so it still means something if
+   the pads are ever resized: the corner is far below the paired position. */
+out.cornerWithoutDrift =
+  out.geo.canAlone.fromBottom < out.geo.canPaired.fromBottom - 40;
 // and it carries the side you are on, which is what the rim is for
 out.bothCarryTheTeam = C.every(c => c.team === 'red');
 
@@ -188,7 +211,7 @@ out.paintShowsOnTheMap = out.map.painted > 5 &&
 
 out.errs = errs.slice(0, 5);
 out.pass = out.hiddenUntilYouPlay && out.bothAreRoundAndBig && out.justTheOne &&
-           out.mirrorsTheDrift &&
+           out.mirrorsTheDrift && out.cornerWithoutDrift &&
            out.bothCarryTheTeam && out.bothSpray && out.paintShowsOnTheMap && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();

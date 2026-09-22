@@ -597,6 +597,15 @@ async function startGame(query, lat, lon, label) {
   $('hud').classList.add('on');
   touchUI = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   if (touchUI) $('touch').classList.add('on');
+  /* AND THE STYLESHEET NEEDS TO KNOW, not just #touch itself.
+     Reported from play: on a desktop the spray can hung in mid-air halfway up
+     the left edge. It is positioned as the DRIFT button's mirror image, and
+     DRIFT is a thumb control inside #touch — which is display:none without a
+     touchscreen. So the can was mirroring a button that was not on the screen,
+     over an accelerator that was not there either. The pads' own variables
+     (--gas, --driftUp) still compute on a desktop; nothing was undefined, it
+     was just symmetrical with a ghost. */
+  document.body.classList.toggle('touch-ui', touchUI);
   /* WHICH TOUCH SCHEME, applied once the HUD is up so the classes land on a
      body that is about to be visible. Defaults to the stick and remembers what
      was chosen; the pads are still there, one switch away. */

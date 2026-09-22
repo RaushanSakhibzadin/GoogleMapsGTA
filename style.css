@@ -339,7 +339,12 @@ body.perked .perk .keyRow{display:none}
    It carries the side you are on as its rim, so which colour you are about to
    spray is answerable without pressing it. */
 .sprayCan{position:fixed;z-index:46;
-  left:var(--edgeL);bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas));
+  /* THE CORNER IS THE DESKTOP POSITION, and it is the base rule because it is
+     the one that needs no thumb controls to make sense. There is no DRIFT
+     button on a machine with a keyboard -- the whole of #touch is display:none,
+     and the handbrake is the space bar -- so mirroring it there put this can in
+     mid-air over an absent accelerator. Reported from play. */
+  left:var(--edgeL);bottom:var(--edgeB);
   display:none;align-items:center;justify-content:center;pointer-events:auto;
   width:var(--driftD);height:var(--driftD);border-radius:50%;
   cursor:pointer;font-size:calc(var(--gas) * .3);line-height:1;padding:0;
@@ -347,6 +352,20 @@ body.perked .perk .keyRow{display:none}
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
 .sprayCan.on{display:flex}
+/* AND THE MIRROR ONLY WHERE THERE IS SOMETHING TO MIRROR -- which takes BOTH
+   classes, and getting that wrong is what put the can in mid-air twice.
+
+   DRIFT is a pad inside #touch, so it needs a touchscreen; and `.ctrl-stick`
+   hides every pad, because on the stick scheme the handbrake is a downward
+   flick of the joystick rather than a button. So the drift button exists only
+   on a touchscreen AND on the pads scheme. Anywhere else -- a desktop, or a
+   phone on the default stick -- there is nothing to be symmetrical with, and
+   the can belongs in its corner.
+
+   Gated on body classes rather than on `#touch.on ~ .sprayCan`, because a
+   sibling selector would silently stop working the day somebody reorders two
+   body-level elements, and this pair is nowhere near each other in the markup. */
+body.touch-ui.ctrl-pads .sprayCan{bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas))}
 .sprayCan[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
 .sprayCan[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
 .sprayCan:active{transform:translateY(1px)}
