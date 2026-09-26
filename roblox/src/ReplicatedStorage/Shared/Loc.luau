@@ -148,6 +148,22 @@ local EN: { [string]: string } = {
 	["roleui.signOn"] = "SIGN ON  ·  %s",
 	["roleui.refused"] = "DEPOT: %s",
 
+	-- ------------------------------------------------------------ the driving
+
+	-- KM/H, NOT MPH. The city is Belgrade, the browser game the port follows
+	-- reads КМ/Ч on its own speedometer, and every number behind the wheel in
+	-- Shared/VehicleModel is metric -- so the readout is a unit conversion of
+	-- the simulation rather than a second opinion about it.
+	["speedo.unit"] = "KM/H",
+
+	-- THE CAPTIONS UNDER THE ON-SCREEN PADS, short because they sit in a
+	-- 14 px strip under a glyph that is already carrying the meaning. A pad
+	-- with no caption at all (the two steering arrows) passes "" and gets a
+	-- centred glyph instead -- see Shared/Hud's tile().
+	["drive.gas"] = "GO",
+	["drive.brake"] = "STOP",
+	["drive.hand"] = "DRIFT",
+
 	-- --------------------------------------------------------------- big map
 
 	["bigmap.locate"] = "ME",

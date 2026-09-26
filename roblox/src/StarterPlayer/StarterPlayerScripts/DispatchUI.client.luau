@@ -45,6 +45,7 @@ local FireFX = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local Roles = require(Shared:WaitForChild("Roles"))
 local Loc = require(Shared:WaitForChild("Loc"))
+local Hud = require(Shared:WaitForChild("Hud"))
 
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
 local Claim = Remotes:WaitForChild("ClaimSlot") :: RemoteFunction
@@ -76,33 +77,56 @@ local function label(parent: Instance, size: UDim2, pos: UDim2, text: string, sz
 	return t
 end
 
-local card = Instance.new("Frame")
-card.Size = UDim2.new(0, 340, 0, 128)
-card.Position = UDim2.new(0, 18, 1, -152)
-card.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
-card.BackgroundTransparency = 0.15
-card.BorderSizePixel = 0
-card.Parent = gui
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 6)
-corner.Parent = card
+-- THE CARD'S SURFACE IS Shared/Hud's, not its own. Every panel in this game
+-- used to pick its own corner radius and its own transparency, and they had
+-- drifted apart -- see that file's header. What is left here is the layout,
+-- which is this card's own business.
+-- SHORTER ON A PHONE, and that is a height decision rather than a style one: a
+-- phone held sideways is under 400 px tall, and the identity row, this card,
+-- the sign-on prompt, the speedometer and two steering pads all have to fit in
+-- it. 104 costs the second line of the detail -- one line of scene description
+-- rather than two -- which is the least valuable row on the card because the
+-- status line under it already carries the distance, the crew and the money.
+local CARD_H = if Hud.thumbs then 104 else 128
+local Y_KICKER = if Hud.thumbs then 9 else 11
+local Y_TITLE = if Hud.thumbs then 25 else 29
+local Y_DETAIL = if Hud.thumbs then 46 else 53
 
-local kicker = label(card, UDim2.new(1, -24, 0, 16), UDim2.new(0, 12, 0, 10), Loc.get("dispatch.kicker"), 12, Color3.fromRGB(255, 176, 64))
-local title = label(card, UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, 28), "", 18, Color3.fromRGB(238, 240, 244))
-local detail = label(card, UDim2.new(1, -24, 0, 34), UDim2.new(0, 12, 0, 52), "", 13, Color3.fromRGB(150, 156, 166))
+local card = Hud.panel(gui, "Card", Hud.R_CARD)
+card.Size = UDim2.new(0, 340, 0, CARD_H)
+-- LIFTED CLEAR OF THE STEERING PADS on a phone and left exactly where it was
+-- on a keyboard -- Shared/Hud owns that number because three scripts have to
+-- agree on it. Without the lift the left-hand pad sits on the bottom-left
+-- corner of this card, which is both unreadable and, now that tapping the card
+-- accepts the job, a button underneath a button.
+card.Position = UDim2.new(0, 18, 1, -CARD_H - 24 - Hud.PAD_LIFT)
+
+local kicker = label(card, UDim2.new(1, -28, 0, 16), UDim2.new(0, 14, 0, Y_KICKER), Loc.get("dispatch.kicker"), 12, Hud.WARN)
+kicker.Font = Enum.Font.GothamBold
+local title = label(card, UDim2.new(1, -28, 0, 22), UDim2.new(0, 14, 0, Y_TITLE), "", 18, Hud.INK)
+title.Font = Enum.Font.GothamBold
+-- THE DETAIL TAKES WHAT IS LEFT between the title and the status line, rather
+-- than a fixed 34 -- so the two card heights above need no second set of
+-- numbers here, and a future third height needs none either.
+local detail = label(card, UDim2.new(1, -28, 0, CARD_H - Y_DETAIL - 32), UDim2.new(0, 14, 0, Y_DETAIL), "", 13, Hud.DIM)
 detail.TextWrapped = true
-local status = label(card, UDim2.new(1, -24, 0, 16), UDim2.new(0, 12, 0, 92), "", 13, Color3.fromRGB(120, 200, 150))
+-- ANCHORED TO THE CARD'S BOTTOM, not to its top: these are the last two rows
+-- and they belong 30 and 13 px up from the edge whatever the card's height is.
+local status = label(card, UDim2.new(1, -28, 0, 16), UDim2.new(0, 14, 1, -30), "", 13, Color3.fromRGB(120, 200, 150))
+status.Font = Enum.Font.GothamBold
 
 local bar = Instance.new("Frame")
-bar.Size = UDim2.new(1, -24, 0, 3)
-bar.Position = UDim2.new(0, 12, 1, -12)
+bar.Size = UDim2.new(1, -28, 0, 4)
+bar.Position = UDim2.new(0, 14, 1, -13)
 bar.BackgroundColor3 = Color3.fromRGB(46, 50, 58)
 bar.BorderSizePixel = 0
+Hud.pillRound(bar)
 bar.Parent = card
 local fill = Instance.new("Frame")
 fill.Size = UDim2.new(0, 0, 1, 0)
-fill.BackgroundColor3 = Color3.fromRGB(255, 176, 64)
+fill.BackgroundColor3 = Hud.WARN
 fill.BorderSizePixel = 0
+Hud.pillRound(fill)
 fill.Parent = bar
 
 -- UNDER THE CARD, NOT AT THE TOP OF THE SCREEN. The first attempt put this at
@@ -110,8 +134,27 @@ fill.Parent = bar
 -- IgnoreGuiInset on, the game's UI and the platform's share that corner and the
 -- platform wins. Sitting it above the dispatch card keeps everything the player
 -- reads in one place anyway.
-local wallet = label(card, UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, -28), "$0", 20, Color3.fromRGB(238, 240, 244))
-wallet.TextXAlignment = Enum.TextXAlignment.Right
+--
+-- A CAPSULE IN THE WALLET'S OWN GREEN rather than a white number floating over
+-- the road. Money is the only number on this HUD that is a score, and a score
+-- that looks like every other label is one you stop noticing -- so it gets the
+-- one colour nothing else in the UI uses and a surface of its own to sit on.
+--
+-- ON A PHONE IT LEAVES THE STACK ALTOGETHER and goes under the minimap with
+-- the shift card, because the bottom-left corner cannot hold the shift card,
+-- the wallet, the dispatch card AND a steering pad on a screen 400 px tall.
+-- Identity and money are the two things you glance at rather than read, so
+-- they are the two that move to the corner you are already glancing at --
+-- Shift/RoleUI puts its own card at the same x for the same reason.
+-- BESIDE the shift card on a phone, not under it: the two together are one
+-- 54 px row across the top left, which is what a 400 px screen can spare.
+-- 240 is the shift card's own 18 + 214 plus eight of gap, and the height
+-- matches that card so the row reads as one object.
+local walletPill, wallet = Hud.pill(if Hud.thumbs then gui else card, "Wallet", Hud.MONEY, 19)
+walletPill.Size = if Hud.thumbs then UDim2.fromOffset(136, 54) else UDim2.fromOffset(136, 34)
+walletPill.AnchorPoint = if Hud.thumbs then Vector2.new(0, 0) else Vector2.new(0, 1)
+walletPill.Position = if Hud.thumbs then UDim2.new(0, 240, 0, 52) else UDim2.new(0, 0, 0, -10)
+wallet.Text = Hud.money(0)
 
 -- ---------------------------------------------------------------- the fires
 
@@ -205,7 +248,7 @@ end
 
 Wallet.OnClientEvent:Connect(function(n)
 	money = n
-	wallet.Text = "$" .. tostring(n)
+	wallet.Text = Hud.money(n)
 end)
 
 -- A NEW JOB PINGS ONCE, and only for a genuinely new id. The board is
@@ -347,6 +390,28 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if input.KeyCode == Enum.KeyCode.E then
 		respond(current(carPos()))
 	end
+end)
+
+-- AND TAPPING THE CARD DOES THE SAME THING, because "[E] RESPOND" is not a
+-- control on a phone -- it is a sentence about a key that is not there. The
+-- card was the last thing on this HUD with no touch path at all: the sign-on
+-- prompt has had one since it was written (Shift/RoleUI's own `tap`) and the
+-- minimap has been a button since it was drawn, so a phone could sign on and
+-- open the map and then had no way to accept the work.
+--
+-- A transparent button filling the card rather than a visible one in a corner:
+-- the whole card is already the affordance, and a second rectangle inside it
+-- would only be somewhere else to miss.
+local cardTap = Instance.new("TextButton")
+cardTap.Name = "Tap"
+cardTap.Size = UDim2.fromScale(1, 1)
+cardTap.BackgroundTransparency = 1
+cardTap.AutoButtonColor = false
+cardTap.Text = ""
+cardTap.ZIndex = 0 -- under the card's own labels, over nothing
+cardTap.Parent = card
+cardTap.Activated:Connect(function()
+	respond(current(carPos()))
 end)
 
 -- ---------------------------------------------------------------- the frame

@@ -31,15 +31,48 @@ type Preset = {
 	OutdoorAmbient: Color3,
 	FogEnd: number,
 	FogColor: Color3,
+	-- THE GRADE, which is the other half of a look and was missing entirely.
+	-- Exposure and saturation are what separate a lit scene from a
+	-- photographed one, and Roblox puts both behind post-effects rather than
+	-- behind Lighting properties -- so they travel with the preset instead of
+	-- being set once and left to fight it.
+	Exposure: number,
+	Saturation: number,
+	Contrast: number,
+	Tint: Color3,
+	Bloom: number,
 }
 
+-- DAY IS A SUNNY DAY NOW, not an overcast one.
+--
+-- The old values were honest and grey: ClockTime 14, a neutral ambient, and
+-- nothing at all in post. That reads as a city under cloud, which is not what
+-- either game looks like -- the browser's own day theme is bright and saturated
+-- and the shadows in it are hard.
+--
+-- What changed and why:
+--   · ClockTime 13.4 rather than 14 -- barely moved, but it is the sun's angle
+--     and a sun nearer the zenith throws the short hard shadows this look wants
+--   · a WARM sun against a COOL ambient, which is what makes a lit face read as
+--     lit; a neutral ambient of the same colour as the key light flattens
+--     everything it touches
+--   · saturation up a quarter. The city is built from flat Parts in flat
+--     colours and flat colour desaturates on screen far more than a textured
+--     surface does
+--   · fog pulled in from 3000 to 1800 and tinted towards the sky, so the far
+--     edge of the district fades into the horizon instead of ending in mid-air
 local DAY: Preset = {
-	ClockTime = 14,
-	Brightness = 2,
-	Ambient = Color3.fromRGB(120, 120, 130),
-	OutdoorAmbient = Color3.fromRGB(150, 150, 160),
-	FogEnd = 3000,
-	FogColor = Color3.fromRGB(180, 190, 200),
+	ClockTime = 13.4,
+	Brightness = 2.6,
+	Ambient = Color3.fromRGB(116, 124, 146),
+	OutdoorAmbient = Color3.fromRGB(150, 162, 188),
+	FogEnd = 1800,
+	FogColor = Color3.fromRGB(196, 210, 232),
+	Exposure = 0.12,
+	Saturation = 0.24,
+	Contrast = 0.08,
+	Tint = Color3.fromRGB(255, 252, 246),
+	Bloom = 0.9,
 }
 
 local DUSK: Preset = {
@@ -49,9 +82,48 @@ local DUSK: Preset = {
 	OutdoorAmbient = Color3.fromRGB(46, 40, 66),
 	FogEnd = 900,
 	FogColor = Color3.fromRGB(18, 14, 30),
+	-- Dusk keeps its own grade rather than borrowing day's: the point of the
+	-- violet pull is that it is dim and cool, and day's exposure lift would
+	-- undo exactly that.
+	Exposure = -0.05,
+	Saturation = 0.1,
+	Contrast = 0.12,
+	Tint = Color3.fromRGB(236, 232, 255),
+	Bloom = 1.6,
 }
 
 local isDusk = false
+
+-- MADE ONCE, REUSED, AND FOUND BY NAME IF IT IS ALREADY THERE. A published
+-- place can have these effects saved into Lighting from Studio; making a second
+-- set would stack two grades on top of each other and blow the picture out.
+local function effect(class: string, name: string): Instance
+	local found = Lighting:FindFirstChild(name)
+	if found and found.ClassName == class then
+		return found
+	end
+	if found then
+		found:Destroy()
+	end
+	local made = Instance.new(class)
+	made.Name = name
+	made.Parent = Lighting
+	return made
+end
+
+local grade = effect("ColorCorrectionEffect", "Grade") :: ColorCorrectionEffect
+local bloom = effect("BloomEffect", "Glow") :: BloomEffect
+bloom.Threshold = 1.1
+bloom.Size = 24
+
+-- THE SUN'S OWN COLOUR IS NOT A PRESET FIELD because it does not change between
+-- the two: a warm key against a cool ambient is the look, and dusk's own
+-- darkness comes from Brightness and Ambient rather than from tinting the sun
+-- a different colour every toggle.
+Lighting.ColorShift_Top = Color3.fromRGB(255, 244, 222)
+Lighting.GlobalShadows = true
+Lighting.EnvironmentDiffuseScale = 0.45
+Lighting.EnvironmentSpecularScale = 0.35
 
 local function apply(p: Preset)
 	Lighting.ClockTime = p.ClockTime
@@ -60,6 +132,13 @@ local function apply(p: Preset)
 	Lighting.OutdoorAmbient = p.OutdoorAmbient
 	Lighting.FogEnd = p.FogEnd
 	Lighting.FogColor = p.FogColor
+	Lighting.ExposureCompensation = p.Exposure
+
+	grade.Saturation = p.Saturation
+	grade.Contrast = p.Contrast
+	grade.TintColor = p.Tint
+	grade.Brightness = 0
+	bloom.Intensity = p.Bloom
 end
 
 apply(DAY)

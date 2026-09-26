@@ -42,6 +42,7 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
+local Hud = require(Shared:WaitForChild("Hud"))
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Board = Remotes:WaitForChild("IncidentBoard") :: RemoteEvent
@@ -55,7 +56,15 @@ local MapPaint = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChi
 local CLASS = MapPaint.CLASS
 local classAt = MapPaint.classAt
 
-local VIEW = 196 -- the panel on screen, in GUI pixels
+-- SMALLER WHEN THERE ARE THUMBS ON THE SCREEN. 196 px is a fifth of a desktop
+-- window and half the height of a phone held sideways -- and on a touch build
+-- the right-hand edge below it is where the handbrake pad now sits, so a radar
+-- that size is both out of proportion and in the way. 140 keeps it the biggest
+-- single thing in the corner without owning the corner.
+--
+-- Everything else in this file is derived from VIEW (the blips, the arrow, the
+-- centre), so this is the only line that has to know.
+local VIEW = if Hud.thumbs then 140 else 196 -- the panel on screen, in GUI pixels
 local RES = 96 -- the image behind it; chunky on purpose
 local SPAN = 620 -- studs across the panel: about 200 m of city
 local HZ = 20 -- redraws a second
@@ -101,6 +110,30 @@ backdrop.Parent = panel
 local backdropCorner = Instance.new("UICorner")
 backdropCorner.CornerRadius = UDim.new(1, 0)
 backdropCorner.Parent = backdrop
+
+-- A BEZEL, so it reads as an instrument mounted on the screen rather than a
+-- hole cut in it. The rasterised city goes right to the rim -- there is no
+-- frame in the image itself -- so against a pale building or a bright sky the
+-- panel's own edge disappeared and the map bled into the world behind it.
+--
+-- Drawn on the panel and not on the backdrop: the sheet ImageLabel is a sibling
+-- that covers the backdrop completely, so a stroke there would be underneath
+-- the picture it is supposed to be framing.
+local rim = Instance.new("Frame")
+rim.Name = "Rim"
+rim.Size = UDim2.fromScale(1, 1)
+rim.BackgroundTransparency = 1
+rim.ZIndex = 20 -- over the sheet and over every blip
+rim.Parent = panel
+local rimCorner = Instance.new("UICorner")
+rimCorner.CornerRadius = UDim.new(1, 0)
+rimCorner.Parent = rim
+local rimStroke = Instance.new("UIStroke")
+rimStroke.Color = Color3.fromRGB(0, 0, 0)
+rimStroke.Thickness = 3
+rimStroke.Transparency = 0.35
+rimStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+rimStroke.Parent = rim
 
 local sheet = Instance.new("ImageLabel")
 sheet.Size = UDim2.fromScale(1, 1)

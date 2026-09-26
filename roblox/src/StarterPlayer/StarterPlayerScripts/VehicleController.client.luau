@@ -93,20 +93,30 @@ end)
 -- the car for the same reason.
 local handWasDown = false
 
--- Keyboard and gamepad are ADDED, not chosen between, the same way the browser
--- adds its on-screen stick to the keyboard: whichever is actually being held
--- wins, because the other reads zero. Steering takes whichever is further from
--- centre, so a key press is still full lock and the stick's analogue value
--- survives -- an `or` here would round every partial input up to 1.
+-- Keyboard, gamepad and the on-screen pads are ADDED, not chosen between, the
+-- same way the browser adds its on-screen stick to the keyboard: whichever is
+-- actually being held wins, because the others read zero. Steering takes
+-- whichever is further from centre, so a key press is still full lock and the
+-- stick's analogue value survives -- an `or` here would round every partial
+-- input up to 1.
+--
+-- THE PADS ARE A THIRD SOURCE ON THE SAME FOOTING, not a mode. ClientBus.touch
+-- is all zeroes on a client that never drew them (TouchDrive returns early on
+-- anything with a keyboard), so a desktop reads exactly what it read before
+-- this existed.
 local function readInput()
 	local K = Enum.KeyCode
+	local touch = ClientBus.touch
 	local L = keys[K.A] or keys[K.Left]
 	local R = keys[K.D] or keys[K.Right]
 	local U = keys[K.W] or keys[K.Up]
 	local D = keys[K.S] or keys[K.Down]
-	local H = keys[K.Space]
+	local H = keys[K.Space] ~= nil or touch.hand > 0
 
 	local kSteer = (if R then 1 else 0) - (if L then 1 else 0)
+	if math.abs(touch.steer) > math.abs(kSteer) then
+		kSteer = touch.steer
+	end
 
 	local pad = 0
 	local gasPad, brakePad = false, false
@@ -125,14 +135,14 @@ local function readInput()
 
 	local steer = if math.abs(pad) > math.abs(kSteer) then pad else kSteer
 
-	local handDown = H == true
+	local handDown = H
 	local spinPress = handDown and not handWasDown
 	handWasDown = handDown
 
 	return {
 		steer = steer,
-		gas = if (U or gasPad) then 1 else 0,
-		brake = if (D or brakePad) then 1 else 0,
+		gas = if (U or gasPad or touch.gas > 0) then 1 else 0,
+		brake = if (D or brakePad or touch.brake > 0) then 1 else 0,
 		hand = if H then 1 else 0,
 		spinPress = spinPress,
 	}

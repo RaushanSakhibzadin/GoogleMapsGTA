@@ -56,6 +56,22 @@ ClientBus.myIncident = nil :: { x: number, z: number }?
 -- reverses.
 ClientBus.revSteer = false
 
+-- THE ON-SCREEN CONTROLS, for a client with no keyboard to read.
+--
+-- TouchDrive.client.luau draws the pads and writes what is under the player's
+-- thumbs here; VehicleController's readInput adds it to the keyboard and the
+-- gamepad exactly as it already adds those two to each other. A plain table
+-- rather than an event for the same reason `revSteer` is a plain field: it is
+-- read sixty times a second and there is nothing to react to, only a value to
+-- look at.
+--
+-- IT IS NOT A SECOND INPUT PATH. The pads do not step the car and do not talk
+-- to the server -- they set four numbers that the one readInput in the game
+-- folds into the same input table a key press produces, so a phone and a
+-- keyboard drive through identical code and can only ever feel different
+-- because of what a thumb can do that a key cannot.
+ClientBus.touch = { steer = 0, gas = 0, brake = 0, hand = 0 }
+
 -- DOWN, the same idea as js/game.js's P.dead: true for the 2.2 s hold between
 -- going down (Services/WantedService.luau's beginDown, on a bust or on
 -- running out of hp) and waking up wherever the server sent the car.

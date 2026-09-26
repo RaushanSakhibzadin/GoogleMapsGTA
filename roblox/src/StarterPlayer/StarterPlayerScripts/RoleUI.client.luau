@@ -32,6 +32,7 @@ local Roles = require(Shared:WaitForChild("Roles"))
 local ClientBus = require(Shared:WaitForChild("ClientBus"))
 local PlayerCar = require(Shared:WaitForChild("PlayerCar"))
 local Loc = require(Shared:WaitForChild("Loc"))
+local Hud = require(Shared:WaitForChild("Hud"))
 local Meta = require(ReplicatedStorage:WaitForChild("CityVisual"):WaitForChild("CityMeta"))
 
 local Audio = (function()
@@ -54,9 +55,10 @@ local S = Meta.studsPerMetre
 local RANGE = 22 * S
 local RANGE_SQ = RANGE * RANGE
 
-local INK = Color3.fromRGB(238, 240, 244)
-local DIM = Color3.fromRGB(150, 156, 166)
-local PANEL = Color3.fromRGB(18, 20, 24)
+-- The palette is Shared/Hud's now; these two are kept as short local names
+-- because this file names a colour on nearly every line of its layout.
+local INK = Hud.INK
+local DIM = Hud.DIM
 
 -- ---------------------------------------------------------------- the screen
 
@@ -67,62 +69,99 @@ gui.IgnoreGuiInset = true
 gui.DisplayOrder = 20
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- THE CHIP sits above the dispatch card and the wallet, in the bottom-left
+-- THE CARD sits above the dispatch card and the wallet, in the bottom-left
 -- stack. Everything the player reads about what they are doing is in one place
 -- and this is the top line of it: the shift is the thing every other line is
 -- conditional on.
-local chip = Instance.new("Frame")
-chip.Name = "Chip"
-chip.Size = UDim2.fromOffset(150, 26)
-chip.Position = UDim2.new(0, 18, 1, -210)
-chip.BackgroundColor3 = PANEL
-chip.BackgroundTransparency = 0.15
-chip.BorderSizePixel = 0
-chip.Parent = gui
-local chipCorner = Instance.new("UICorner")
-chipCorner.CornerRadius = UDim.new(0, 4)
-chipCorner.Parent = chip
+--
+-- IT WAS A 150x26 CHIP WITH ONE WORD ON IT. It says the same thing now with a
+-- face and a name beside it, which is what every driving game on the platform
+-- puts on screen and what this one had nowhere at all: there was no way to tell
+-- from a screenshot of this game whose car you were looking at.
+--
+-- THE FACE COSTS NO WEB CALL. `rbxthumb://` is resolved by the engine's own
+-- thumbnail pipeline from an ImageLabel's Image property -- no
+-- Players:GetUserThumbnailAsync, no yield, nothing to fail on a slow join and
+-- leave the card half-built. A client that cannot fetch it shows an empty
+-- rounded square, which is exactly what it showed before this line existed.
+local card = Hud.panel(gui, "Shift", Hud.R_CARD)
+card.Size = UDim2.fromOffset(214, 54)
+-- ON A PHONE IT MOVES TO THE TOP LEFT, just under Roblox's own buttons, with
+-- the wallet beside it rather than under it. The bottom-left corner on a touch
+-- build is holding the dispatch card and a steering pad and has no room for a
+-- third thing -- a phone held sideways is under 400 px tall, and the stack this
+-- card sits on top of on a desktop is 230 px of that before the pads are drawn.
+-- See DispatchUI's own note on the wallet, which follows this card.
+--
+-- 52 rather than 36: the top bar is 36 and sitting flush under it reads as part
+-- of it.
+card.Position = if Hud.thumbs then UDim2.new(0, 18, 0, 52) else UDim2.new(0, 18, 1, -254)
 
-local stripe = Instance.new("Frame")
-stripe.Size = UDim2.new(0, 4, 1, -10)
-stripe.Position = UDim2.new(0, 8, 0, 5)
-stripe.BorderSizePixel = 0
-stripe.Parent = chip
-local stripeCorner = Instance.new("UICorner")
-stripeCorner.CornerRadius = UDim.new(1, 0)
-stripeCorner.Parent = stripe
+local avatar = Instance.new("ImageLabel")
+avatar.Name = "Face"
+avatar.Size = UDim2.fromOffset(38, 38)
+avatar.Position = UDim2.fromOffset(8, 8)
+avatar.BackgroundColor3 = Color3.fromRGB(38, 42, 52)
+avatar.BorderSizePixel = 0
+avatar.Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48"):format(player.UserId)
+Hud.round(avatar, 12)
+avatar.Parent = card
+
+-- THE SHIFT'S COLOUR, ON THE FACE'S OWN EDGE. One ring rather than the old
+-- separate stripe: the colour belongs to the person on the shift, and drawing
+-- it around them says that in a way a bar floating beside them did not.
+local ring = Hud.stroke(avatar, Color3.fromRGB(255, 79, 216), 2, 0)
+
+local nameText = Instance.new("TextLabel")
+nameText.Name = "Name"
+nameText.BackgroundTransparency = 1
+nameText.Position = UDim2.fromOffset(54, 8)
+nameText.Size = UDim2.new(1, -62, 0, 18)
+nameText.Font = Enum.Font.GothamBold
+nameText.TextSize = 14
+nameText.TextColor3 = INK
+nameText.TextXAlignment = Enum.TextXAlignment.Left
+nameText.TextTruncate = Enum.TextTruncate.AtEnd
+nameText.Text = player.DisplayName
+nameText.Parent = card
 
 local chipText = Instance.new("TextLabel")
+chipText.Name = "Shift"
 chipText.BackgroundTransparency = 1
-chipText.Position = UDim2.new(0, 20, 0, 0)
-chipText.Size = UDim2.new(1, -28, 1, 0)
-chipText.Font = Enum.Font.GothamMedium
+chipText.Position = UDim2.fromOffset(54, 28)
+chipText.Size = UDim2.new(1, -62, 0, 16)
+chipText.Font = Enum.Font.GothamBold
 chipText.TextSize = 12
 chipText.TextColor3 = INK
 chipText.TextXAlignment = Enum.TextXAlignment.Left
+chipText.TextTruncate = Enum.TextTruncate.AtEnd
 chipText.Text = Loc.get(Roles.get(Roles.DEFAULT).title)
-chipText.Parent = chip
+chipText.Parent = card
 
 -- THE PROMPT, centred low. Not in the bottom-left stack on purpose: it is
 -- transient and it is about where you are rather than what you are doing, so it
 -- belongs where your eyes are -- the middle of the road ahead -- rather than in
 -- the corner you glance at.
-local prompt = Instance.new("Frame")
-prompt.Name = "Prompt"
-prompt.Size = UDim2.fromOffset(360, 62)
-prompt.Position = UDim2.new(0.5, -180, 1, -140)
-prompt.BackgroundColor3 = PANEL
-prompt.BackgroundTransparency = 0.1
-prompt.BorderSizePixel = 0
+local prompt = Hud.panel(gui, "Prompt", Hud.R_CARD)
+-- CLEAR OF THE STACK, NOT JUST CLEAR OF THE BOTTOM EDGE. At -140 this sat in
+-- the same horizontal band as the dispatch card (which ends 152 px up) and only
+-- missed it because a wide window put 100 px of gap between the two columns --
+-- narrow the window and the prompt overlapped the card's right edge. -252 puts
+-- its bottom 38 px above the card's top, so the two cannot meet at any width,
+-- and it also clears the speedometer's new 62 px housing at the bottom centre.
+--
+-- ON A PHONE it stays bottom centre and narrows to 300, which is the width
+-- that fits between the steering pads on the left and the brake on the right at
+-- 800 px across -- the narrowest screen this is laid out for. It sits at -140,
+-- which is above the speedometer and below the dispatch card's own lifted
+-- position, in the one horizontal band on a touch build with nothing in it.
+prompt.Size = if Hud.thumbs then UDim2.fromOffset(300, 62) else UDim2.fromOffset(360, 62)
+prompt.Position = if Hud.thumbs then UDim2.new(0.5, -150, 1, -140) else UDim2.new(0.5, -180, 1, -252)
 prompt.Visible = false
-prompt.Parent = gui
-local pCorner = Instance.new("UICorner")
-pCorner.CornerRadius = UDim.new(0, 6)
-pCorner.Parent = prompt
 
 local key = Instance.new("TextLabel")
-key.Size = UDim2.fromOffset(28, 28)
-key.Position = UDim2.new(0, 14, 0, 10)
+key.Size = UDim2.fromOffset(30, 30)
+key.Position = UDim2.new(0, 14, 0, 16)
 key.BackgroundColor3 = Color3.fromRGB(46, 50, 58)
 key.BorderSizePixel = 0
 key.Font = Enum.Font.GothamBold
@@ -130,9 +169,7 @@ key.Text = "R"
 key.TextSize = 14
 key.TextColor3 = INK
 key.Parent = prompt
-local kCorner = Instance.new("UICorner")
-kCorner.CornerRadius = UDim.new(0, 4)
-kCorner.Parent = key
+Hud.round(key, 9)
 
 local function line(y: number, size: number, colour: Color3, font: Enum.Font): TextLabel
 	local t = Instance.new("TextLabel")
@@ -162,8 +199,14 @@ local asking = false
 
 local function paintChip()
 	local r = Roles.get(role)
+	local colour = r.colour or Color3.fromRGB(255, 79, 216)
 	chipText.Text = Loc.get(r.title)
-	stripe.BackgroundColor3 = r.colour or Color3.fromRGB(255, 79, 216)
+	-- THE SHIFT'S NAME IN THE SHIFT'S OWN COLOUR, not white beside a coloured
+	-- bar. Two places wearing one colour is what ties the face on this card to
+	-- the beacon on the roof and the blips on both maps -- see IncidentTypes'
+	-- own note on why the palette lives in one table.
+	chipText.TextColor3 = colour
+	ring.Color = colour
 end
 
 RoleState.OnClientEvent:Connect(function(msg)
