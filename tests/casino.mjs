@@ -130,7 +130,19 @@ async function open(withCasinos) {
   out.awayFromTable = await turf();
   need(!out.awayFromTable.at && !out.awayFromTable.betRow,
        'the bet buttons are up 520 m from the nearest casino');
-  need(!out.awayFromTable.can, 'the spray can is up before a single bet');
+  /* THE CAN IS UP BEFORE THE FIRST BET NOW, and that inverted assertion is
+     deliberate rather than a regression. It used to appear with the first bet,
+     which was reported twice as "there is no paint button" — on a phone and
+     again on a desktop — because a player who has never been into the casino
+     had no way to learn that the feature exists. It is on screen for the whole
+     game, visibly not loaded until you have a side (tests/turfui.mjs measures
+     the dimming and the press that says what it needs), and what THIS test
+     still has to say is that a can with no side paints nothing: the tally
+     below is zero, which is the part a visible button could have broken. */
+  need(out.awayFromTable.can, 'the spray can is missing before the first bet');
+  need(out.awayFromTable.team === null &&
+       out.awayFromTable.owned.red === 0 && out.awayFromTable.owned.black === 0,
+       'a can with no side has painted something');
 
   await p.evaluate(() => window.__tp(0, 0, 0));
   await p.waitForTimeout(400);

@@ -339,11 +339,15 @@ body.perked .perk .keyRow{display:none}
    It carries the side you are on as its rim, so which colour you are about to
    spray is answerable without pressing it. */
 .sprayCan{position:fixed;z-index:46;
-  /* THE CORNER IS THE DESKTOP POSITION, and it is the base rule because it is
-     the one that needs no thumb controls to make sense. There is no DRIFT
-     button on a machine with a keyboard -- the whole of #touch is display:none,
-     and the handbrake is the space bar -- so mirroring it there put this can in
-     mid-air over an absent accelerator. Reported from play. */
+  /* THE CORNER IS THE BASE POSITION, and it is the base rule because it is the
+     one that needs no thumb controls to make sense: it is where the can goes
+     when there is no drift button to line up with, which is a phone on the
+     default stick scheme.
+     It used to be the DESKTOP position too, for a real reason -- there was no
+     drift button on a machine with a keyboard, so mirroring one put this can in
+     mid-air over an absent accelerator, reported from play. There is one now
+     (see #tH), so the desktop has moved to the mirrored rule below and this
+     corner is the stick scheme's alone. */
   left:var(--edgeL);bottom:var(--edgeB);
   display:none;align-items:center;justify-content:center;pointer-events:auto;
   width:var(--driftD);height:var(--driftD);border-radius:50%;
@@ -352,20 +356,66 @@ body.perked .perk .keyRow{display:none}
   backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",sans-serif}
 .sprayCan.on{display:flex}
-/* AND THE MIRROR ONLY WHERE THERE IS SOMETHING TO MIRROR -- which takes BOTH
-   classes, and getting that wrong is what put the can in mid-air twice.
+/* AND THE MIRROR ONLY WHERE THERE IS SOMETHING TO MIRROR, which is now two
+   places rather than one -- and getting this wrong is what put the can in
+   mid-air twice, so it is spelt out rather than inferred.
 
-   DRIFT is a pad inside #touch, so it needs a touchscreen; and `.ctrl-stick`
-   hides every pad, because on the stick scheme the handbrake is a downward
-   flick of the joystick rather than a button. So the drift button exists only
-   on a touchscreen AND on the pads scheme. Anywhere else -- a desktop, or a
-   phone on the default stick -- there is nothing to be symmetrical with, and
-   the can belongs in its corner.
+   WHERE A DRIFT BUTTON EXISTS:
+     · a touchscreen on the PADS scheme -- DRIFT is a pad in #touch, and
+       `.ctrl-stick` hides every pad because on the stick scheme the handbrake
+       is a downward flick of the joystick rather than a button
+     · a DESKTOP, which is new: see #tH's own rules further down, where the
+       container is turned on for a keyboard so this button can be in it
+
+   WHERE ONE DOES NOT: a phone on the default stick. There the can belongs in
+   its corner, because there is nothing on the other edge to line up with.
 
    Gated on body classes rather than on `#touch.on ~ .sprayCan`, because a
    sibling selector would silently stop working the day somebody reorders two
    body-level elements, and this pair is nowhere near each other in the markup. */
-body.touch-ui.ctrl-pads .sprayCan{bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas))}
+/* AND ONLY WHERE THERE IS ROOM FOR IT. The mirrored position is a whole
+   accelerator plus a gap up from the bottom edge — about 316 points once the
+   radio bar is showing — so on a short viewport it is not "up the edge", it is
+   the TOP of the screen: at 750x342 the can landed on the radar and the street
+   name, 52 and 60 points of overlap, which tests/hud.mjs caught.
+
+   A HEIGHT QUESTION AND NOT A DEVICE ONE, so it is asked as one. This was
+   already true of the pads scheme before the desktop joined it — a phone held
+   sideways on the pads had the same clash and nothing measured it — so the
+   guard covers both rules rather than only the new one. Below the threshold
+   both fall back to the base corner, which costs the symmetry and keeps the
+   radar; an overlapping pair is not a pair. */
+@media (min-height:500px){
+  body.touch-ui.ctrl-pads .sprayCan,
+  body:not(.touch-ui) .sprayCan{bottom:calc(var(--edgeB) + var(--driftUp) + var(--gas))}
+}
+/* AND BELOW THAT THRESHOLD, WITH FIVE PADS ALREADY ON SCREEN, IT IS NOT DRAWN.
+   The left edge of a phone held sideways on the pads scheme is full, and the
+   numbers are worth writing down because they are the whole argument. At
+   750x342 with the radio bar showing:
+     · the left steering pad is 104 points square at the bottom-left corner,
+       which is the can's own corner position — a direct hit, 60x59 points of
+       it, measured by tests/hud.mjs
+     · the radar's lower edge is 234 points up from the bottom and the pad's
+       upper edge is 186, so the gap on that edge is 48 points and the can is 81
+     · the mirrored position is 316 points up, which on a 342 point screen is
+       the radar
+   So there is nowhere for it: three positions, all occupied. Hidden is the
+   honest answer rather than a fourth position that overlaps something —
+   and it costs less than it looks, because the pads are not the default (the
+   stick is, and it hides every pad, so the corner is free there) and turning
+   the phone gets the can back. The can was invisible in this configuration at
+   HEAD too, for the accidental reason that it had not appeared yet; this makes
+   it deliberate and measured rather than a coincidence.
+   It outranks `.sprayCan.on` on specificity, which is what makes it stick. */
+@media (max-height:499px){
+  body.touch-ui.ctrl-pads .sprayCan{display:none}
+}
+/* NO SIDE YET: on screen, reachable, and visibly not loaded. The rim carries
+   which colour you are about to spray, so a can with no colour to carry should
+   not look like one that has one — and a press says what it needs rather than
+   doing nothing (js/turf.js's sprayPaint). */
+.sprayCan.noSide{opacity:.55}
 .sprayCan[data-team="red"]{border-color:#ff8a96;background:rgba(201,32,47,.34)}
 .sprayCan[data-team="black"]{border-color:#b9b9d0;background:rgba(21,21,27,.55)}
 .sprayCan:active{transform:translateY(1px)}
@@ -1027,6 +1077,24 @@ body.theme-day .stickN{background:rgba(24,18,32,.30);border-color:rgba(24,18,32,
   width:var(--driftD);height:var(--driftD);
   border-radius:50%;padding:0;font-size:calc(var(--gas) * .3);letter-spacing:0;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Android Emoji",var(--hud)}
+/* AND IT EXISTS ON A DESKTOP NOW, which is the whole of this change.
+   #touch is display:none without a touchscreen, and DRIFT is a pad inside it —
+   so on a keyboard the button did not exist at all. The handbrake was the space
+   bar and nothing on screen said so, which is a control you can only find by
+   being told about it. Reported twice, the second time after being told it was
+   deliberate; it was, and it was still wrong.
+   A VISIBILITY CHANGE AND NOT A NEW CONTROL: the mouse half of the pads has
+   been wired since io.js was written (its own `mouse, for driving it on a
+   desktop` loop binds mousedown on all five), so the button worked the whole
+   time and could not be seen. The container is turned on, every pad in it is
+   turned off — a keyboard already steers, and the steering pads were not asked
+   for — and DRIFT alone is turned back on.
+   BOTH IDS ON THE LAST SELECTOR ON PURPOSE. `body.ctrl-stick #touch .pad`
+   hides every pad, and ctrl-stick is the default on a desktop too, so a rule
+   with one id loses to it and the button stays invisible. */
+body:not(.touch-ui) #touch{display:block}
+body:not(.touch-ui) #touch .pad{display:none}
+body:not(.touch-ui) #touch #tH{display:flex}
 /* Day/night is a row in the settings panel now, not a pad — see #mix, and
    nothing is left of it here: --hpH went with it. It was the armor block's
    rendered height and the spray can was the last thing hanging off it, which

@@ -30,9 +30,18 @@ for (const [label, width, height] of SHAPES) {
   await p.goto(GAME);
   await p.waitForTimeout(200);
   const r = await p.evaluate(() => {
-    // the pads only exist on screen once touch mode is on; this measures the
-    // layout, so it does not need the game to be running
+    /* THE PADS ONLY EXIST ON SCREEN ONCE TOUCH MODE IS ON. This measures the
+       layout, so it does not need the game to be RUNNING — but it does need the
+       two body classes the game sets, and it used to get away without them.
+       `ctrl-stick` hides every pad and `touch-ui` is now what says the pads
+       belong on this machine at all (the stylesheet turns #touch on for a
+       keyboard as well, for the one drift button, and hides the other four
+       there), so a page with #touch.on and neither class is a state the product
+       never renders. Without them every pad measured as a zero-size box at the
+       origin, which reads as a pad flush against the left edge — exactly the
+       reading the three-pad list below already exists to avoid. */
     document.getElementById('touch').classList.add('on');
+    document.body.classList.add('touch-ui', 'ctrl-pads');
     const vw = innerWidth, vh = innerHeight, o = {};
     /* THREE PADS, NOT FOUR. The day/night switch used to be one of them and is
        a row in the Settings panel now, so it is not on the glass for a system

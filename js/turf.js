@@ -247,7 +247,11 @@ function claimBuilding(b, team) {
 }
 
 function sprayPaint() {
-  if (!TURF.team) return false;
+  /* THE PRESS THAT TEACHES THE FEATURE. The can is on screen from the start now
+     (see syncTurfUI), so this is the commonest thing a new player will do with
+     it — and returning false in silence, which is what it did while the button
+     was hidden and unreachable, would make a visible can look broken. */
+  if (!TURF.team) { toast(txt('turf.noSide'), 2000); return false; }
   const b = sprayTarget();
   if (!b) { toast(txt('turf.noWall'), 1500); return false; }
   const stolen = b.turf && b.turf !== TURF.team;
@@ -306,16 +310,29 @@ function syncTurfUI() {
   if (el && (at ? 1 : 0) !== (casinoAt ? 1 : 0)) el.classList.toggle('on', !!at);
   casinoAt = at;
 
-  /* THE CAN APPEARS WITH THE FIRST BET AND NEVER GOES AWAY, which is what was
-     asked for. It is not conditional on standing next to a wall: a button that
-     blinks in and out as you drive is unreadable, and a press with nothing in
-     range says so. */
-  const can = TURF.bets > 0 && !!TURF.team;
+  /* THE CAN IS ON SCREEN FOR THE WHOLE GAME, and answers a press when there is
+     nothing to spray with.
+
+     It used to appear with the first bet, which is defensible and was wrong: a
+     player who has never walked into the casino has no way to learn that any of
+     this exists. Reported twice as "there is no paint button" — once on a phone
+     and once on a desktop, and on both the button was working exactly as
+     written. A hidden button teaches nobody anything; a button that says what it
+     needs teaches in one press. Same argument the paragraph above already makes
+     about not hiding it when there is no wall in range, taken one step back.
+
+     WITHOUT A SIDE IT IS NEUTRAL AND SAYS SO. `data-team` is what carries the
+     rim colour, so it is removed rather than left stale; `.noSide` is what dims
+     the can; and sprayPaint gives the reason when it is pressed. */
+  const can = state === 'play';
+  const sided = TURF.bets > 0 && !!TURF.team;
   for (const id of SPRAY_IDS) {
     const sb = $(id);
     if (!sb) continue;
     if (can !== sprayShown) sb.classList.toggle('on', can);
-    if (can) sb.dataset.team = TURF.team;
+    if (sided) sb.dataset.team = TURF.team;
+    else delete sb.dataset.team;
+    sb.classList.toggle('noSide', !sided);
   }
   sprayShown = can;
 }

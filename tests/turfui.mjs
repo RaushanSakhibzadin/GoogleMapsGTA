@@ -45,13 +45,35 @@ const out = {};
    unwired. */
 const IDS = ['sprayBtn'];
 
-/* ---------- 1. the can is not up until there is a side to spray for ---------- */
+/* ---------- 1. the can is up from the start, and says what it needs ----------
+   IT USED TO BE HIDDEN UNTIL THE FIRST BET, and this section asserted that. It
+   was reported twice as "there is no paint button", once on a phone and once on
+   a desktop, and on both the button was working exactly as written — a player
+   who has never been into the casino had no way to learn that any of this
+   exists. So the can is on screen for the whole game, visibly not loaded until
+   you have a side, and a press says so.
+   THE DIMMING AND THE MESSAGE ARE BOTH ASSERTED, because either alone is the
+   old bug in a new shape: a can that looks ready and does nothing, or a can
+   that explains itself and looks broken. */
 out.before = await p.evaluate(ids => ids.map(id => {
   const el = document.getElementById(id);
+  const cs = el && getComputedStyle(el);
   return { id, exists: !!el, on: !!el && el.classList.contains('on'),
-           shown: !!el && getComputedStyle(el).display !== 'none' };
+           shown: !!el && cs.display !== 'none',
+           dim: !!el && +cs.opacity < 0.8,
+           team: (el && el.dataset.team) || null };
 }), IDS);
-out.hiddenUntilYouPlay = out.before.every(b => b.exists && !b.on && !b.shown);
+out.upFromTheStart = out.before.every(b =>
+  b.exists && b.on && b.shown && b.dim && b.team === null);
+/* And the press. TURF.team is null here — nothing has been bet — so this is the
+   path a new player takes, and the toast is the whole of what they get. */
+out.sidelessPress = await p.evaluate(id => {
+  document.getElementById(id).click();
+  return { said: document.getElementById('toast').textContent,
+           painted: W.buildings.some(b => b.turf) };
+}, IDS[0]);
+out.tellsYouToPickASide =
+  out.sidelessPress.said === 'PICK A SIDE AT THE CASINO' && !out.sidelessPress.painted;
 
 /* ---------- 2. and then it is, and it is a thumb ---------- */
 out.geo = await p.evaluate(ids => {
@@ -69,18 +91,24 @@ out.geo = await p.evaluate(ids => {
   /* THE DRIFT BUTTON AND THE CAN, MEASURED IN THE SAME STATE, which is the part
      this originally got wrong.
 
-     The can is DRIFT's mirror image only where DRIFT is on the screen, and that
-     takes a touchscreen (#touch is display:none without one) AND the pads
-     scheme (ctrl-stick hides every pad, because there the handbrake is a flick
-     of the joystick). Anywhere else the can belongs in its corner — reported
-     from play as the can hanging in mid-air halfway up a desktop's left edge,
-     mirroring a button that was not there.
+     WHERE THE PAIR EXISTS, which is now two places rather than one:
+       · a touchscreen on the PADS scheme
+       · a DESKTOP, where #touch is turned on for the one button (see the
+         `body:not(.touch-ui) #touch #tH` rules in the stylesheet)
+     WHERE IT DOES NOT: a touchscreen on the default STICK scheme, because
+     there the handbrake is a downward flick of the joystick and `.ctrl-stick`
+     hides every pad. That is the case where the can drops to its corner.
 
-     This block forces that state, measures BOTH boxes inside it, and restores.
-     Measuring drift forced and the can unforced is comparing two different
-     layouts, which is exactly how this test came to disagree with the product.
-     The pads' own placement is padedge.mjs's business; all this needs is the
-     two boxes as they are when the pair is on screen together. */
+     The desktop used to be the second kind and is now the first: the drift
+     button did not exist on a keyboard at all, which is what was reported
+     twice. So `canAlone` is measured with touch-ui + ctrl-stick FORCED rather
+     than in the page's own natural state — headless Chromium is a desktop, and
+     a desktop is now a paired layout.
+
+     Both boxes are measured inside the state they belong to and the body class
+     is restored afterwards. Measuring drift forced and the can unforced is
+     comparing two different layouts, which is exactly how this test came to
+     disagree with the product once already. */
   const touch = document.getElementById('touch');
   const wasDisplay = touch.style.display, wasBody = document.body.className;
   touch.style.display = 'block';
@@ -88,11 +116,11 @@ out.geo = await p.evaluate(ids => {
   document.body.classList.add('ctrl-pads', 'touch-ui');
   const drift = rect(document.getElementById('tH'));
   const canPaired = rect(document.getElementById(ids[0]));
-  touch.style.display = wasDisplay; document.body.className = wasBody;
-  /* AND WHERE THERE IS NO DRIFT BUTTON, the corner. Measured in the page's own
-     natural state, which in headless Chromium is a desktop with no touch — the
-     same state the bug was reported from. */
+  /* AND WHERE THERE IS NO DRIFT BUTTON, the corner: a touchscreen on the stick. */
+  document.body.classList.remove('ctrl-pads');
+  document.body.classList.add('ctrl-stick');
   const canAlone = rect(document.getElementById(ids[0]));
+  touch.style.display = wasDisplay; document.body.className = wasBody;
   return { vw, vh, drift, canPaired, canAlone, cans: ids.map(id => {
     const el = document.getElementById(id);
     return Object.assign({ id, on: el.classList.contains('on'),
@@ -129,11 +157,14 @@ out.mirrorsTheDrift = C.length === 1 && out.geo.drift.w > 0 &&
   Math.abs(out.geo.canPaired.inset - out.geo.drift.rightInset) <= 1 &&
   Math.abs(out.geo.canPaired.fromBottom - out.geo.drift.fromBottom) <= 1 &&
   Math.abs(out.geo.canPaired.w - out.geo.drift.w) <= 1;
-/* THE OTHER HALF OF THE SAME RULE, and the half that was reported broken: with
-   no drift button on the screen there is nothing to mirror, so the can drops to
-   the bottom edge instead of floating where an absent accelerator would be.
-   Against DRIFT's height rather than a literal, so it still means something if
-   the pads are ever resized: the corner is far below the paired position. */
+/* THE OTHER HALF OF THE SAME RULE, and the half that was reported broken once:
+   with no drift button on the screen there is nothing to mirror, so the can
+   drops to the bottom edge instead of floating where an absent accelerator
+   would be. That case is a touchscreen on the stick scheme (the state the
+   measurement block forces); it used to be the desktop as well, and is not any
+   more. Against DRIFT's height rather than a literal, so it still means
+   something if the pads are ever resized: the corner is far below the paired
+   position. */
 out.cornerWithoutDrift =
   out.geo.canAlone.fromBottom < out.geo.canPaired.fromBottom - 40;
 // and it carries the side you are on, which is what the rim is for
@@ -209,9 +240,68 @@ out.paintShowsOnTheMap = out.map.painted > 5 &&
   pct(out.map.before.red + out.map.before.black) < 0.005 &&
   pct(out.map.after.red) > 0.03 && pct(out.map.after.black) > 0.01;
 
+/* ---------- 5. and all of it on a desktop, which has its own layout ----------
+   REPORTED TWICE: "in the desktop browser web version there are no paint and
+   drift buttons". Everything above runs on an iPhone context, so none of it
+   could have caught that — the can was a bet away and DRIFT did not exist on a
+   keyboard at all, because it is a pad inside #touch and #touch is display:none
+   without a touchscreen.
+   A SEPARATE CONTEXT RATHER THAN A RESIZE: touch support is decided when the
+   context is made (game.js reads `ontouchstart` once, at start), and a resized
+   phone is still a phone as far as that line is concerned.
+   BOTH HALVES TOGETHER, because they were one report: the button is on the
+   screen at a real size, the can is its mirror image, and the drift button
+   actually drives the handbrake rather than only looking like it. */
+const desk = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const dp = await desk.newPage();
+const deskErrs = [];
+dp.on('pageerror', e => deskErrs.push(String(e)));
+await dp.route('**://*/**', r => (r.request().url().startsWith('file:') ? r.continue() : r.abort()));
+await dp.goto(GAME);
+await dp.click('#go');
+await dp.waitForFunction(() => window.__s && window.__s() === 'play', null, { timeout: 60000 });
+await dp.waitForTimeout(800);
+
+out.desktop = await dp.evaluate(id => {
+  const vw = innerWidth, vh = innerHeight;
+  const box = el => {
+    const b = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return { w: Math.round(b.width), h: Math.round(b.height), display: cs.display,
+             inset: Math.round(b.left), rightInset: Math.round(vw - b.right),
+             fromBottom: Math.round(vh - b.bottom) };
+  };
+  const drift = document.getElementById('tH'), can = document.getElementById(id);
+  const d = box(drift), c = box(can);
+  /* THE HANDBRAKE, not the appearance of one. io.js binds mousedown on all five
+     pads and has since it was written, so this is what says the button that has
+     now been made visible was wired the whole time. */
+  const r = drift.getBoundingClientRect();
+  drift.dispatchEvent(new MouseEvent('mousedown', { bubbles: true,
+    clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
+  const down = touch.h;
+  dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  return { touchUI, drift: d, can: c, handbrakeDown: down, handbrakeUp: touch.h,
+           canOn: can.classList.contains('on') };
+}, IDS[0]);
+await desk.close();
+
+const D = out.desktop;
+out.driftOnTheDesktop = !D.touchUI && D.drift.display !== 'none' && D.drift.w >= 44;
+out.driftWorksOnTheDesktop = D.handbrakeDown === 1 && D.handbrakeUp === 0;
+out.canOnTheDesktop = D.canOn && D.can.display !== 'none' && D.can.w >= 44;
+out.desktopPairIsMirrored = out.driftOnTheDesktop && out.canOnTheDesktop &&
+  Math.abs(D.can.inset - D.drift.rightInset) <= 1 &&
+  Math.abs(D.can.fromBottom - D.drift.fromBottom) <= 1 &&
+  Math.abs(D.can.w - D.drift.w) <= 1;
+out.deskErrs = deskErrs.slice(0, 5);
+
 out.errs = errs.slice(0, 5);
-out.pass = out.hiddenUntilYouPlay && out.bothAreRoundAndBig && out.justTheOne &&
+out.pass = out.upFromTheStart && out.tellsYouToPickASide &&
+           out.driftOnTheDesktop && out.driftWorksOnTheDesktop &&
+           out.canOnTheDesktop && out.desktopPairIsMirrored && !out.deskErrs.length &&
+           out.bothAreRoundAndBig && out.justTheOne &&
            out.mirrorsTheDrift && out.cornerWithoutDrift &&
+           out.driftOnTheDesktop && out.desktopPairIsMirrored &&
            out.bothCarryTheTeam && out.bothSpray && out.paintShowsOnTheMap && !out.errs.length;
 console.log(JSON.stringify(out, null, 1));
 await browser.close();
