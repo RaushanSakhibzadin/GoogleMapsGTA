@@ -371,6 +371,46 @@ const PARK_UNREACHABLE = 60000;
 const PARK_EMPTY = 240000;
 const EMPTY_STRIKES = 3;
 
+/* EXCEPT WHEN THE REPLY SAYS SO ITSELF, which takes one strike rather than three.
+
+   Every Overpass reply carries osm3s.timestamp_osm_base: how current the database
+   it answered from is. A working mirror puts an ISO timestamp there. Two captured
+   replies in tests/fixtures, both with real data in them:
+
+       "2026-08-29T06:29:10Z"   savski-venac/streets1   1,063 elements
+       "2026-09-02T10:30:51Z"   palilula-0902/streets1
+
+   A mirror serving a broken database puts a bare replication sequence number
+   there instead. Six captures, every one of them with an empty element list:
+
+       "116319" "116347" "116600" "116651" "116742"   the five empty.json fixtures
+       "118449"                                       osm.ch, from a player's log
+
+   The generator string does not separate them -- the player's broken reply and
+   the healthy capture above are both "Overpass API 0.7.62.4 2390de5a" -- so this
+   field is the only thing that does.
+
+   WHICH CORRECTS THE CLAIM FURTHER DOWN that nothing in the reply tells an empty
+   box apart from a broken database. Something does, and it had been going into
+   the log unread since the log was written.
+
+   WHAT IT IS ALLOWED TO DECIDE, THOUGH, IS ONLY HOW LONG THE HOST WAITS. It does
+   not reject the reply and it does not withdraw the host's vote in the "six
+   servers agree this box is empty" rule below -- both would mean refusing data
+   on the strength of a timestamp format, and a healthy mirror on an unusual
+   build would be refused with it. All it does is skip the two strikes that exist
+   because "a box really can have nothing in it": when the reply itself says the
+   database is broken, waiting for two more empty answers to prove it only costs
+   the player two more hedge slots. From the reported session, osm.ch answered
+   empty in 362 ms and stayed at the front of the queue for everything after it.
+
+   ABSENT IS NOT BROKEN. A field that is not there at all is unknown, not wrong,
+   and falls back to the three-strike rule. */
+const baseBroken = (j) => {
+  const b = j && j.osm3s && j.osm3s.timestamp_osm_base;
+  return typeof b === 'string' && b !== '' && !/^\d{4}-\d{2}-\d{2}T/.test(b);
+};
+
 /* Retry-After is allowed to be either "in this many seconds" or an absolute HTTP
    date, and both turn up in the wild — a CDN in front of a mirror will often
    rewrite one into the other. Reading only the first form is not a small bug: a
@@ -660,16 +700,22 @@ function overpassArea(s, w, n, e, sess, opt) {
            not being able to find one.
 
            So there is no exception. An empty box is a real thing and a mirror
-           serving an empty database is a real thing, and NOTHING IN THE REPLY
-           TELLS THEM APART — both are 200 with an element list of length zero.
-           What separates them is that asking somebody else is cheap and being
-           wrong is not: an empty reply arrives in a quarter of a second and
-           releases the next mirror immediately, so the whole ladder costs about
-           a second, while accepting one silently deletes a district's worth of
-           the map. When the box genuinely is empty every mirror says so, the
-           request fails, and a failed scenery tile is already handled — it backs
-           off and comes round again, which is the correct behaviour for ground
-           that has nothing on it. */
+           serving an empty database is a real thing, and WHAT SEPARATES THEM IN
+           THE REPLY DECIDES ONLY HOW LONG THE HOST WAITS, not whether the reply
+           counts: osm3s.timestamp_osm_base is an ISO timestamp on a working
+           mirror and a bare sequence number on a broken one (see baseBroken, and
+           the eight captures quoted there), which is enough to stop asking that
+           host for four minutes but not enough to refuse data on — a healthy
+           mirror on an unusual build would be refused with it.
+           So the rule that decides the ANSWER is still arithmetic over votes:
+           asking somebody else is cheap and being wrong is not. An empty reply
+           arrives in a quarter of a second and releases the next mirror
+           immediately, so the whole ladder costs about a second, while accepting
+           one silently deletes a district's worth of the map. When the box
+           genuinely is empty every mirror says so, the request fails, and a
+           failed scenery tile is already handled — it backs off and comes round
+           again, which is the correct behaviour for ground that has nothing on
+           it. */
         if (!j.elements.length) {
           // the demotion happens once, in the catch below, which sees every kind
           // of refusal and knows this one was an empty reply from e.empty
@@ -677,6 +723,9 @@ function overpassArea(s, w, n, e, sess, opt) {
           sess.streaming = false;
           const e = new Error('returned nothing');
           e.empty = true;
+          // and whether the reply admitted the database is broken, which is the
+          // difference between one strike and three — see baseBroken
+          e.broken = baseBroken(j);
           throw e;
         }
         mirrorNote(url, true);             // this one answers; keep it at the front
@@ -736,7 +785,10 @@ function overpassArea(s, w, n, e, sess, opt) {
           const n = (MIRROR_EMPTIES.get(url) || 0) + 1;
           MIRROR_EMPTIES.set(url, n);
           // three in a row, and it has never once served a real body: not a mirror
-          if (n >= EMPTY_STRIKES && !MIRROR_SERVED.has(url)) mirrorPark(url, PARK_EMPTY);
+          // — or one, when the reply's own timestamp_osm_base says the database is
+          // broken rather than the box being empty (see baseBroken)
+          const strikes = err.broken ? 1 : EMPTY_STRIKES;
+          if (n >= strikes && !MIRROR_SERVED.has(url)) mirrorPark(url, PARK_EMPTY);
         }
         // (err.retryAfter is usually 0 even on a 429 — see PARK_DEFAULT — so the
         // first line is the one that fires in the wild and the second is for the
