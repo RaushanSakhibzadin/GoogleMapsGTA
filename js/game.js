@@ -379,6 +379,11 @@ async function startGame(query, lat, lon, label) {
   prog(.08);
   let name = label || query || 'Somewhere';
   let procedural = false, data = null, why = '', geoFailed = false, openingMs = 0;
+  // notFound: the geocoder answered, and the answer was that there is no such
+  // place. Kept apart from geoFailed because the two deserve different reasons
+  // on the label and because a name the map has already refused is not worth
+  // asking about again later — see the retry at the end of this function.
+  let notFound = false;
   // fellBack: we are not giving them the place they asked for. why/askedFor say
   // which place and what went wrong, and both are shown rather than implied.
   let fellBack = false, offline = null, askedFor = '';
@@ -394,14 +399,26 @@ async function startGame(query, lat, lon, label) {
     } catch (err) {
       if (gen !== loadGen) return;
       console.warn('geocode failed:', err);
-      // A working geocoder saying "no such place" is an answer: a generated city
-      // would be actively wrong, so send them back to fix the spelling. A geocoder
-      // that never answered is different — we still don't know where they meant,
-      // but dead-ending an offline player helps nobody, so fall through and build
-      // the offline city with the reason on the label.
-      if (/no such place/i.test(err.message)) {
-        return backToMenu(txt('err.notFound', { q: query }));
-      }
+      /* NEITHER ANSWER DEAD-ENDS ANY MORE.
+         A geocoder that never answered was always allowed through: we still do
+         not know where they meant, but stranding an offline player helps
+         nobody, so it falls through and builds the bundled city with the reason
+         on the label.
+         A WORKING GEOCODER SAYING "NO SUCH PLACE" used to be different — back to
+         the menu to fix the spelling, on the reasoning that a city built
+         somewhere else is actively wrong. The reasoning holds and the outcome
+         did not: reported as "I tried to load Zaječarska, Savski venac and the
+         game could not" — a real street in a real Belgrade municipality that
+         Nominatim does not resolve from those two words. A menu with an error
+         on it is not better than a city you can drive.
+         So it falls through to the same bundled Belgrade, and nothing is
+         hidden: the welcome toast names the place that was not found, says it
+         was not found, and names where you are instead, and the pause card goes
+         on saying it for the rest of the session. The one case that still stops
+         is a not-found name AND no bundled city to fall back to — see the
+         fallback block below, which is the only place a lattice could stand in
+         for a misspelling. */
+      notFound = /no such place/i.test(err.message);
       geoFailed = true;
     }
   }
@@ -452,7 +469,8 @@ async function startGame(query, lat, lon, label) {
     if (late) console.info('map load slow; starting in the bundled city');
     else console.warn('map load failed:', err);
     fellBack = true;
-    why = geoFailed ? 'the place search couldn’t be reached'
+    why = notFound ? txt('fallback.notFound')
+        : geoFailed ? 'the place search couldn’t be reached'
         // and this one says "still", because it is: the request is in the air and
         // the city will swap itself in if it lands
         : late ? 'the map servers are still thinking'
@@ -474,6 +492,14 @@ async function startGame(query, lat, lon, label) {
       name = city.name;
     } catch (err) {
       console.warn('offline city failed:', err && err.message);
+      /* AND A NAME THAT WAS NEVER FOUND STOPS HERE, which is the one case the
+         old dead-end was right about. The generated lattice is not Belgrade and
+         it is not the place they typed either, so dropping a misspelling into
+         it lands the player in a city that is nobody's — with no bundled city
+         to explain it away. Back to the menu with the advice, which is what
+         "no such place" did unconditionally before Belgrade became the answer
+         to it. */
+      if (notFound) return backToMenu(txt('err.notFound', { q: query }));
       setOrigin(lat != null ? lat : 25.79, lon != null ? lon : -80.13);
       procedural = true;
       data = proceduralCity();
@@ -663,8 +689,12 @@ async function startGame(query, lat, lon, label) {
     /* The servers said no ONCE. That is a moment in a network's day, not a
        verdict — and the player is now driving a city they did not choose, with
        no way back to the one they did short of pressing DRIVE again and sitting
-       through another load. So ask again later, from behind the wheel. */
-    retryLater({ city: want });
+       through another load. So ask again later, from behind the wheel.
+       NOT FOR A NAME THE GEOCODER HAS ALREADY REFUSED, though. retryCity()
+       re-geocodes whenever it has no coordinates, so a name that is not on the
+       map is three more requests across twenty minutes for three more "no such
+       place" answers — and a verdict is exactly what that one is. */
+    if (!notFound) retryLater({ city: want });
     /* AND IF THE ANSWER IS STILL COMING, TAKE IT. The request the loading screen
        stopped waiting for is running underneath all of this, and its reply
        arrives no later than the deadline that used to hold the player on the bar

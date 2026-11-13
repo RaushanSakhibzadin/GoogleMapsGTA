@@ -263,6 +263,7 @@ en: {
                  'does not affect this.',
 
   // --- errors
+  'fallback.notFound': 'the map search found nothing by that name',
   'err.notFound': 'Couldn’t find “{q}”. Try a fuller name, like “Ocean Drive, Miami Beach”.'
 },
 
@@ -451,6 +452,7 @@ sr: {
   'gl.ios4': 'Zatvori pregledač iz liste aplikacija, pa ga otvori ponovo.',
   'gl.iosAside': 'Chrome, Firefox i Edge na iPhone-u koriste Safari-jev motor, pa ovo važi i za njih. ' +
                  'WebGPU na istom spisku je druga stvar i neće pomoći.',
+  'fallback.notFound': 'pretraga mape nije našla ništa pod tim imenom',
   'err.notFound': 'Nije pronađeno „{q}“. Probaj puniji naziv, npr. „Knez Mihailova, Beograd“.'
 },
 
@@ -636,6 +638,7 @@ ru: {
   'gl.ios4': 'Закройте браузер через переключатель приложений и откройте снова.',
   'gl.iosAside': 'Chrome, Firefox и Edge на iPhone используют движок Safari, так что это касается и их. ' +
                  'WebGPU в том же списке — другой переключатель, он не поможет.',
+  'fallback.notFound': 'поиск по карте ничего не нашёл по этому названию',
   'err.notFound': 'Не удалось найти «{q}». Попробуйте полнее, например «Тверская, Москва».'
 },
 
@@ -822,6 +825,7 @@ de: {
   'gl.ios4': 'Schließe den Browser im App-Umschalter und öffne ihn erneut.',
   'gl.iosAside': 'Chrome, Firefox und Edge auf dem iPhone nutzen alle die Safari-Engine, das gilt also ' +
                  'auch für sie. WebGPU in derselben Liste ist ein anderer Schalter und hilft nicht.',
+  'fallback.notFound': 'die Kartensuche hat unter diesem Namen nichts gefunden',
   'err.notFound': '„{q}“ nicht gefunden. Versuch es genauer, etwa „Kurfürstendamm, Berlin“.'
 },
 
@@ -1008,6 +1012,7 @@ fr: {
   'gl.ios4': 'Ferme le navigateur depuis le sélecteur d’apps, puis rouvre-le.',
   'gl.iosAside': 'Chrome, Firefox et Edge sur iPhone utilisent tous le moteur de Safari, donc ça vaut ' +
                  'aussi pour eux. WebGPU dans la même liste est un autre réglage et n’aidera pas.',
+  'fallback.notFound': 'la recherche n’a rien trouvé à ce nom',
   'err.notFound': 'Impossible de trouver « {q} ». Essaie un nom plus complet, comme « Champs-Élysées, Paris ».'
 },
 
@@ -1193,6 +1198,7 @@ es: {
   'gl.ios4': 'Cierra el navegador desde el selector de apps y vuelve a abrirlo.',
   'gl.iosAside': 'Chrome, Firefox y Edge en el iPhone usan el motor de Safari, así que esto también ' +
                  'vale para ellos. WebGPU en la misma lista es otro interruptor y no ayuda.',
+  'fallback.notFound': 'la búsqueda del mapa no encontró nada con ese nombre',
   'err.notFound': 'No se encontró «{q}». Prueba con un nombre más completo, como «Gran Vía, Madrid».'
 },
 
@@ -1378,6 +1384,7 @@ it: {
   'gl.ios4': 'Chiudi il browser dal selettore delle app, poi riaprilo.',
   'gl.iosAside': 'Chrome, Firefox ed Edge su iPhone usano tutti il motore di Safari, quindi vale anche ' +
                  'per loro. WebGPU nello stesso elenco è un altro interruttore e non aiuta.',
+  'fallback.notFound': 'la ricerca sulla mappa non ha trovato nulla con quel nome',
   'err.notFound': 'Non ho trovato «{q}». Prova un nome più completo, tipo «Via del Corso, Roma».'
 },
 
@@ -1564,6 +1571,7 @@ pt: {
   'gl.ios4': 'Feche o navegador pelo alternador de apps e abra de novo.',
   'gl.iosAside': 'Chrome, Firefox e Edge no iPhone usam o motor do Safari, então isso vale para eles ' +
                  'também. WebGPU na mesma lista é outro botão e não vai ajudar.',
+  'fallback.notFound': 'a busca no mapa não encontrou nada com esse nome',
   'err.notFound': 'Não encontrei “{q}”. Tente um nome mais completo, como “Avenida Paulista, São Paulo”.'
 },
 
@@ -1749,6 +1757,7 @@ ja: {
   'gl.ios4': 'App スイッチャーからブラウザを終了し、開き直してください。',
   'gl.iosAside': 'iPhone の Chrome・Firefox・Edge はどれも Safari のエンジンを使うので、これで同じく直ります。' +
                  '同じ一覧にある WebGPU は別のスイッチで、こちらには効きません。',
+  'fallback.notFound': 'その名前では地図検索に何も見つかりませんでした',
   'err.notFound': '「{q}」が見つかりません。「渋谷、東京」のようにもう少し詳しく入れてみてください。'
 },
 
@@ -1934,6 +1943,7 @@ zh: {
   'gl.ios4': '从多任务界面关掉浏览器，然后重新打开。',
   'gl.iosAside': 'iPhone 上的 Chrome、Firefox 和 Edge 用的都是 Safari 的引擎，所以对它们同样有效。' +
                  '同一列表里的 WebGPU 是另一个开关，没有用。',
+  'fallback.notFound': '地图搜索没有找到这个名字',
   'err.notFound': '找不到“{q}”。试试更完整的名字，例如“南京东路，上海”。'
 }
 

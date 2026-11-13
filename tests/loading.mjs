@@ -425,7 +425,19 @@ results.push(await scenario('geocode-unreachable',
     return { procedural: w.procedural, name: w.name, sub: (await p.textContent('#loadSub')).trim().slice(0, 60) };
   }));
 
-// 6b. a working geocoder that finds nothing: back to the menu to fix the spelling
+// 6b. a working geocoder that finds nothing: the bundled Belgrade, not a dead end
+//
+// IT USED TO GO BACK TO THE MENU, and this scenario asserted that by waiting for
+// #menuErr. Reported as "I tried to load Zaječarska, Savski venac and the game
+// could not" — a real street in a real Belgrade municipality that Nominatim does
+// not resolve from those two words, and the answer was a menu with an error on
+// it. Every other way a load can fail already falls through to the bundled city;
+// this one now does too.
+//
+// WHAT IS ASSERTED, because "it started" on its own would pass on the procedural
+// lattice as well: the game is playing, it is NOT the generated city, and it has
+// roads. The one path that still dead-ends is this plus a bundled city that will
+// not load, which is js/game.js's own fallback block and not reachable here.
 results.push(await scenario('place-not-found',
   async (p, hits) => {
     await p.route('**/nominatim.openstreetmap.org/**', r => { hits.geocode++; r.fulfill(json([])); });
@@ -434,8 +446,17 @@ results.push(await scenario('place-not-found',
   async (p) => {
     await p.fill('#q', 'Nowhere at all');
     await p.click('#go');
-    await p.waitForSelector('#menuErr.on', { timeout: 20000 });
-    return { menuShown: await p.isVisible('#menu'), msg: (await p.textContent('#menuErr')).trim(), state: await p.evaluate(() => window.__s()) };
+    const w = await played(p);
+    const out = { procedural: w.procedural, name: w.name, roads: w.roads,
+                  state: await p.evaluate(() => window.__s()) };
+    out.startedAnyway = out.state === 'play' && !out.procedural && out.roads > 0;
+    /* AND IT SAYS WHOSE NAME WAS NOT FOUND. The pause card keeps the reason for
+       the rest of the session (FELLBACK), which is the part that is still
+       answerable ten minutes later — a toast that has come and gone is not. */
+    out.fellBack = await p.evaluate(() => FELLBACK && { asked: FELLBACK.asked, why: FELLBACK.why });
+    out.saysWhy = !!out.fellBack && /Nowhere at all/.test(out.fellBack.asked) &&
+                  /found nothing by that name/.test(out.fellBack.why);
+    return out;
   }));
 
 // 7. double-click DRIVE must not build two worlds
@@ -476,7 +497,7 @@ await BROWSER.close();
    page error or a game-side console.error means anything here. */
 const FLAGS = ['routedAround', 'onlyRoadsAndPlaces', 'movedFeaturesStillArrive',
                'askedFewer', 'wideCityLoaded', 'streetsKeepComing', 'skeletonAskedOnce',
-               'startedAnyway', 'keptStreaming'];
+               'startedAnyway', 'keptStreaming', 'saysWhy'];
 const SERVED = /Failed to load resource|ERR_CONNECTION_REFUSED|ERR_FAILED|ERR_ABORTED/;
 const bad = [];
 for (const r of results) {
